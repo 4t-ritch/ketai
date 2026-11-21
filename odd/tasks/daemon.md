@@ -46,7 +46,7 @@ Runner de tests: `cargo test --workspace`.
 | T5  | S5    | inline | hecho     | RED: 11/12 fallan; GREEN: 12/12; suite 81/81 x3 |
 | T6  | S6    | inline | hecho     | f96b5f4 + fix seek en pausa (verificador: sin bloqueantes); RED: 11/11 fallan; GREEN: 11/11 + 2 unit; suite 94/94 x3; ~/.local/state real intacto |
 | T7  | S7    | inline | hecho     | 7e42a6f + 9263b20 (PID); RED: 6/6 fallan; GREEN: 6/6; suite 101/101 x2; smoke real: bluetooth -> parlantes -> default |
-| T8  | S8    | inline | hecho     | RED: 15/15 fallan; GREEN: 15/15 + 7 unit (uri, m3u8); suite 120/120 x3 |
+| T8  | S8    | inline | hecho     | c3da656 + fix (verificador: B1 FAIL); RED: 15/15 fallan; GREEN: 15/15 + 7 unit (uri, m3u8); suite 120/120 x3 |
 | T9  | S9    | inline | pendiente | |
 | T10 | S10   | inline | pendiente | |
 | T11 | S11   | inline | pendiente | |
@@ -134,4 +134,12 @@ de contexto, asi que no aplica el trigger de writer.
   la cola y las playlists. La conversion URI <-> ruta se movio a
   ketai-core::uri y la usan la cola y las playlists. Error nuevo 1008
   (playlist ya existe). Los tests aislan XDG_DATA_HOME.
+- L19: Verificador T8: B1, `transfer` con `move` dentro de la misma
+  playlist duplicaba pistas. Fix: `from_name == to_name` devuelve -32602
+  (para reordenar esta `playlist.move`). Notas aplicadas: `copy` solo
+  avisa el destino; si falla la segunda escritura de un `move` se avisa el
+  destino; `rename` usa hard_link (nunca pisa un archivo que aparezca a
+  ultimo momento); el temporal se llama `<archivo>.tmp`. Aceptadas: los
+  symlinks se reemplazan por archivos al reescribir; solo `.m3u8` en
+  minusculas (documentado).
 - Siguiente paso: T9 (letras).

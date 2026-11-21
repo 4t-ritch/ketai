@@ -265,6 +265,7 @@ Reglas del reproductor:
 - Al modificar una playlist se reescribe el archivo solo con las rutas: se
   pierden comentarios y lineas `#EXTINF` que tuviera un `.m3u8` creado por
   otro programa.
+- Solo se reconocen archivos con extension `.m3u8` en minusculas.
 - El nombre es el nombre del archivo: no puede estar vacio, empezar con `.`
   ni contener `/`. Un nombre invalido devuelve `-32602`.
 - `playlist.save` crea la playlist o reemplaza la existente. Con
@@ -278,6 +279,8 @@ Reglas del reproductor:
 - `playlist.move` reordena la playlist: saca la pista en `from` y la inserta
   en `to`. Los indices se cuentan sobre la lista antes del movimiento.
 - `playlist.transfer` pasa una o varias pistas de una playlist a otra:
+  - `from_name` y `to_name` deben ser distintos (`-32602`); para reordenar
+    dentro de una playlist se usa `playlist.move`.
   - `indexes` son posiciones en el origen, sin repetidos. Las pistas llegan
     al destino en el orden de su posicion en el origen, no en el orden de
     la lista enviada.
@@ -288,7 +291,11 @@ Reglas del reproductor:
   - `position: null` agrega al final del destino.
   - La operacion es atomica: si falla el destino, el origen no cambia.
   - Si `from_name` o `to_name` no existen, devuelve el error `1005`.
-  - Emite `playlist.changed` para cada playlist modificada.
+  - Emite `playlist.changed` para cada playlist modificada: con `copy` solo
+    el destino.
+  - Si con `move` falla la escritura del origen despues de escribir el
+    destino, las pistas quedan en las dos playlists, la operacion devuelve
+    error y se emite `playlist.changed` para el destino.
 - `playlist.add` acepta una o varias `uris`. Se insertan juntas, en el orden
   enviado, a partir de `position`. `position: null` agrega al final.
 - `playlist.remove` acepta uno o varios `indexes`, sin repetidos. Los indices

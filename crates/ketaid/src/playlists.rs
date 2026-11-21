@@ -118,6 +118,8 @@ impl Worker {
   fn run(&self, job: Job) -> Done {
     let id = job.request_id;
     let mut changed = Vec::new();
+    // Playlists que cambiaron aunque la operacion termine en error.
+    let mut partial = Vec::new();
     let mut load = None;
     let result = (|| -> OpResult<Value> {
       let dir = self.dir.as_deref().ok_or_else(|| other(id, "no XDG_DATA_HOME or HOME"))?;
@@ -158,7 +160,16 @@ impl Worker {
           if to.exists() {
             return Err(ErrorReply::new(Some(id), PLAYLIST_EXISTS, "playlist already exists"));
           }
-          fs::rename(from, to).map_err(|e| other(id, e))?;
+          // hard_link nunca reemplaza un archivo existente: si otro programa
+          // creo `to` justo ahora, falla en vez de pisarlo.
+          match fs::hard_link(&from, &to) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+              return Err(ErrorReply::new(Some(id), PLAYLIST_EXISTS, "playlist already exists"));
+            }
+            Err(e) => return Err(other(id, e)),
+          }
+          fs::remove_file(&from).map_err(|e| other(id, e))?;
           changed.push(name);
           changed.push(new_name);
           Ok(json!({}))
@@ -215,8 +226,12 @@ impl Worker {
             Some("copy") => false,
             _ => return Err(p.invalid("mode")),
           };
+          // Dentro de la misma playlist se reordena con playlist.move.
+          if from_name == to_name {
+            return Err(ErrorReply::new(Some(id), codes::INVALID_PARAMS, "from_name and to_name must differ; use playlist.move"));
+          }
           let mut source = self.read(id, dir, &from_name)?;
-          let mut dest = if from_name == to_name { source.clone() } else { self.read(id, dir, &to_name)? };
+          let mut dest = self.read(id, dir, &to_name)?;
           let picked = validate_indexes(id, &indexes, source.len())?;
           let at = insert_at(id, position, dest.len())?;
           // Las pistas llegan en el orden que tenian en el origen.
@@ -226,17 +241,21 @@ impl Worker {
           dest.splice(at..at, items);
           // Primero el destino: si falla, el origen no cambio.
           self.write(id, dir, &to_name, &dest)?;
-          if moving && from_name != to_name {
+          changed.push(to_name);
+          if moving {
             let mut i = 0;
             source.retain(|_| {
               let keep = !picked.contains(&i);
               i += 1;
               keep
             });
-            self.write(id, dir, &from_name, &source)?;
+            if let Err(e) = self.write(id, dir, &from_name, &source) {
+              // El destino ya cambio: se avisa aunque la operacion falle.
+              partial = std::mem::take(&mut changed);
+              return Err(e);
+            }
+            changed.push(from_name);
           }
-          changed.push(from_name);
-          changed.push(to_name);
           Ok(json!({"transferred": count}))
         }
         "playlist.load" => {
@@ -253,7 +272,7 @@ impl Worker {
       }
     })();
     if result.is_err() {
-      changed.clear();
+      changed = partial;
       load = None;
     }
     Done { client: job.client, request_id: id, result, changed, load }

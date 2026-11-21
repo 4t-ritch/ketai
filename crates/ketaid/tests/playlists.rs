@@ -239,8 +239,9 @@ fn changes_emit_playlist_changed() {
       names.push(m["data"]["name"].as_str().unwrap().to_string());
     }
   }
-  // save rock, add rock, save metal, transfer -> rock y metal.
-  assert_eq!(names, ["rock", "rock", "metal", "rock", "metal"]);
+  // save rock, add rock, save metal, transfer: primero el destino (se
+  // escribe primero) y despues el origen.
+  assert_eq!(names, ["rock", "rock", "metal", "metal", "rock"]);
 }
 
 #[test]
@@ -283,6 +284,54 @@ fn get_shows_missing_files_without_failing() {
   assert_eq!(tracks.len(), 2);
   assert_eq!(tracks[0]["uri"], "file:///no/such/file.ogg");
   assert_eq!(tracks[0]["codec"], Value::Null);
+  drop(c);
+  drop(d);
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn transfer_within_the_same_playlist_is_rejected() {
+  let mut s = S::new();
+  s.create("rock", &["vorbis.ogg", "opus.ogg", "aac_lc.m4a"]);
+  for mode in ["move", "copy"] {
+    let code = s.code("playlist.transfer", json!({
+      "from_name": "rock", "indexes": [0], "to_name": "rock", "position": 3, "mode": mode
+    }));
+    assert_eq!(code, -32602, "mode {mode}");
+  }
+  assert_eq!(s.uris_of("rock"), [u("vorbis.ogg"), u("opus.ogg"), u("aac_lc.m4a")]);
+}
+
+#[test]
+fn transfer_copy_only_reports_the_destination_as_changed() {
+  let mut s = S::new();
+  s.create("a", &["vorbis.ogg"]);
+  s.create("b", &[]);
+  let mut w = s.daemon.connect();
+  w.request(1, "events.subscribe", json!({"topics": ["playlist"]}));
+  s.ok("playlist.transfer", json!({"from_name": "a", "indexes": [0], "to_name": "b", "position": null, "mode": "copy"}));
+  s.ok("playlist.list", json!({}));
+  w.writer.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+  let mut names = Vec::new();
+  while let Some(m) = w.read_message() {
+    if m["event"] == "playlist.changed" {
+      names.push(m["data"]["name"].as_str().unwrap().to_string());
+    }
+  }
+  assert_eq!(names, ["b"]);
+}
+
+#[test]
+fn temp_files_are_not_left_in_the_playlists_folder() {
+  let dir = temp_runtime_dir();
+  let d = Daemon::start_in(dir.clone(), &[]);
+  let mut c = d.connect();
+  c.request(1, "playlist.save", json!({"name": "x", "from_queue": false}));
+  let names: Vec<String> = fs::read_dir(dir.join("data/ketai/playlists"))
+    .unwrap()
+    .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+    .collect();
+  assert_eq!(names, ["x.m3u8"]);
   drop(c);
   drop(d);
   let _ = fs::remove_dir_all(&dir);

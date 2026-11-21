@@ -144,7 +144,11 @@ impl Writer {
 pub fn write_atomic(path: &Path, content: &[u8]) -> io::Result<()> {
   let dir = path.parent().ok_or_else(|| io::Error::other("session path has no parent"))?;
   fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-  let tmp = path.with_extension("json.tmp");
+  // `<archivo>.tmp` en la misma carpeta (el rename debe ser en el mismo
+  // sistema de archivos).
+  let mut tmp_name = path.file_name().ok_or_else(|| io::Error::other("path has no file name"))?.to_os_string();
+  tmp_name.push(".tmp");
+  let tmp = path.with_file_name(tmp_name);
   {
     let mut file = File::create(&tmp)?;
     file.write_all(content)?;

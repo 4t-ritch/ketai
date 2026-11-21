@@ -1,7 +1,7 @@
 //! Canal de control: socket, framing y loop central.
 
 use std::{
-  collections::{HashMap, VecDeque},
+  collections::{HashMap, HashSet, VecDeque},
   fs,
   io::{self, BufRead, BufReader, Read, Write},
   os::unix::{
@@ -14,8 +14,8 @@ use std::{
 };
 
 use ketai_protocol::{
-  ErrorReply, MAX_LINE_BYTES, PROTOCOL_VERSION, Request, codes, encode_error, encode_result,
-  parse_request,
+  ErrorReply, MAX_LINE_BYTES, PROTOCOL_VERSION, Request, TOPICS, codes, encode_error, encode_event,
+  encode_result, parse_request,
 };
 use serde_json::{Value, json};
 
@@ -181,6 +181,8 @@ struct ClientState {
   /// este cliente espera en `pending` para respetar su orden.
   blocked: bool,
   pending: VecDeque<Incoming>,
+  /// Topicos suscritos con `events.subscribe`.
+  topics: HashSet<&'static str>,
 }
 
 fn central_loop(rx: Receiver<Message>, mut player: PlayerService) -> io::Result<()> {
@@ -189,7 +191,7 @@ fn central_loop(rx: Receiver<Message>, mut player: PlayerService) -> io::Result<
   for msg in rx {
     let flow = match msg {
       Message::Connected(id, out) => {
-        clients.insert(id, ClientState { out, blocked: false, pending: VecDeque::new() });
+        clients.insert(id, ClientState { out, blocked: false, pending: VecDeque::new(), topics: HashSet::new() });
         Flow::Continue
       }
       Message::Disconnected(id) => {
@@ -215,6 +217,7 @@ fn central_loop(rx: Receiver<Message>, mut player: PlayerService) -> io::Result<
         }
       }
     };
+    publish(&clients, &mut player);
     if let Flow::Shutdown = flow {
       // Al soltar los Sender, cada escritor envia lo pendiente y cierra.
       drop(clients);
@@ -254,6 +257,16 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, player: &mut PlayerServic
       }
       Incoming::Request(req) => req,
     };
+    if req.method.starts_with("events.") {
+      let reply = subscription(state, &req);
+      let subscribed_player = reply.is_ok() && req.method == "events.subscribe" && state.topics.contains("player");
+      send_reply(&state.out, req.id, reply);
+      if subscribed_player {
+        let (name, data) = player.state_event();
+        let _ = state.out.send(encode_event(name, data));
+      }
+      continue;
+    }
     let (reply, flow) = if PlayerService::handles(&req.method) {
       match player.handle(id, &req) {
         Some(reply) => (reply, Flow::Continue),
@@ -269,6 +282,37 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, player: &mut PlayerServic
     send_reply(&state.out, req.id, reply);
     if let Flow::Shutdown = flow {
       return Flow::Shutdown;
+    }
+  }
+}
+
+/// `events.subscribe` / `events.unsubscribe`.
+fn subscription(state: &mut ClientState, req: &Request) -> Result<Value, ErrorReply> {
+  let invalid = || ErrorReply::new(Some(req.id), codes::INVALID_PARAMS, "topics must be a non-empty list of known topics");
+  let list = req.params.get("topics").and_then(Value::as_array).ok_or_else(invalid)?;
+  if list.is_empty() {
+    return Err(invalid());
+  }
+  let topics = list
+    .iter()
+    .map(|t| t.as_str().and_then(|t| TOPICS.iter().find(|k| **k == t).copied()).ok_or_else(invalid))
+    .collect::<Result<Vec<&'static str>, _>>()?;
+  match req.method.as_str() {
+    "events.subscribe" => state.topics.extend(topics),
+    "events.unsubscribe" => topics.iter().for_each(|t| {
+      state.topics.remove(t);
+    }),
+    _ => return Err(ErrorReply::new(Some(req.id), codes::METHOD_NOT_FOUND, "method not found")),
+  }
+  Ok(json!({}))
+}
+
+/// Envia los eventos pendientes a los clientes suscritos a cada topico.
+fn publish(clients: &HashMap<ClientId, ClientState>, player: &mut PlayerService) {
+  for (topic, name, data) in player.take_events() {
+    let line = encode_event(name, data);
+    for state in clients.values().filter(|c| c.topics.contains(topic)) {
+      let _ = state.out.send(line.clone());
     }
   }
 }

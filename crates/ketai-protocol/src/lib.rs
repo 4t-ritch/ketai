@@ -92,6 +92,16 @@ pub fn encode_error(err: &ErrorReply) -> String {
   line
 }
 
+/// Linea de evento (sin `id`), terminada en `\n`.
+pub fn encode_event(event: &str, data: Value) -> String {
+  let mut line = json!({"event": event, "data": data}).to_string();
+  line.push('\n');
+  line
+}
+
+/// Topicos de la seccion 6.
+pub const TOPICS: [&str; 7] = ["player", "queue", "playlist", "output", "library", "lyrics", "cache"];
+
 #[cfg(test)]
 mod tests {
   use super::*;

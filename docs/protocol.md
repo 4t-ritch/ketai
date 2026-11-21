@@ -349,6 +349,25 @@ embebidas en base64.
 Al hacer `events.subscribe`, si `player` esta entre los topicos, el daemon
 envia inmediatamente el `player.state` actual.
 
+Reglas:
+
+- `events.subscribe` y `events.unsubscribe` reciben una lista no vacia de
+  topicos de esta tabla; un topico desconocido devuelve `-32602` y no cambia
+  ninguna suscripcion. Suscribirse dos veces al mismo topico no duplica
+  eventos.
+- La respuesta a una peticion siempre llega antes que los eventos que esa
+  peticion provoca.
+- `player.state` solo se emite cuando cambia algo distinto de la posicion.
+- `player.position` se emite como maximo una vez por segundo mientras
+  reproduce, y ademas inmediatamente despues de un `player.seek` o
+  `player.seek_relative`.
+- `track.changed` se emite cuando cambia la pista seleccionada, incluido el
+  paso a `null` (por ejemplo tras `queue.clear`).
+- `queue.changed` se emite cuando cambia el contenido o el orden de la cola,
+  no cuando solo cambia la pista seleccionada.
+- Los topicos `playlist`, `output`, `library`, `lyrics` y `cache` ya se
+  aceptan, pero sus eventos llegan con las funciones correspondientes.
+
 ## 7. Canal del visualizador
 
 Binario, little-endian. El cliente se conecta y solo lee; nunca escribe.

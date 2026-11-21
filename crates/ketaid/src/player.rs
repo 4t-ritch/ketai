@@ -22,6 +22,9 @@ use serde_json::{Map, Value, json};
 
 use crate::server::{ClientId, Message};
 
+/// Intervalo minimo entre eventos `player.position`.
+const POSITION_EVENT_INTERVAL_MS: u128 = 1000;
+
 /// "Anterior" reinicia la pista si ya sonaron mas de estos milisegundos.
 const RESTART_THRESHOLD_MS: u64 = 3000;
 
@@ -79,6 +82,19 @@ pub struct PlayerService {
   next_track_id: u64,
   /// Fallos de carga seguidos, para no girar sin fin sobre una cola rota.
   consecutive_failures: usize,
+  /// Ultimo estado informado a los suscriptores, para detectar cambios.
+  published: Published,
+}
+
+/// Lo ultimo que se publico por eventos.
+struct Published {
+  /// `PlayerState` sin `position_ms` (la posicion tiene su propio evento).
+  state: Value,
+  track_id: Option<String>,
+  queue_ids: Vec<String>,
+  position_at: Instant,
+  /// Forzar un `player.position` en la proxima publicacion (tras un seek).
+  force_position: bool,
 }
 
 impl PlayerService {
@@ -114,7 +130,7 @@ impl PlayerService {
       .duration_since(std::time::UNIX_EPOCH)
       .map(|d| d.as_nanos() as u64)
       .unwrap_or(1);
-    Self {
+    let mut service = Self {
       queue: Queue::new(seed),
       engine,
       resolver,
@@ -128,7 +144,62 @@ impl PlayerService {
       muted: false,
       next_track_id: 0,
       consecutive_failures: 0,
+      published: Published {
+        state: Value::Null,
+        track_id: None,
+        queue_ids: Vec::new(),
+        position_at: Instant::now(),
+        force_position: false,
+      },
+    };
+    service.published.state = service.state_without_position();
+    service
+  }
+
+  /// Estado actual para enviar al suscribirse al topico `player`.
+  pub fn state_event(&self) -> (&'static str, Value) {
+    ("player.state", self.state_json())
+  }
+
+  /// Compara con lo ultimo publicado y devuelve los eventos a enviar, como
+  /// `(topico, nombre, datos)`. Se llama despues de cada mensaje.
+  pub fn take_events(&mut self) -> Vec<(&'static str, &'static str, Value)> {
+    let mut events = Vec::new();
+
+    let queue_ids: Vec<String> = self.queue.tracks().iter().map(|t| t.id.clone()).collect();
+    if queue_ids != self.published.queue_ids {
+      self.published.queue_ids = queue_ids;
+      events.push(("queue", "queue.changed", json!({})));
     }
+
+    let track_id = self.queue.current_track().map(|t| t.id.clone());
+    if track_id != self.published.track_id {
+      self.published.track_id = track_id;
+      events.push(("player", "track.changed", json!({"track": self.queue.current_track().map(track_json)})));
+    }
+
+    let state = self.state_without_position();
+    if state != self.published.state {
+      self.published.state = state;
+      events.push(("player", "player.state", self.state_json()));
+    }
+
+    let due = self.status == Status::Playing
+      && self.published.position_at.elapsed().as_millis() >= POSITION_EVENT_INTERVAL_MS;
+    if self.published.force_position || due {
+      self.published.force_position = false;
+      self.published.position_at = Instant::now();
+      events.push(("player", "player.position", json!({"position_ms": self.current_position()})));
+    }
+    events
+  }
+
+  fn state_without_position(&self) -> Value {
+    let mut state = self.state_json();
+    if let Some(obj) = state.as_object_mut() {
+      obj.remove("position_ms");
+    }
+    state
   }
 
   /// Atiende un metodo. `None` significa que la respuesta llega despues
@@ -285,6 +356,7 @@ impl PlayerService {
     };
     self.engine.send(Command::Seek(target));
     self.set_position(target);
+    self.published.force_position = true;
     Ok(json!({}))
   }
 

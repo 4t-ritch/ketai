@@ -20,7 +20,9 @@ Runner de tests: `cargo test --workspace`.
   seccion 6.
 - S6: Persistencia de sesion segun `docs/servicio.md`.
 - S7: Dispositivos de salida: `output.list`, `output.set` y el evento
-  `output.changed` (topico `output`).
+  `output.changed` (topico `output`). Incluye guardar `output` en la sesion
+  y restaurarlo, volviendo al default si el dispositivo ya no existe
+  (docs/servicio.md, "Restauracion").
 - S8: Playlists: metodos `playlist.*`, incluido `playlist.transfer`, y el
   evento `playlist.changed` (topico `playlist`).
 - S9: Letras: `lyrics.layers`, `lyrics.get`, `lyrics.set_offset`, reglas de
@@ -42,7 +44,7 @@ Runner de tests: `cargo test --workspace`.
 | T3  | S3    | inline | hecho     | 1224433 + fix 608b06a; verificador independiente: B1 FAIL -> PASS en recheck; 7/7 instance, 13/13 control |
 | T4  | S4    | inline | hecho     | 5af0708 + fix 9e69fae (verificador: B1 FAIL -> PASS); RED: 19/19 fallan; GREEN: 19/19 conformidad + 15 unit (cola, metadatos); suite 64/64 x3; smoke backend real OK |
 | T5  | S5    | inline | hecho     | RED: 11/12 fallan; GREEN: 12/12; suite 81/81 x3 |
-| T6  | S6    | inline | hecho     | RED: 11/11 fallan; GREEN: 11/11 + 2 unit; suite 94/94 x3; ~/.local/state real intacto |
+| T6  | S6    | inline | hecho     | f96b5f4 + fix seek en pausa (verificador: sin bloqueantes); RED: 11/11 fallan; GREEN: 11/11 + 2 unit; suite 94/94 x3; ~/.local/state real intacto |
 | T7  | S7    | inline | pendiente | |
 | T8  | S8    | inline | pendiente | |
 | T9  | S9    | inline | pendiente | |
@@ -110,4 +112,10 @@ de contexto, asi que no aplica el trigger de writer.
   directorio); senales con sigwait; restauracion en el thread de metadatos
   con las peticiones de reproductor/cola en espera. Los tests aislan
   XDG_STATE_HOME para no tocar el estado real del usuario.
+- L15: Verificador T6: sin bloqueantes. Aplicado: un seek en pausa cuenta
+  como cambio y se guarda (RED reproducido con test que separa el guardado
+  de la pausa del seek). Movido a S7: guardar/restaurar `output`.
+  Aceptados: un error de lectura transitorio tambien mueve la sesion a
+  `.bad` (lo dice el doc); un apagado durante la restauracion no responde a
+  las peticiones en espera.
 - Siguiente paso: T7 (dispositivos de salida).

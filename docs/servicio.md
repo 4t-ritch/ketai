@@ -63,7 +63,8 @@ cuelga, `SIGTERM` nunca llega. Por eso se guarda en tres momentos:
 
 1. **Al apagar** (`SIGTERM`/`SIGINT`): guardado final, con la posicion
    exacta.
-2. **Al cambiar algo**: cola, pista actual, volumen, modos o salida. Los
+2. **Al cambiar algo**: cola, pista actual, volumen, modos o salida, y la
+   posicion cuando no esta sonando (por ejemplo un seek en pausa). Los
    cambios seguidos se agrupan y se escriben como maximo una vez por segundo.
 3. **Periodicamente mientras reproduce**: la posicion se guarda cada 10
    segundos. En el peor caso, tras un corte se pierden 10 segundos de

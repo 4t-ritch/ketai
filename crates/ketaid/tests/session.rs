@@ -302,3 +302,24 @@ fn default_location_is_under_home_local_state() {
   assert!(home.join(".local/state/ketai/session.json").exists());
   let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn seek_while_paused_survives_a_crash() {
+  let dir = temp_runtime_dir();
+  let mut a = Run::start(&dir, &[]);
+  a.call("queue.add", json!({"uris": uris(&["vorbis.ogg"])}));
+  a.call("player.play", json!({}));
+  a.call("player.pause", json!({}));
+  // Primero se guarda el cambio a pausa; el seek llega despues.
+  wait_session(&dir, |v| v["status"] == "paused");
+  thread::sleep(Duration::from_millis(1100));
+  a.call("player.seek", json!({"position_ms": 1500}));
+  wait_session(&dir, |v| v["position_ms"].as_u64().is_some_and(|p| (1400..1700).contains(&p)));
+  a.kill();
+  let mut b = Run::start(&dir, &[]);
+  b.wait_queue_len(1);
+  let pos = b.state()["position_ms"].as_u64().unwrap();
+  assert!((1400..1700).contains(&pos), "restored position {pos}");
+  b.kill();
+  let _ = fs::remove_dir_all(&dir);
+}

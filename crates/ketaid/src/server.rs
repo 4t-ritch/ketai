@@ -305,10 +305,14 @@ impl Persist {
   }
 }
 
-/// La sesion sin la posicion: la posicion sola no cuenta como cambio.
+/// Lo que cuenta como cambio. Mientras suena, la posicion avanza sola y se
+/// guarda con el guardado periodico; en pausa o detenido, un cambio de
+/// posicion (un seek) si cuenta, para que sobreviva a un corte.
 fn key(session: &Value) -> Value {
   let mut k = session.clone();
-  if let Some(obj) = k.as_object_mut() {
+  if session["status"] == "playing"
+    && let Some(obj) = k.as_object_mut()
+  {
     obj.remove("position_ms");
   }
   k

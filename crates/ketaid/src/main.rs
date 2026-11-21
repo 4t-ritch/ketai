@@ -6,6 +6,7 @@
 //! - Todas las peticiones llegan por un canal a un unico loop central, que es
 //!   el unico que toca el estado. No hace falta ningun mutex sobre el estado.
 
+mod instance;
 mod server;
 
 use std::process::ExitCode;

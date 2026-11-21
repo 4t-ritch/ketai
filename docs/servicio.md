@@ -190,6 +190,9 @@ Antes de enviar cualquier senal, el proceso debe cumplir todo esto:
 - `/proc/<pid>/exe` apunta a un binario `ketaid`. No alcanza con el nombre
   del proceso, que se puede falsificar.
 - No es el propio proceso.
+- Pertenece a la misma sesion: su `XDG_RUNTIME_DIR` (leido de
+  `/proc/<pid>/environ`) es igual al del daemon. Un `ketaid` de otra sesion
+  no es huerfano de esta.
 - Justo antes de enviar la senal, se vuelve a comprobar que el PID sigue
   siendo el mismo proceso (mismo tiempo de inicio en `/proc/<pid>/stat`),
   porque un PID puede reutilizarse.
@@ -201,7 +204,7 @@ Si alguna validacion falla, el proceso no se toca.
 - Si hay una instancia sana, queda esa y la nueva se cierra sola.
 - Si no hay ninguna sana, la que arranca toma el bloqueo y es la que queda.
 - En cualquier caso, al terminar el arranque hay como maximo un `ketaid`
-  por usuario.
+  por sesion (`XDG_RUNTIME_DIR`).
 
 ## Archivos
 

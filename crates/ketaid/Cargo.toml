@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 ketai-core.workspace = true
 ketai-protocol.workspace = true
+libc = "0.2"
 serde_json.workspace = true
 
 [dev-dependencies]

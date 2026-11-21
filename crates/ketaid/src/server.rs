@@ -19,6 +19,8 @@ use ketai_protocol::{
 };
 use serde_json::{Value, json};
 
+use crate::instance;
+
 type ClientId = u64;
 
 /// Mensajes que llegan al loop central.
@@ -45,6 +47,12 @@ pub fn run() -> io::Result<()> {
   let dir = runtime.join("ketai");
   create_private_dir(&dir)?;
   let socket_path = dir.join("ctl.sock");
+
+  // El bloqueo debe vivir hasta el final de run(): al soltarlo se libera.
+  let _lock = match instance::claim(&dir, &socket_path)? {
+    instance::Claim::Owner(lock) => lock,
+    instance::Claim::AlreadyRunning => return Ok(()),
+  };
   let listener = bind_socket(&socket_path)?;
 
   let (tx, rx) = mpsc::channel();
@@ -63,8 +71,8 @@ fn create_private_dir(dir: &Path) -> io::Result<()> {
 }
 
 fn bind_socket(path: &Path) -> io::Result<UnixListener> {
-  // Un socket viejo de una ejecucion anterior impide hacer bind.
-  // TODO(T3): esto se reemplaza por la revision de instancia unica.
+  // Solo se llega aca siendo duenos del bloqueo, asi que un socket existente
+  // es de una ejecucion anterior y se puede borrar sin riesgo.
   if path.exists() {
     fs::remove_file(path)?;
   }

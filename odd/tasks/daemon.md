@@ -34,8 +34,8 @@ Runner de tests: `cargo test --workspace`.
 | ID  | Specs | Ruta   | Estado    | Commit / evidencia |
 |-----|-------|--------|-----------|--------------------|
 | T1  | S1    | inline | hecho     | 80fd58c; 5 tests del decoder verdes tras mover |
-| T2  | S2    | inline | hecho     | ver commit T2; RED: 13 fallos sin daemon; GREEN: 13/13 (x5 corridas) |
-| T3  | S3    | inline | pendiente | |
+| T2  | S2    | inline | hecho     | 4371266; RED: 13 fallos sin daemon; GREEN: 13/13 (x5 corridas) |
+| T3  | S3    | inline | hecho     | RED: suite colgada sin T3; GREEN: 6/6 instance + 13/13 control (x4 corridas) |
 | T4  | S4    | inline | pendiente | |
 | T5  | S5    | inline | pendiente | |
 | T6  | S6    | inline | pendiente | |
@@ -58,6 +58,10 @@ de contexto, asi que no aplica el trigger de writer.
 - L3: T1 quito tokio y stream-download (no se usaban); vuelven a evaluarse al
   implementar origenes remotos (T13), con HTTP bloqueante.
 - L4: T2 usa un thread lector y uno escritor por cliente y un loop central
-  unico duenio del estado. El socket viejo se borra al arrancar; T3 lo
+  unico dueno del estado. El socket viejo se borra al arrancar; T3 lo
   reemplaza por la revision de instancia unica.
-- Siguiente paso: T3 (instancia unica).
+- L5: T3 limita los huerfanos a la misma sesion (mismo XDG_RUNTIME_DIR en
+  /proc/<pid>/environ). Sin esto, los tests en paralelo se mataban entre si,
+  y es la definicion correcta de "misma sesion". Documentado en
+  docs/servicio.md.
+- Siguiente paso: T4 (reproductor y cola).

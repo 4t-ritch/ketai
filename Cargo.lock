@@ -411,6 +411,7 @@ version = "0.1.0"
 dependencies = [
  "ketai-core",
  "ketai-protocol",
+ "libc",
  "serde_json",
 ]
 

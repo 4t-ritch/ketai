@@ -47,7 +47,7 @@ Runner de tests: `cargo test --workspace`.
 | T6  | S6    | inline | hecho     | f96b5f4 + fix seek en pausa (verificador: sin bloqueantes); RED: 11/11 fallan; GREEN: 11/11 + 2 unit; suite 94/94 x3; ~/.local/state real intacto |
 | T7  | S7    | inline | hecho     | 7e42a6f + 9263b20 (PID); RED: 6/6 fallan; GREEN: 6/6; suite 101/101 x2; smoke real: bluetooth -> parlantes -> default |
 | T8  | S8    | inline | hecho     | c3da656 + fix (verificador: B1 FAIL); RED: 15/15 fallan; GREEN: 15/15 + 7 unit (uri, m3u8); suite 120/120 x3 |
-| T9  | S9    | inline | pendiente | |
+| T9  | S9    | inline | en curso  | slice 1 (parsers): 14 unit |
 | T10 | S10   | inline | pendiente | |
 | T11 | S11   | inline | pendiente | |
 | T12 | S12   | inline | pendiente | |
@@ -150,4 +150,9 @@ de contexto, asi que no aplica el trigger de writer.
   3 intentos en milisegundos. Fix: esperar hasta 2 s tras SIGKILL y no
   contar como intento a un dueno `ready` que no se puede validar. 10/10 en
   aislado y suite x3.
-- Siguiente paso: T9 (letras).
+- L22: T9 en 3 slices: (1) parsers txt/LRC+A2/TTML/ID3, (2) capas y
+  armado, (3) metodos del daemon. symphonia 0.5.5 lee USLT pero descarta el
+  descriptor, y no lee SYLT: se escribio un lector minimo de ID3v2 (2.3 y
+  2.4, 4 codificaciones, desincronizacion). Vorbis y M4A (c)lyr si los lee
+  symphonia. Dependencia nueva: quick-xml para TTML.
+- Siguiente paso: T9 slice 2 (capas y armado).

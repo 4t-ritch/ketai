@@ -2,6 +2,7 @@
 
 pub mod decoder;
 pub mod engine;
+pub mod lyrics;
 pub mod metadata;
 pub mod output;
 pub mod playlist;

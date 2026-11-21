@@ -98,7 +98,12 @@ impl PlayerService {
     let resolved_tx = tx.clone();
     thread::spawn(move || {
       for job in jobs {
-        let tracks = resolve(job.request_id, &job.uris, job.first_id);
+        // Un archivo malformado puede hacer entrar en panico al decoder. Sin
+        // esto, el thread moriria y ningun queue.add volveria a responder.
+        let tracks = std::panic::catch_unwind(|| resolve(job.request_id, &job.uris, job.first_id))
+          .unwrap_or_else(|_| {
+            Err(ErrorReply::new(Some(job.request_id), 1003, "source unavailable: decoder failure"))
+          });
         let msg = Resolved { client: job.client, request_id: job.request_id, position: job.position, tracks };
         if resolved_tx.send(Message::Resolved(msg)).is_err() {
           return;

@@ -36,7 +36,7 @@ Runner de tests: `cargo test --workspace`.
 | T1  | S1    | inline | hecho     | 80fd58c; 5 tests del decoder verdes tras mover |
 | T2  | S2    | inline | hecho     | 4371266; RED: 13 fallos sin daemon; GREEN: 13/13 (x5 corridas) |
 | T3  | S3    | inline | hecho     | 1224433 + fix 608b06a; verificador independiente: B1 FAIL -> PASS en recheck; 7/7 instance, 13/13 control |
-| T4  | S4    | inline | hecho     | RED: 19/19 fallan; GREEN: 19/19 conformidad + 15 unit (cola, metadatos); suite 64/64 x3; smoke backend real OK |
+| T4  | S4    | inline | hecho     | 5af0708 + fix 9e69fae (verificador: B1 FAIL -> PASS); RED: 19/19 fallan; GREEN: 19/19 conformidad + 15 unit (cola, metadatos); suite 64/64 x3; smoke backend real OK |
 | T5  | S5    | inline | pendiente | |
 | T6  | S6    | inline | pendiente | |
 | T7  | S7    | inline | pendiente | |
@@ -90,4 +90,9 @@ de contexto, asi que no aplica el trigger de writer.
   esperando para siempre si la pista termina justo durante el seek (solo
   bloquea el thread del motor). Revisar al actualizar rodio o envolver el
   seek.
+- L11: Recheck T4: PASS. Nota aplicada: cada trabajo del thread de
+  metadatos va dentro de `catch_unwind` y un panico del decoder responde
+  `1003` en vez de matar el thread. Sin test RED: no hay forma determinista
+  de provocar el panico con los fixtures. Nota aceptada: `pending` por
+  cliente no tiene limite (socket local).
 - Siguiente paso: T5 (eventos).

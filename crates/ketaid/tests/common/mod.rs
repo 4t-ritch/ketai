@@ -50,6 +50,7 @@ impl Daemon {
     let child = Command::new(env!("CARGO_BIN_EXE_ketaid"))
       .env("XDG_RUNTIME_DIR", &runtime_dir)
       .env("XDG_STATE_HOME", runtime_dir.join("state"))
+      .env("XDG_DATA_HOME", runtime_dir.join("data"))
       // Los tests nunca suenan por los parlantes.
       .env("KETAI_AUDIO_BACKEND", "null")
       .envs(envs.iter().copied())

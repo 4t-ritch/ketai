@@ -141,7 +141,7 @@ impl Writer {
 
 /// Escribe en `.tmp`, hace fsync y renombra: un corte nunca deja el archivo
 /// a medio escribir.
-fn write_atomic(path: &Path, content: &[u8]) -> io::Result<()> {
+pub fn write_atomic(path: &Path, content: &[u8]) -> io::Result<()> {
   let dir = path.parent().ok_or_else(|| io::Error::other("session path has no parent"))?;
   fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
   let tmp = path.with_extension("json.tmp");

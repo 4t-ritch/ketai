@@ -9,6 +9,7 @@
 mod instance;
 mod outputs;
 mod player;
+mod playlists;
 mod server;
 mod session;
 

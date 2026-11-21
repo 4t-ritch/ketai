@@ -45,8 +45,8 @@ Runner de tests: `cargo test --workspace`.
 | T4  | S4    | inline | hecho     | 5af0708 + fix 9e69fae (verificador: B1 FAIL -> PASS); RED: 19/19 fallan; GREEN: 19/19 conformidad + 15 unit (cola, metadatos); suite 64/64 x3; smoke backend real OK |
 | T5  | S5    | inline | hecho     | RED: 11/12 fallan; GREEN: 12/12; suite 81/81 x3 |
 | T6  | S6    | inline | hecho     | f96b5f4 + fix seek en pausa (verificador: sin bloqueantes); RED: 11/11 fallan; GREEN: 11/11 + 2 unit; suite 94/94 x3; ~/.local/state real intacto |
-| T7  | S7    | inline | hecho     | RED: 6/6 fallan; GREEN: 6/6; suite 101/101 x2; smoke real: bluetooth -> parlantes -> default |
-| T8  | S8    | inline | pendiente | |
+| T7  | S7    | inline | hecho     | 7e42a6f + 9263b20 (PID); RED: 6/6 fallan; GREEN: 6/6; suite 101/101 x2; smoke real: bluetooth -> parlantes -> default |
+| T8  | S8    | inline | hecho     | RED: 15/15 fallan; GREEN: 15/15 + 7 unit (uri, m3u8); suite 120/120 x3 |
 | T9  | S9    | inline | pendiente | |
 | T10 | S10   | inline | pendiente | |
 | T11 | S11   | inline | pendiente | |
@@ -129,4 +129,9 @@ de contexto, asi que no aplica el trigger de writer.
   cambio del default del sistema en ambos sentidos (el stream lo sigue), y
   con salida elegida fija el cambio de default no la mueve. Default del
   usuario restaurado al final.
-- Siguiente paso: T8 (playlists).
+- L18: T8: playlists en `.m3u8` (formato estandar) en XDG_DATA_HOME; un
+  unico thread de I/O en orden; ids de pista compartidos (TrackIds) entre
+  la cola y las playlists. La conversion URI <-> ruta se movio a
+  ketai-core::uri y la usan la cola y las playlists. Error nuevo 1008
+  (playlist ya existe). Los tests aislan XDG_DATA_HOME.
+- Siguiente paso: T9 (letras).

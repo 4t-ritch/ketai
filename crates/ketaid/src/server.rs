@@ -23,6 +23,7 @@ use serde_json::{Value, json};
 use crate::{
   instance,
   outputs::OutputService,
+  playlists::PlaylistService,
   player::{PlayerService, Resolved, Restored},
   session,
 };
@@ -49,6 +50,8 @@ pub enum Message {
   Resolved(Resolved),
   /// Sesion guardada ya resuelta.
   Restored(Restored),
+  /// Resultado de una operacion de playlists.
+  Playlist(crate::playlists::Done),
   /// Evento del control de salidas.
   Output(ketai_core::output::Event),
   /// Llego SIGTERM o SIGINT.
@@ -103,6 +106,7 @@ pub fn run() -> io::Result<()> {
 
   let mut player = PlayerService::new(tx.clone());
   let mut outputs = OutputService::new(tx.clone());
+  let playlists = PlaylistService::new(tx.clone(), player.track_ids());
   let persist = match session::path() {
     Some(path) => {
       if let Some(saved) = session::load(&path) {
@@ -116,7 +120,7 @@ pub fn run() -> io::Result<()> {
       None
     }
   };
-  let result = central_loop(rx, Services { player, outputs }, persist);
+  let result = central_loop(rx, Services { player, outputs, playlists }, persist);
   // El socket se borra al salir para que los clientes no vean uno muerto.
   let _ = fs::remove_file(&socket_path);
   result
@@ -327,6 +331,7 @@ fn key(session: &Value) -> Value {
 struct Services {
   player: PlayerService,
   outputs: OutputService,
+  playlists: PlaylistService,
 }
 
 fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Option<Persist>) -> io::Result<()> {
@@ -348,6 +353,20 @@ fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Opti
         Flow::Continue
       }
       Message::Tick => Flow::Continue,
+      Message::Playlist(done) => {
+        if let Some((tracks, replace)) = done.load {
+          services.player.load_tracks(tracks, replace);
+        }
+        services.playlists.note_changed(done.changed);
+        match clients.get_mut(&done.client) {
+          Some(state) => {
+            send_reply(&state.out, done.request_id, done.result);
+            state.blocked = false;
+            drain(&mut clients, &mut services, done.client)
+          }
+          None => Flow::Continue,
+        }
+      }
       Message::Output(event) => {
         services.outputs.on_event(event, &mut services.player);
         Flow::Continue
@@ -443,9 +462,16 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, services: &mut Services, 
       send_reply(&state.out, req.id, reply);
       continue;
     }
-    if services.player.restoring() && PlayerService::handles(&req.method) {
+    let gated = PlayerService::handles(&req.method) || PlaylistService::handles(&req.method);
+    if services.player.restoring() && gated {
       // Hasta que termine la restauracion, para que vea la cola restaurada.
       state.pending.push_front(Incoming::Request(req));
+      state.blocked = true;
+      return Flow::Continue;
+    }
+    if PlaylistService::handles(&req.method) {
+      // La respuesta llega despues como Message::Playlist.
+      services.playlists.submit(id, &req, services.player.queue_uris());
       state.blocked = true;
       return Flow::Continue;
     }
@@ -491,6 +517,12 @@ fn subscription(state: &mut ClientState, req: &Request) -> Result<Value, ErrorRe
 
 /// Envia los eventos pendientes a los clientes suscritos a cada topico.
 fn publish(clients: &HashMap<ClientId, ClientState>, services: &mut Services) {
+  for name in services.playlists.take_changed() {
+    let line = encode_event("playlist.changed", json!({"name": name}));
+    for state in clients.values().filter(|c| c.topics.contains("playlist")) {
+      let _ = state.out.send(line.clone());
+    }
+  }
   if let Some(data) = services.outputs.take_event() {
     let line = encode_event("output.changed", data);
     for state in clients.values().filter(|c| c.topics.contains("output")) {

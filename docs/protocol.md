@@ -257,6 +257,24 @@ Reglas del reproductor:
 | `playlist.move`   | `{"name": "chill", "from": 3, "to": 0}` | `{}` |
 | `playlist.transfer` | `{"from_name": "rock", "indexes": [2, 5, 7], "to_name": "metal", "position": null, "mode": "move"}` | `{"transferred": 3}` |
 
+- Cada playlist es un archivo `.m3u8` en `$XDG_DATA_HOME/ketai/playlists/`
+  (por defecto `~/.local/share/ketai/playlists/`), compatible con otros
+  reproductores. Las pistas locales se guardan como rutas absolutas. Un
+  `.m3u8` copiado a esa carpeta aparece como playlist; al leerlo se aceptan
+  rutas absolutas, rutas relativas a la carpeta y URIs.
+- Al modificar una playlist se reescribe el archivo solo con las rutas: se
+  pierden comentarios y lineas `#EXTINF` que tuviera un `.m3u8` creado por
+  otro programa.
+- El nombre es el nombre del archivo: no puede estar vacio, empezar con `.`
+  ni contener `/`. Un nombre invalido devuelve `-32602`.
+- `playlist.save` crea la playlist o reemplaza la existente. Con
+  `from_queue: false` queda vacia.
+- `playlist.rename` a un nombre que ya existe devuelve `1008`.
+- `playlist.get` muestra tambien las pistas cuyo archivo ya no existe, con
+  los metadatos en `null`.
+- `playlist.load` agrega a la cola solo las pistas que se pueden reproducir.
+  Con `replace: true` vacia la cola antes y deja el estado `stopped`; con
+  `replace: false` agrega al final sin cambiar la reproduccion.
 - `playlist.move` reordena la playlist: saca la pista en `from` y la inserta
   en `to`. Los indices se cuentan sobre la lista antes del movimiento.
 - `playlist.transfer` pasa una o varias pistas de una playlist a otra:
@@ -421,6 +439,7 @@ del visualizador.
 | 1005    | Playlist no encontrada |
 | 1006    | Letra invalida (no se pudo parsear) |
 | 1007    | Capa de letra no encontrada |
+| 1008    | Ya existe una playlist con ese nombre |
 
 ## 9. Reglas de compatibilidad
 

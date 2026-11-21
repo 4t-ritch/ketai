@@ -6,13 +6,13 @@
 //! - `Resolved` desde el thread que lee metadatos para `queue.add`.
 
 use std::{
-  path::PathBuf,
   sync::mpsc::Sender,
   thread,
   time::Instant,
 };
 
 use ketai_core::{
+  uri::file_uri_to_path,
   engine::{self, Backend, Command, EngineHandle, Event},
   metadata::{self, TrackInfo},
   queue::{CurrentAfterRemove, Queue, QueueError, Repeat, Track},
@@ -86,7 +86,9 @@ pub struct PlayerService {
   duration_ms: Option<u64>,
   volume: f64,
   muted: bool,
-  next_track_id: u64,
+  /// Contador de ids de pista, compartido con el thread de playlists para
+  /// que los ids sean unicos en todo el daemon.
+  track_ids: TrackIds,
   /// Fallos de carga seguidos, para no girar sin fin sobre una cola rota.
   consecutive_failures: usize,
   /// Ultimo estado informado a los suscriptores, para detectar cambios.
@@ -173,7 +175,7 @@ impl PlayerService {
       duration_ms: None,
       volume: 1.0,
       muted: false,
-      next_track_id: 0,
+      track_ids: TrackIds::default(),
       consecutive_failures: 0,
       published: Published {
         state: Value::Null,
@@ -191,8 +193,7 @@ impl PlayerService {
 
   /// Empieza a restaurar una sesion guardada (en el thread de metadatos).
   pub fn restore(&mut self, saved: Saved) {
-    let first_id = self.next_track_id;
-    self.next_track_id += saved.queue.len() as u64;
+    let first_id = self.track_ids.reserve(saved.queue.len());
     self.restoring = true;
     let _ = self.resolver.send(ResolveJob::Restore { saved, first_id });
   }
@@ -254,6 +255,24 @@ impl PlayerService {
       "output": self.output,
       "status": self.status.as_str(),
     })
+  }
+
+  pub fn track_ids(&self) -> TrackIds {
+    self.track_ids.clone()
+  }
+
+  /// URIs de la cola, en orden (para `playlist.save`).
+  pub fn queue_uris(&self) -> Vec<String> {
+    self.queue.tracks().iter().map(|t| t.uri.clone()).collect()
+  }
+
+  /// Aplica `playlist.load`: reemplaza la cola (y detiene) o agrega al final.
+  pub fn load_tracks(&mut self, tracks: Vec<Track>, replace: bool) {
+    if replace {
+      self.queue.clear();
+      self.halt();
+    }
+    let _ = self.queue.add(tracks, None);
   }
 
   pub fn set_output(&mut self, output: Option<String>) {
@@ -574,8 +593,7 @@ impl PlayerService {
       Ok(pos) => pos.map(|v| v as usize),
       Err(e) => return Some(Err(e)),
     };
-    let first_id = self.next_track_id;
-    self.next_track_id += uris.len() as u64;
+    let first_id = self.track_ids.reserve(uris.len());
     // Leer metadatos es I/O de disco: se hace fuera del loop central.
     let _ = self.resolver.send(ResolveJob::Add { client, request_id: id, position, uris, first_id });
     None
@@ -634,7 +652,7 @@ fn repeat_str(r: Repeat) -> &'static str {
   }
 }
 
-fn track_json(t: &Track) -> Value {
+pub fn track_json(t: &Track) -> Value {
   let i = &t.info;
   json!({
     "id": t.id,
@@ -652,17 +670,40 @@ fn track_json(t: &Track) -> Value {
   })
 }
 
+/// Contador de ids de pista (`t_<hex>`), compartible entre threads.
+#[derive(Clone, Default)]
+pub struct TrackIds(std::sync::Arc<std::sync::atomic::AtomicU64>);
+
+impl TrackIds {
+  /// Reserva `n` ids seguidos y devuelve el primero.
+  pub fn reserve(&self, n: usize) -> u64 {
+    self.0.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed)
+  }
+}
+
+pub fn track_id(n: u64) -> String {
+  format!("t_{n:x}")
+}
+
+/// Pista para mostrar aunque el archivo ya no exista o no se pueda leer: en
+/// ese caso los metadatos quedan vacios.
+pub fn resolve_lenient(uri: &str, n: u64) -> Track {
+  let path = file_uri_to_path(uri);
+  let info = path.as_deref().and_then(|p| metadata::probe(p).ok()).unwrap_or_default();
+  Track { id: track_id(n), uri: uri.to_string(), path, info }
+}
+
 /// Resuelve todas las URIs o ninguna (la cola no cambia si una falla).
-fn resolve(id: u64, uris: &[String], first_id: u64) -> Result<Vec<Track>, ErrorReply> {
+pub fn resolve(id: u64, uris: &[String], first_id: u64) -> Result<Vec<Track>, ErrorReply> {
   uris
     .iter()
     .enumerate()
     .map(|(n, uri)| {
-      let track_id = format!("t_{:x}", first_id + n as u64);
+      let track_id = track_id(first_id + n as u64);
       if uri.starts_with("http://") || uri.starts_with("https://") {
         return Ok(Track { id: track_id, uri: uri.clone(), path: None, info: TrackInfo::default() });
       }
-      let path = file_uri_path(uri).ok_or_else(|| invalid_params(id, format!("unsupported uri: {uri}")))?;
+      let path = file_uri_to_path(uri).ok_or_else(|| invalid_params(id, format!("unsupported uri: {uri}")))?;
       let info = metadata::probe(&path)
         .map_err(|e| ErrorReply::new(Some(id), 1003, format!("source unavailable: {uri}: {e}")))?;
       Ok(Track { id: track_id, uri: uri.clone(), path: Some(path), info })
@@ -670,28 +711,6 @@ fn resolve(id: u64, uris: &[String], first_id: u64) -> Result<Vec<Track>, ErrorR
     .collect()
 }
 
-/// `file:///ruta%20con%20espacios` -> `/ruta con espacios`.
-fn file_uri_path(uri: &str) -> Option<PathBuf> {
-  let rest = uri.strip_prefix("file://")?;
-  if !rest.starts_with('/') {
-    return None;
-  }
-  let bytes = rest.as_bytes();
-  let mut out = Vec::with_capacity(bytes.len());
-  let mut i = 0;
-  while i < bytes.len() {
-    if bytes[i] == b'%' {
-      let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
-      out.push(u8::from_str_radix(hex, 16).ok()?);
-      i += 3;
-    } else {
-      out.push(bytes[i]);
-      i += 1;
-    }
-  }
-  use std::os::unix::ffi::OsStringExt;
-  Some(PathBuf::from(std::ffi::OsString::from_vec(out)))
-}
 
 fn nothing_to_play(id: u64) -> ErrorReply {
   ErrorReply::new(Some(id), 1001, "nothing to play")
@@ -787,10 +806,4 @@ impl Params<'_> {
 mod tests {
   use super::*;
 
-  #[test]
-  fn decodes_file_uris() {
-    assert_eq!(file_uri_path("file:///a%20b/c.ogg"), Some(PathBuf::from("/a b/c.ogg")));
-    assert_eq!(file_uri_path("file://relative.ogg"), None);
-    assert_eq!(file_uri_path("file:///bad%2"), None);
-  }
 }

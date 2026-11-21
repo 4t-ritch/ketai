@@ -68,6 +68,45 @@ pub fn probe(path: &Path) -> Result<TrackInfo, DecodeError> {
   Ok(info)
 }
 
+/// Tags de letras de un archivo: `(clave, es_letra_estandar, valor)`.
+///
+/// `es_letra_estandar` es true para lo que symphonia reconoce como letra
+/// (Vorbis `LYRICS`/`UNSYNCEDLYRICS`, M4A `(c)lyr`, ID3 `USLT`). Las claves
+/// propias de ketai (`LYRICS_ROMANIZED`, `LYRICS_TRANSLATION_ES`) llegan con
+/// su nombre crudo.
+pub fn lyrics_tags(path: &Path) -> Vec<(String, bool, String)> {
+  let Ok(file) = File::open(path) else { return Vec::new() };
+  let stream = MediaSourceStream::new(Box::new(file), Default::default());
+  let mut hint = Hint::new();
+  if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+    hint.with_extension(ext);
+  }
+  let Ok(mut probed) =
+    symphonia::default::get_probe().format(&hint, stream, &FormatOptions::default(), &MetadataOptions::default())
+  else {
+    return Vec::new();
+  };
+  let mut out = Vec::new();
+  let mut collect = |rev: &MetadataRevision| {
+    for tag in rev.tags() {
+      let std = tag.std_key == Some(StandardTagKey::Lyrics);
+      let key = tag.key.to_ascii_uppercase();
+      if std || key.starts_with("LYRICS") {
+        out.push((key, std, tag.value.to_string()));
+      }
+    }
+  };
+  if let Some(meta) = probed.metadata.get()
+    && let Some(rev) = meta.current()
+  {
+    collect(rev);
+  }
+  if let Some(rev) = probed.format.metadata().current() {
+    collect(rev);
+  }
+  out
+}
+
 fn apply_tags(info: &mut TrackInfo, rev: &MetadataRevision) {
   for tag in rev.tags() {
     let value = tag.value.to_string();

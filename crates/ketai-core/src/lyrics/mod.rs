@@ -5,7 +5,9 @@
 //! aplicados; el offset del archivo viaja aparte en `offset_ms`.
 
 pub mod id3;
+pub mod layers;
 pub mod lrc;
+pub mod package;
 pub mod text;
 pub mod ttml;
 

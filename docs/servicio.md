@@ -184,8 +184,13 @@ el dueno ya atiende `ctl.sock`, la palabra `ready` en la segunda.
       error.
    4. Si no responde y el dueno esta marcado `ready`: esta colgado. Se
       valida su PID (ver "Validacion de procesos"), se envia `SIGTERM` y, si
-      sigue vivo a los 5 segundos, `SIGKILL`. Despues se vuelve al paso 1.
-   5. Tras 3 duenos colgados cerrados sin conseguir el bloqueo, terminar con
+      sigue vivo a los 5 segundos, `SIGKILL`, y se espera hasta 2 segundos a
+      que termine (el kernel libera el bloqueo recien al terminar). Despues
+      se vuelve al paso 1.
+   5. Si el dueno esta marcado `ready` pero su PID ya no se puede validar
+      (por ejemplo, porque esta terminando de morir), no se le envia nada:
+      se espera y se vuelve al paso 1 sin contarlo como intento.
+   6. Tras 3 duenos colgados cerrados sin conseguir el bloqueo, terminar con
       error.
 3. **Si se consigue el bloqueo:** esta instancia es la duena.
    1. Escribir su PID en el archivo de bloqueo (sin `ready`).

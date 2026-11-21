@@ -163,13 +163,20 @@ impl Worker {
           // hard_link nunca reemplaza un archivo existente: si otro programa
           // creo `to` justo ahora, falla en vez de pisarlo.
           match fs::hard_link(&from, &to) {
-            Ok(()) => {}
+            Ok(()) => {
+              if let Err(e) = fs::remove_file(&from) {
+                // Quedaron los dos nombres: se avisa del nuevo.
+                partial = vec![new_name];
+                return Err(other(id, e));
+              }
+            }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
               return Err(ErrorReply::new(Some(id), PLAYLIST_EXISTS, "playlist already exists"));
             }
-            Err(e) => return Err(other(id, e)),
+            // Sistemas de archivos sin hard links (vfat, exFAT): rename
+            // comun, con la comprobacion de existencia de arriba.
+            Err(_) => fs::rename(&from, &to).map_err(|e| other(id, e))?,
           }
-          fs::remove_file(&from).map_err(|e| other(id, e))?;
           changed.push(name);
           changed.push(new_name);
           Ok(json!({}))

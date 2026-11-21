@@ -142,4 +142,12 @@ de contexto, asi que no aplica el trigger de writer.
   ultimo momento); el temporal se llama `<archivo>.tmp`. Aceptadas: los
   symlinks se reemplazan por archivos al reescribir; solo `.m3u8` en
   minusculas (documentado).
+- L20: Recheck T8: PASS. Aplicado: rename vuelve a fs::rename en
+  sistemas sin hard links y avisa el nombre nuevo si falla el borrado.
+- L21: Test intermitente `hung_owner_is_replaced` (1 de 6): bug real de T3.
+  Tras SIGKILL no se esperaba a que el proceso terminara; el siguiente
+  intento no conseguia el bloqueo, el PID ya no validaba y se gastaban los
+  3 intentos en milisegundos. Fix: esperar hasta 2 s tras SIGKILL y no
+  contar como intento a un dueno `ready` que no se puede validar. 10/10 en
+  aislado y suite x3.
 - Siguiente paso: T9 (letras).

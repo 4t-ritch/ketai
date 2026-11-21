@@ -22,6 +22,8 @@ use std::{
 const HELLO_TIMEOUT: Duration = Duration::from_secs(2);
 const TERM_GRACE: Duration = Duration::from_secs(5);
 const LOCK_ATTEMPTS: u32 = 3;
+/// Cuanto se espera a que un proceso termine despues de SIGKILL.
+const KILL_WAIT: Duration = Duration::from_secs(2);
 /// Tiempo maximo que se espera a un dueno que todavia esta arrancando.
 const STARTING_WAIT: Duration = Duration::from_secs(10);
 const READY_MARK: &str = "ready";
@@ -41,6 +43,8 @@ pub fn claim(dir: &Path, socket_path: &Path) -> io::Result<Claim> {
   let lock_path = dir.join("ketaid.lock");
   let mut attempts = 0;
   let starting_deadline = Instant::now() + STARTING_WAIT;
+  // Plazo para un dueno que ya no se puede validar (proceso terminando).
+  let dying_deadline = Instant::now() + STARTING_WAIT + TERM_GRACE * LOCK_ATTEMPTS + HELLO_TIMEOUT * LOCK_ATTEMPTS;
   while attempts < LOCK_ATTEMPTS {
     let file = OpenOptions::new()
       .read(true)
@@ -73,10 +77,16 @@ pub fn claim(dir: &Path, socket_path: &Path) -> io::Result<Claim> {
     }
 
     // Dueno listo que no responde: colgado. Cerrarlo si pasa la validacion.
-    attempts += 1;
-    if let Some(proc_) = Process::validate(pid) {
-      eprintln!("ketaid: owner {pid} does not respond, terminating it");
-      terminate(&proc_);
+    match Process::validate(pid) {
+      Some(proc_) => {
+        attempts += 1;
+        eprintln!("ketaid: owner {pid} does not respond, terminating it");
+        terminate(&proc_);
+      }
+      // No se puede validar: lo mas probable es que este terminando de
+      // morir y el kernel todavia no libero el bloqueo. Se espera sin
+      // gastar un intento.
+      None => wait_or_give_up(dying_deadline)?,
     }
   }
   Err(io::Error::other("could not acquire the instance lock"))
@@ -251,6 +261,12 @@ fn terminate(proc_: &Process) {
     thread::sleep(Duration::from_millis(50));
   }
   send_signal(proc_, libc::SIGKILL, "SIGKILL");
+  // SIGKILL no es instantaneo: hasta que el proceso termina, el kernel no
+  // libera su bloqueo. Sin esta espera, el siguiente intento fallaria.
+  let deadline = Instant::now() + KILL_WAIT;
+  while Instant::now() < deadline && is_running(proc_.pid) && proc_.still_same() {
+    thread::sleep(Duration::from_millis(20));
+  }
 }
 
 /// Escaneo de huerfanos: lo ejecuta solo la instancia duena del bloqueo,

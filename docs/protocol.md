@@ -320,6 +320,14 @@ Reglas del reproductor:
 - La misma capa no puede estar en `primary` y en `secondary`; eso devuelve
   `-32602`.
 - `lyrics.get` devuelve `null` si la pista no tiene letra.
+- `track_id` debe ser una pista de la cola; si no, `-32602`. Las pistas
+  remotas todavia no tienen letra (`layers` vacio y `get` en `null`).
+- Solo se pueden pedir capas que `lyrics.layers` ofrece; una capa que existe
+  pero no se pudo alinear tambien devuelve `1007`.
+- `lyrics.set_offset` guarda el ajuste por archivo (URI), no por
+  `track_id`: se recuerda en sesiones futuras aunque el id cambie. Se guarda
+  en `$XDG_STATE_HOME/ketai/lyrics-offsets.json`. `offset_ms: 0` lo borra.
+  Emite `lyrics.changed`.
 
 Ver la seccion 4 para los tipos y la seccion 11 para las reglas.
 
@@ -485,6 +493,19 @@ del visualizador.
    - Si el texto embebido tiene marcas de tiempo LRC, se parsea como LRC.
 3. Si no hay nada, `lyrics.layers` devuelve una lista vacia y `lyrics.get`
    devuelve `null`.
+4. **Sin capa original no hay letra**: las romanizaciones y traducciones se
+   sincronizan contra la original, asi que sin ella no se ofrece ninguna.
+
+Detalles de lectura:
+
+- Un `.lrc` sin marcas de tiempo se lee como texto plano.
+- ID3: solo el tag del principio del archivo, versiones 2.3 y 2.4. Los
+  frames comprimidos o encriptados se ignoran. `SYLT` solo con marcas en
+  milisegundos; si sus entradas empiezan con salto de linea se leen como
+  silabas con tiempo por palabra.
+- El idioma de un frame ID3 (ISO 639-2) se pasa a su forma corta BCP 47
+  cuando es un idioma comun (`spa` -> `es`); si no, se usa el codigo de 3
+  letras.
 
 Esta prioridad aplica por capa: cada capa (original, cada romanizacion y
 cada traduccion) se busca por separado con el mismo orden.

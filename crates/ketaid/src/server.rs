@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 
 use crate::{
   instance,
+  lyrics::{LyricsService, TrackRef},
   outputs::OutputService,
   playlists::PlaylistService,
   player::{PlayerService, Resolved, Restored},
@@ -50,6 +51,8 @@ pub enum Message {
   Resolved(Resolved),
   /// Sesion guardada ya resuelta.
   Restored(Restored),
+  /// Resultado de una operacion de letras.
+  Lyrics(crate::lyrics::Done),
   /// Resultado de una operacion de playlists.
   Playlist(crate::playlists::Done),
   /// Evento del control de salidas.
@@ -107,6 +110,7 @@ pub fn run() -> io::Result<()> {
   let mut player = PlayerService::new(tx.clone());
   let mut outputs = OutputService::new(tx.clone());
   let playlists = PlaylistService::new(tx.clone(), player.track_ids());
+  let lyrics = LyricsService::new(tx.clone());
   let persist = match session::path() {
     Some(path) => {
       if let Some(saved) = session::load(&path) {
@@ -120,7 +124,7 @@ pub fn run() -> io::Result<()> {
       None
     }
   };
-  let result = central_loop(rx, Services { player, outputs, playlists }, persist);
+  let result = central_loop(rx, Services { player, outputs, playlists, lyrics }, persist);
   // El socket se borra al salir para que los clientes no vean uno muerto.
   let _ = fs::remove_file(&socket_path);
   result
@@ -332,6 +336,7 @@ struct Services {
   player: PlayerService,
   outputs: OutputService,
   playlists: PlaylistService,
+  lyrics: LyricsService,
 }
 
 fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Option<Persist>) -> io::Result<()> {
@@ -353,6 +358,17 @@ fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Opti
         Flow::Continue
       }
       Message::Tick => Flow::Continue,
+      Message::Lyrics(done) => {
+        services.lyrics.note_changed(done.changed);
+        match clients.get_mut(&done.client) {
+          Some(state) => {
+            send_reply(&state.out, done.request_id, done.result);
+            state.blocked = false;
+            drain(&mut clients, &mut services, done.client)
+          }
+          None => Flow::Continue,
+        }
+      }
       Message::Playlist(done) => {
         if let Some((tracks, replace)) = done.load {
           services.player.load_tracks(tracks, replace);
@@ -462,12 +478,33 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, services: &mut Services, 
       send_reply(&state.out, req.id, reply);
       continue;
     }
-    let gated = PlayerService::handles(&req.method) || PlaylistService::handles(&req.method);
+    let gated = PlayerService::handles(&req.method)
+      || PlaylistService::handles(&req.method)
+      || LyricsService::handles(&req.method);
     if services.player.restoring() && gated {
       // Hasta que termine la restauracion, para que vea la cola restaurada.
       state.pending.push_front(Incoming::Request(req));
       state.blocked = true;
       return Flow::Continue;
+    }
+    if LyricsService::handles(&req.method) {
+      let track = LyricsService::track_id(&req).and_then(|tid| {
+        services.player.find_track(&tid).ok_or_else(|| {
+          ErrorReply::new(Some(req.id), codes::INVALID_PARAMS, format!("unknown track_id: {tid}"))
+        })
+      });
+      match track {
+        Ok((uri, path)) => {
+          // La respuesta llega despues como Message::Lyrics.
+          services.lyrics.submit(id, &req, TrackRef { uri, path });
+          state.blocked = true;
+          return Flow::Continue;
+        }
+        Err(err) => {
+          send_reply(&state.out, req.id, Err(err));
+          continue;
+        }
+      }
     }
     if PlaylistService::handles(&req.method) {
       // La respuesta llega despues como Message::Playlist.
@@ -517,6 +554,12 @@ fn subscription(state: &mut ClientState, req: &Request) -> Result<Value, ErrorRe
 
 /// Envia los eventos pendientes a los clientes suscritos a cada topico.
 fn publish(clients: &HashMap<ClientId, ClientState>, services: &mut Services) {
+  for track_id in services.lyrics.take_changed() {
+    let line = encode_event("lyrics.changed", json!({"track_id": track_id}));
+    for state in clients.values().filter(|c| c.topics.contains("lyrics")) {
+      let _ = state.out.send(line.clone());
+    }
+  }
   for name in services.playlists.take_changed() {
     let line = encode_event("playlist.changed", json!({"name": name}));
     for state in clients.values().filter(|c| c.topics.contains("playlist")) {

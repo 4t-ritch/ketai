@@ -257,6 +257,11 @@ impl PlayerService {
     })
   }
 
+  /// URI y ruta de una pista de la cola, por id.
+  pub fn find_track(&self, id: &str) -> Option<(String, Option<std::path::PathBuf>)> {
+    self.queue.tracks().iter().find(|t| t.id == id).map(|t| (t.uri.clone(), t.path.clone()))
+  }
+
   pub fn track_ids(&self) -> TrackIds {
     self.track_ids.clone()
   }

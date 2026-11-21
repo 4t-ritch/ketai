@@ -36,7 +36,7 @@ Runner de tests: `cargo test --workspace`.
 | T1  | S1    | inline | hecho     | 80fd58c; 5 tests del decoder verdes tras mover |
 | T2  | S2    | inline | hecho     | 4371266; RED: 13 fallos sin daemon; GREEN: 13/13 (x5 corridas) |
 | T3  | S3    | inline | hecho     | 1224433 + fix 608b06a; verificador independiente: B1 FAIL -> PASS en recheck; 7/7 instance, 13/13 control |
-| T4  | S4    | inline | pendiente | |
+| T4  | S4    | inline | hecho     | RED: 19/19 fallan; GREEN: 19/19 conformidad + 15 unit (cola, metadatos); suite 64/64 x3; smoke backend real OK |
 | T5  | S5    | inline | pendiente | |
 | T6  | S6    | inline | pendiente | |
 | T7  | S7    | inline | pendiente | |
@@ -74,4 +74,9 @@ de contexto, asi que no aplica el trigger de writer.
     (nada de I/O de audio, disco o red dentro del loop).
   - El escaneo de huerfanos del dueno puede cerrar a una instancia nueva que
     todavia esta en `claim`. Solo afecta a la nueva, que igual iba a salir.
-- Siguiente paso: T4 (reproductor y cola).
+- L8: T4: el motor de audio es un thread propio que abre el dispositivo una
+  sola vez; eventos con numero de generacion para descartar los viejos.
+  `queue.add` resuelve metadatos en un thread aparte (el loop central no
+  bloquea). Backend `null` (KETAI_AUDIO_BACKEND=null) para tests sin sonido.
+  Reglas del reproductor documentadas en docs/protocol.md.
+- Siguiente paso: T5 (eventos).

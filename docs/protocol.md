@@ -188,6 +188,31 @@ no coincide, se devuelve el error `1000`.
 | `player.set_repeat`    | `{"repeat": "queue"}`    | `{}`          |
 | `player.set_shuffle`   | `{"shuffle": true}`      | `{}`          |
 
+Reglas del reproductor:
+
+- `player.play` con la cola vacia, o `player.next` sin pista siguiente,
+  devuelven `1001`. Con la cola sin pista seleccionada, `player.play`
+  reproduce la primera.
+- `player.next` y `player.previous` mantienen el estado: si sonaba sigue
+  sonando; si estaba en pausa queda en pausa al inicio de la nueva pista; si
+  estaba detenido solo cambia la seleccion.
+- `player.previous` reinicia la pista actual si ya sonaron mas de 3 segundos
+  o si es la primera de la cola (sin `repeat: "queue"`).
+- `player.seek` y `player.seek_relative` necesitan una pista cargada
+  (`playing` o `paused`); si no, `1001`. La posicion se limita al rango
+  `0`..`duration_ms`.
+- `player.stop` deja la pista seleccionada y la posicion en `0`.
+- `volume` fuera de `0.0`..`1.0` devuelve `-32602`. `muted` no cambia
+  `volume`.
+- Fin de pista: con `repeat: "track"` se repite; si no, pasa a la siguiente.
+  Sin siguiente, el estado queda `stopped` con la ultima pista seleccionada.
+- Si una pista no se puede reproducir, se salta a la siguiente. Si fallan
+  todas las de la cola seguidas, el estado queda `stopped`.
+- Con `shuffle: true`, la siguiente pista se elige al azar entre las que no
+  sonaron en el ciclo actual, y `player.previous` recorre ese historial.
+  Cuando sonaron todas: con `repeat: "queue"` empieza un ciclo nuevo; si no,
+  no hay siguiente. `shuffle` no cambia el orden de `queue.list`.
+
 ### Cola
 | Metodo         | Params                                          | Resultado |
 |----------------|-------------------------------------------------|-----------|
@@ -207,6 +232,12 @@ no coincide, se devuelve el error `1000`.
   que quede en la cola; si no queda ninguna, el estado pasa a `stopped`.
 - `queue.add` y `queue.remove` son atomicas: ante una URI invalida o un
   indice fuera de rango o repetido, la cola no cambia.
+- `queue.add` lee los metadatos de cada archivo local. Una URI con esquema
+  no soportado devuelve `-32602`; un archivo inexistente o que no se puede
+  decodificar devuelve `1003`. Las rutas `file://` admiten caracteres
+  codificados con `%` (por ejemplo `%20` para un espacio).
+- `queue.jump` selecciona la pista y la reproduce desde el principio.
+- `queue.clear` deja el estado `stopped` y sin pista seleccionada.
 
 ### Playlists
 | Metodo            | Params                                  | Resultado |

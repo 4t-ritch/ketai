@@ -19,17 +19,24 @@ use ketai_protocol::{
 };
 use serde_json::{Value, json};
 
-use crate::instance;
+use crate::{
+  instance,
+  player::{PlayerService, Resolved},
+};
 
-type ClientId = u64;
+pub type ClientId = u64;
 
 /// Mensajes que llegan al loop central.
-enum Message {
+pub enum Message {
   Connected(ClientId, Sender<String>),
   Request(ClientId, Request),
   /// Error de framing o parseo: se responde sin pasar por los handlers.
   Invalid(ClientId, ErrorReply),
   Disconnected(ClientId),
+  /// Evento del motor de audio.
+  Engine(ketai_core::engine::Event),
+  /// Resultado diferido de `queue.add`.
+  Resolved(Resolved),
 }
 
 /// Lo que el loop central debe hacer despues de atender una peticion.
@@ -60,9 +67,11 @@ pub fn run() -> io::Result<()> {
   thread::spawn(instance::close_orphans);
 
   let (tx, rx) = mpsc::channel();
-  thread::spawn(move || accept_loop(listener, tx));
+  let accept_tx = tx.clone();
+  thread::spawn(move || accept_loop(listener, accept_tx));
 
-  let result = central_loop(rx);
+  let player = PlayerService::new(tx.clone());
+  let result = central_loop(rx, player);
   // El socket se borra al salir para que los clientes no vean uno muerto.
   let _ = fs::remove_file(&socket_path);
   result
@@ -160,7 +169,7 @@ fn reader_loop(id: ClientId, stream: UnixStream, tx: Sender<Message>) {
   let _ = tx.send(Message::Disconnected(id));
 }
 
-fn central_loop(rx: Receiver<Message>) -> io::Result<()> {
+fn central_loop(rx: Receiver<Message>, mut player: PlayerService) -> io::Result<()> {
   let mut clients: HashMap<ClientId, Sender<String>> = HashMap::new();
 
   for msg in rx {
@@ -177,8 +186,27 @@ fn central_loop(rx: Receiver<Message>) -> io::Result<()> {
           let _ = out.send(encode_error(&err));
         }
       }
+      Message::Engine(event) => player.on_engine(event),
+      Message::Resolved(resolved) => {
+        let (client, request_id, reply) = player.on_resolved(resolved);
+        if let Some(out) = clients.get(&client) {
+          let line = match reply {
+            Ok(result) => encode_result(request_id, result),
+            Err(err) => encode_error(&err),
+          };
+          let _ = out.send(line);
+        }
+      }
       Message::Request(id, req) => {
-        let (reply, flow) = handle(&req);
+        let (reply, flow) = if PlayerService::handles(&req.method) {
+          match player.handle(id, &req) {
+            Some(reply) => (reply, Flow::Continue),
+            // La respuesta llega despues como Message::Resolved.
+            None => continue,
+          }
+        } else {
+          handle(&req)
+        };
         if let Some(out) = clients.get(&id) {
           let line = match reply {
             Ok(result) => encode_result(req.id, result),

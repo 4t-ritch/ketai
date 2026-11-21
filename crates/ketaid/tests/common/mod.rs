@@ -39,6 +39,8 @@ impl Daemon {
     let runtime_dir = temp_runtime_dir();
     let child = Command::new(env!("CARGO_BIN_EXE_ketaid"))
       .env("XDG_RUNTIME_DIR", &runtime_dir)
+      // Los tests nunca suenan por los parlantes.
+      .env("KETAI_AUDIO_BACKEND", "null")
       .stdout(Stdio::null())
       .stderr(Stdio::null())
       .spawn()
@@ -125,4 +127,14 @@ impl Client {
       }
     }
   }
+}
+
+/// URI `file://` de un fixture del core.
+pub fn fixture_uri(name: &str) -> String {
+  let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    .join("../ketai-core/tests/fixtures")
+    .join(name)
+    .canonicalize()
+    .expect("fixture exists");
+  format!("file://{}", path.display())
 }

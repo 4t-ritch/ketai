@@ -7,6 +7,7 @@
 //!   el unico que toca el estado. No hace falta ningun mutex sobre el estado.
 
 mod instance;
+mod player;
 mod server;
 
 use std::process::ExitCode;

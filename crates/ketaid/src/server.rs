@@ -1,7 +1,7 @@
 //! Canal de control: socket, framing y loop central.
 
 use std::{
-  collections::HashMap,
+  collections::{HashMap, VecDeque},
   fs,
   io::{self, BufRead, BufReader, Read, Write},
   os::unix::{
@@ -169,62 +169,116 @@ fn reader_loop(id: ClientId, stream: UnixStream, tx: Sender<Message>) {
   let _ = tx.send(Message::Disconnected(id));
 }
 
+/// Algo para responder a un cliente, en el orden en que llego.
+enum Incoming {
+  Request(Request),
+  Invalid(ErrorReply),
+}
+
+struct ClientState {
+  out: Sender<String>,
+  /// Hay una peticion diferida sin responder. Mientras tanto, lo que manda
+  /// este cliente espera en `pending` para respetar su orden.
+  blocked: bool,
+  pending: VecDeque<Incoming>,
+}
+
 fn central_loop(rx: Receiver<Message>, mut player: PlayerService) -> io::Result<()> {
-  let mut clients: HashMap<ClientId, Sender<String>> = HashMap::new();
+  let mut clients: HashMap<ClientId, ClientState> = HashMap::new();
 
   for msg in rx {
-    match msg {
+    let flow = match msg {
       Message::Connected(id, out) => {
-        clients.insert(id, out);
+        clients.insert(id, ClientState { out, blocked: false, pending: VecDeque::new() });
+        Flow::Continue
       }
       Message::Disconnected(id) => {
         // Soltar el Sender cierra el thread escritor y la conexion.
         clients.remove(&id);
+        Flow::Continue
       }
-      Message::Invalid(id, err) => {
-        if let Some(out) = clients.get(&id) {
-          let _ = out.send(encode_error(&err));
-        }
+      Message::Engine(event) => {
+        player.on_engine(event);
+        Flow::Continue
       }
-      Message::Engine(event) => player.on_engine(event),
+      Message::Invalid(id, err) => incoming(&mut clients, &mut player, id, Incoming::Invalid(err)),
+      Message::Request(id, req) => incoming(&mut clients, &mut player, id, Incoming::Request(req)),
       Message::Resolved(resolved) => {
         let (client, request_id, reply) = player.on_resolved(resolved);
-        if let Some(out) = clients.get(&client) {
-          let line = match reply {
-            Ok(result) => encode_result(request_id, result),
-            Err(err) => encode_error(&err),
-          };
-          let _ = out.send(line);
-        }
-      }
-      Message::Request(id, req) => {
-        let (reply, flow) = if PlayerService::handles(&req.method) {
-          match player.handle(id, &req) {
-            Some(reply) => (reply, Flow::Continue),
-            // La respuesta llega despues como Message::Resolved.
-            None => continue,
+        match clients.get_mut(&client) {
+          Some(state) => {
+            send_reply(&state.out, request_id, reply);
+            state.blocked = false;
+            drain(&mut clients, &mut player, client)
           }
-        } else {
-          handle(&req)
-        };
-        if let Some(out) = clients.get(&id) {
-          let line = match reply {
-            Ok(result) => encode_result(req.id, result),
-            Err(err) => encode_error(&err),
-          };
-          let _ = out.send(line);
-        }
-        if let Flow::Shutdown = flow {
-          // Al soltar los Sender, cada escritor envia lo pendiente y cierra.
-          drop(clients);
-          // Pequena espera para que la respuesta salga antes del exit.
-          thread::sleep(std::time::Duration::from_millis(50));
-          return Ok(());
+          None => Flow::Continue,
         }
       }
+    };
+    if let Flow::Shutdown = flow {
+      // Al soltar los Sender, cada escritor envia lo pendiente y cierra.
+      drop(clients);
+      // Pequena espera para que la respuesta salga antes del exit.
+      thread::sleep(std::time::Duration::from_millis(50));
+      return Ok(());
     }
   }
   Ok(())
+}
+
+/// Encola lo que llego del cliente y procesa lo que se pueda.
+fn incoming(
+  clients: &mut HashMap<ClientId, ClientState>,
+  player: &mut PlayerService,
+  id: ClientId,
+  item: Incoming,
+) -> Flow {
+  let Some(state) = clients.get_mut(&id) else { return Flow::Continue };
+  state.pending.push_back(item);
+  drain(clients, player, id)
+}
+
+/// Procesa en orden lo pendiente del cliente hasta que se vacie o una
+/// peticion quede diferida.
+fn drain(clients: &mut HashMap<ClientId, ClientState>, player: &mut PlayerService, id: ClientId) -> Flow {
+  loop {
+    let Some(state) = clients.get_mut(&id) else { return Flow::Continue };
+    if state.blocked {
+      return Flow::Continue;
+    }
+    let Some(item) = state.pending.pop_front() else { return Flow::Continue };
+    let req = match item {
+      Incoming::Invalid(err) => {
+        let _ = state.out.send(encode_error(&err));
+        continue;
+      }
+      Incoming::Request(req) => req,
+    };
+    let (reply, flow) = if PlayerService::handles(&req.method) {
+      match player.handle(id, &req) {
+        Some(reply) => (reply, Flow::Continue),
+        None => {
+          // La respuesta llega despues como Message::Resolved.
+          state.blocked = true;
+          return Flow::Continue;
+        }
+      }
+    } else {
+      handle(&req)
+    };
+    send_reply(&state.out, req.id, reply);
+    if let Flow::Shutdown = flow {
+      return Flow::Shutdown;
+    }
+  }
+}
+
+fn send_reply(out: &Sender<String>, request_id: u64, reply: Result<Value, ErrorReply>) {
+  let line = match reply {
+    Ok(result) => encode_result(request_id, result),
+    Err(err) => encode_error(&err),
+  };
+  let _ = out.send(line);
 }
 
 fn handle(req: &Request) -> (Result<Value, ErrorReply>, Flow) {

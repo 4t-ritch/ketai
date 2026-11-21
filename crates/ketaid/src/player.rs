@@ -50,11 +50,21 @@ pub struct Resolved {
   tracks: Result<Vec<Track>, ErrorReply>,
 }
 
+/// Trabajo pendiente para el thread de metadatos.
+struct ResolveJob {
+  client: ClientId,
+  request_id: u64,
+  position: Option<usize>,
+  uris: Vec<String>,
+  first_id: u64,
+}
+
 pub struct PlayerService {
   queue: Queue,
   engine: EngineHandle,
-  /// Canal hacia el loop central, para el thread de metadatos.
-  tx: Sender<Message>,
+  /// Un unico thread de metadatos: resuelve los `queue.add` en el orden en
+  /// que llegaron, asi se aplican en ese mismo orden.
+  resolver: Sender<ResolveJob>,
   status: Status,
   /// Generacion de la ultima carga enviada al motor.
   generation: u64,
@@ -84,6 +94,17 @@ impl PlayerService {
         }
       }
     });
+    let (resolver, jobs) = std::sync::mpsc::channel::<ResolveJob>();
+    let resolved_tx = tx.clone();
+    thread::spawn(move || {
+      for job in jobs {
+        let tracks = resolve(job.request_id, &job.uris, job.first_id);
+        let msg = Resolved { client: job.client, request_id: job.request_id, position: job.position, tracks };
+        if resolved_tx.send(Message::Resolved(msg)).is_err() {
+          return;
+        }
+      }
+    });
     let seed = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH)
       .map(|d| d.as_nanos() as u64)
@@ -91,7 +112,7 @@ impl PlayerService {
     Self {
       queue: Queue::new(seed),
       engine,
-      tx,
+      resolver,
       status: Status::Stopped,
       generation: 0,
       loaded: false,
@@ -361,12 +382,8 @@ impl PlayerService {
     };
     let first_id = self.next_track_id;
     self.next_track_id += uris.len() as u64;
-    let tx = self.tx.clone();
     // Leer metadatos es I/O de disco: se hace fuera del loop central.
-    thread::spawn(move || {
-      let tracks = resolve(id, &uris, first_id);
-      let _ = tx.send(Message::Resolved(Resolved { client, request_id: id, position, tracks }));
-    });
+    let _ = self.resolver.send(ResolveJob { client, request_id: id, position, uris, first_id });
     None
   }
 

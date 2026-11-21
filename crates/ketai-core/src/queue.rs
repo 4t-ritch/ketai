@@ -155,6 +155,11 @@ impl Queue {
     }
     self.tracks = kept;
     self.current = new_current;
+    // La pista que reemplaza a la actual entra al historial del shuffle,
+    // asi `previous` vuelve a la anterior real y no se salta una.
+    if current_removed && let Some(i) = new_current {
+      self.select(i);
+    }
 
     Ok(match (old_current, current_removed, new_current) {
       (None, _, _) | (Some(_), false, _) => CurrentAfterRemove::Kept,
@@ -227,7 +232,11 @@ impl Queue {
   pub fn previous(&mut self) -> Option<usize> {
     let cur = self.current?;
     let prev = if self.shuffle {
-      // Se vuelve por el historial del ciclo actual.
+      // Se vuelve por el historial del ciclo actual. El ultimo elemento es
+      // la pista actual; si no hay uno antes, no se toca el historial.
+      if self.history.len() < 2 {
+        return None;
+      }
       self.history.pop();
       let id = self.history.last()?.clone();
       self.tracks.iter().position(|t| t.id == id)?
@@ -256,8 +265,12 @@ impl Queue {
   fn next_shuffled(&mut self) -> Option<usize> {
     let mut pending = self.unvisited();
     if pending.is_empty() {
-      if self.repeat != Repeat::Queue || self.tracks.len() < 2 {
+      if self.repeat != Repeat::Queue {
         return None;
+      }
+      // Una sola pista con repeat queue: se repite, igual que sin shuffle.
+      if self.tracks.len() == 1 {
+        return self.current;
       }
       // Nuevo ciclo: todas menos la actual.
       self.reset_history();
@@ -432,6 +445,40 @@ mod tests {
     assert_eq!(q.current_track().unwrap().id, b);
     q.previous().unwrap();
     assert_eq!(q.current_track().unwrap().id, a);
+  }
+
+  #[test]
+  fn shuffle_single_track_with_repeat_queue_repeats() {
+    let mut q = queue_of(1);
+    q.set_shuffle(true);
+    q.set_repeat(Repeat::Queue);
+    q.select_first();
+    assert_eq!(q.next(), Some(0));
+  }
+
+  #[test]
+  fn shuffle_previous_after_removing_current_goes_to_real_previous() {
+    let mut q = queue_of(5);
+    q.set_shuffle(true);
+    q.select_first();
+    let first = q.current_track().unwrap().id.clone();
+    q.next().unwrap();
+    let cur = q.current().unwrap();
+    q.remove(&[cur]).unwrap();
+    q.previous();
+    assert_eq!(q.current_track().unwrap().id, first);
+  }
+
+  #[test]
+  fn shuffle_previous_without_history_keeps_current() {
+    let mut q = queue_of(3);
+    q.set_shuffle(true);
+    q.select_first();
+    let id = q.current_track().unwrap().id.clone();
+    assert_eq!(q.previous(), None);
+    q.next().unwrap();
+    q.previous().unwrap();
+    assert_eq!(q.current_track().unwrap().id, id);
   }
 
   #[test]

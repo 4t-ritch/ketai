@@ -79,4 +79,15 @@ de contexto, asi que no aplica el trigger de writer.
   `queue.add` resuelve metadatos en un thread aparte (el loop central no
   bloquea). Backend `null` (KETAI_AUDIO_BACKEND=null) para tests sin sonido.
   Reglas del reproductor documentadas en docs/protocol.md.
+- L9: Verificador independiente sobre T4 (5af0708): B1 FAIL, `queue.add`
+  podia aplicarse fuera de orden (un thread por add) y las peticiones
+  siguientes del mismo cliente no lo veian. Fix: un unico thread de
+  metadatos (orden global) y cola por cliente en el loop central mientras
+  hay una peticion diferida. RED: respuestas [102,101,100] y play sin ver el
+  add; GREEN: 69/69 x3. Tambien se corrigieron dos casos de shuffle
+  (una pista con repeat queue; previous tras quitar la actual).
+- L10: Riesgo residual aceptado: en rodio 0.22.2, `try_seek` puede quedar
+  esperando para siempre si la pista termina justo durante el seek (solo
+  bloquea el thread del motor). Revisar al actualizar rodio o envolver el
+  seek.
 - Siguiente paso: T5 (eventos).

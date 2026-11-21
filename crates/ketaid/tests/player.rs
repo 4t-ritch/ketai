@@ -353,3 +353,52 @@ fn removing_playing_track_plays_next_and_removing_all_stops() {
   assert_eq!(state["status"], "stopped");
   assert_eq!(state["track"], Value::Null);
 }
+
+// ---- orden de peticiones ---------------------------------------------------
+
+/// Envia varias peticiones en una sola escritura, sin esperar respuestas.
+fn pipeline(s: &mut Session, requests: &[(u64, &str, Value)]) -> Vec<Value> {
+  let mut batch = String::new();
+  for (id, method, params) in requests {
+    batch.push_str(&json!({"id": id, "method": method, "params": params}).to_string());
+    batch.push('\n');
+  }
+  s.client.send_raw(batch.as_bytes());
+  let mut replies = Vec::new();
+  while replies.len() < requests.len() {
+    let msg = s.client.read_message().expect("reply");
+    if msg.get("id").is_some() {
+      replies.push(msg);
+    }
+  }
+  replies
+}
+
+#[test]
+fn pipelined_adds_apply_in_arrival_order() {
+  let mut s = Session::new();
+  // El primer add es mucho mas lento de resolver que el segundo.
+  let slow: Vec<String> = (0..40).map(|_| fixture_uri("vorbis.ogg")).collect();
+  let fast = [fixture_uri("opus.ogg")];
+  let replies = pipeline(&mut s, &[
+    (100, "queue.add", json!({"uris": slow})),
+    (101, "queue.add", json!({"uris": fast})),
+    (102, "queue.list", json!({})),
+  ]);
+  let ids: Vec<u64> = replies.iter().map(|r| r["id"].as_u64().unwrap()).collect();
+  assert_eq!(ids, [100, 101, 102], "replies keep request order for one client");
+  let tracks = replies[2]["result"]["tracks"].as_array().unwrap();
+  assert_eq!(tracks.len(), 41, "list must see both adds");
+  assert_eq!(tracks[40]["uri"], fast[0], "second add goes after the first");
+}
+
+#[test]
+fn request_after_pipelined_add_sees_the_added_tracks() {
+  let mut s = Session::new();
+  let replies = pipeline(&mut s, &[
+    (200, "queue.add", json!({"uris": [fixture_uri("vorbis.ogg")]})),
+    (201, "player.play", json!({})),
+  ]);
+  assert!(replies[1].get("error").is_none(), "play after add must not fail: {}", replies[1]);
+  assert_eq!(s.state()["status"], "playing");
+}

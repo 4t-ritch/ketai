@@ -48,6 +48,10 @@ son parte del contrato.
 
 - `id` es un entero sin signo elegido por el cliente, unico por conexion.
 - Las respuestas pueden intercalarse con eventos; el cliente las empareja por `id`.
+- Las peticiones de un mismo cliente se ejecutan en el orden en que llegaron,
+  aunque el cliente las envie sin esperar respuesta. Ejemplo: `queue.add`
+  seguido de `queue.list` siempre ve las pistas agregadas. Las respuestas a
+  un mismo cliente salen en ese mismo orden.
 - `params` puede omitirse cuando esta vacio.
 
 ## 4. Tipos de datos

@@ -1,7 +1,6 @@
-mod decoder;
-mod ui;
+mod view;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-  ui::view::render()?;
+  view::render()?;
   Ok(())
 }

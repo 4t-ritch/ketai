@@ -1,0 +1,10 @@
+[package]
+name = "ketaid"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ketai-core.workspace = true
+ketai-protocol.workspace = true
+serde_json.workspace = true

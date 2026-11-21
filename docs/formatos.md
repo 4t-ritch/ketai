@@ -17,7 +17,7 @@
 
 - rodio siempre usa el registro de codecs por defecto de symphonia, que no
   incluye Opus ni HE-AAC. Por eso ketai decodifica con symphonia directamente
-  en `src/decoder/` y entrega el audio a rodio como una fuente propia.
+  en `crates/ketai-core/src/decoder.rs` y entrega el audio a rodio como una fuente propia.
 - El registro de codecs se arma asi: primero los codecs de symphonia, despues
   `symphonia-adapter-fdk-aac` (reemplaza al AAC nativo, que solo soporta
   AAC-LC) y `symphonia-adapter-libopus`.
@@ -45,7 +45,7 @@ del protocolo.
 
 ## Pruebas
 
-Los archivos en `tests/fixtures/` son tonos de 440 Hz de 2 segundos:
+Los archivos en `crates/ketai-core/tests/fixtures/` son tonos de 440 Hz de 2 segundos:
 
 - `opus.ogg`, `vorbis.ogg` y `aac_lc.m4a` se generaron con `ffmpeg`.
 - `he_aac.m4a` se genero con el encoder de FDK (perfil HE-AAC) y se

@@ -120,8 +120,13 @@ de contexto, asi que no aplica el trigger de writer.
   las peticiones en espera.
 - L16: T7 usa libpulse (funciona con PipeWire via pipewire-pulse): lista
   sinks, sigue el default y mueve los streams propios. El stream por el
-  plugin ALSA de PipeWire no publica el PID; se reconoce por node.name
-  `alsa_playback.<binario>`. No se probo un cambio del default del sistema
-  en vivo (habria que tocar la configuracion del usuario); la logica es la
-  misma que la de `output.set null`.
+  plugin ALSA de PipeWire no publica el PID por su cuenta.
+- L17 (usuario): "realiza esta prueba no hay problema" / "resuelve el
+  problkema que encontraste". Resuelto: el daemon define PIPEWIRE_PROPS al
+  arrancar (antes de crear threads) con application.name=ketai, su PID y
+  media.role=Music; el stream se reconoce por PID, sin heuristica de nombre.
+  Prueba en vivo con pactl: arranque en default, output.set otro, null,
+  cambio del default del sistema en ambos sentidos (el stream lo sigue), y
+  con salida elegida fija el cambio de default no la mueve. Default del
+  usuario restaurado al final.
 - Siguiente paso: T8 (playlists).

@@ -163,27 +163,21 @@ struct ServerState {
   own_inputs: Vec<(u32, u32)>,
 }
 
-/// Como reconocer los streams de este proceso.
+/// Como reconocer los streams de este proceso: por su PID. El daemon lo
+/// publica con `PIPEWIRE_PROPS` al arrancar (ver ketaid main.rs), porque el
+/// plugin ALSA de PipeWire no lo publica por su cuenta.
 #[derive(Clone)]
 struct OwnStream {
   pid: String,
-  /// El plugin ALSA de PipeWire no publica el PID, pero nombra el nodo
-  /// `alsa_playback.<binario>`. Hay una sola instancia por sesion, asi que
-  /// el nombre no choca con otro proceso.
-  alsa_node: Option<String>,
 }
 
 impl OwnStream {
   fn current() -> Self {
-    let binary = std::env::current_exe()
-      .ok()
-      .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
-    Self { pid: std::process::id().to_string(), alsa_node: binary.map(|b| format!("alsa_playback.{b}")) }
+    Self { pid: std::process::id().to_string() }
   }
 
   fn matches(&self, proplist: &libpulse_binding::proplist::Proplist) -> bool {
     proplist.get_str("application.process.id").as_deref() == Some(self.pid.as_str())
-      || (self.alsa_node.is_some() && proplist.get_str("node.name") == self.alsa_node)
   }
 }
 

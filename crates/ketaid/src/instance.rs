@@ -22,6 +22,9 @@ use std::{
 const HELLO_TIMEOUT: Duration = Duration::from_secs(2);
 const TERM_GRACE: Duration = Duration::from_secs(5);
 const LOCK_ATTEMPTS: u32 = 3;
+/// Tiempo maximo que se espera a un dueno que todavia esta arrancando.
+const STARTING_WAIT: Duration = Duration::from_secs(10);
+const READY_MARK: &str = "ready";
 
 /// Resultado de intentar ser la instancia principal.
 pub enum Claim {
@@ -32,9 +35,13 @@ pub enum Claim {
   AlreadyRunning,
 }
 
+/// Intenta tomar el bloqueo. La instancia duena todavia no esta lista: debe
+/// abrir el socket, llamar a `mark_ready` y despues a `close_orphans`.
 pub fn claim(dir: &Path, socket_path: &Path) -> io::Result<Claim> {
   let lock_path = dir.join("ketaid.lock");
-  for _ in 0..LOCK_ATTEMPTS {
+  let mut attempts = 0;
+  let starting_deadline = Instant::now() + STARTING_WAIT;
+  while attempts < LOCK_ATTEMPTS {
     let file = OpenOptions::new()
       .read(true)
       .write(true)
@@ -44,8 +51,7 @@ pub fn claim(dir: &Path, socket_path: &Path) -> io::Result<Claim> {
       .open(&lock_path)?;
 
     if try_lock(&file)? {
-      write_pid(&file)?;
-      close_orphans();
+      write_state(&file, false)?;
       return Ok(Claim::Owner(file));
     }
 
@@ -55,10 +61,20 @@ pub fn claim(dir: &Path, socket_path: &Path) -> io::Result<Claim> {
       return Ok(Claim::AlreadyRunning);
     }
 
-    // Dueno colgado: cerrarlo si pasa la validacion y volver a intentar.
-    if let Some(pid) = read_pid(&lock_path)
-      && let Some(proc_) = Process::validate(pid)
-    {
+    // Un dueno que todavia no marco `ready` esta arrancando (por ejemplo,
+    // cerrando huerfanos antes de abrir el socket). No se lo toca: se espera.
+    let Some((pid, ready)) = read_state(&lock_path) else {
+      wait_or_give_up(starting_deadline)?;
+      continue;
+    };
+    if !ready {
+      wait_or_give_up(starting_deadline)?;
+      continue;
+    }
+
+    // Dueno listo que no responde: colgado. Cerrarlo si pasa la validacion.
+    attempts += 1;
+    if let Some(proc_) = Process::validate(pid) {
       eprintln!("ketaid: owner {pid} does not respond, terminating it");
       terminate(&proc_);
     }
@@ -80,15 +96,40 @@ fn try_lock(file: &File) -> io::Result<bool> {
   }
 }
 
-fn write_pid(mut file: &File) -> io::Result<()> {
+fn wait_or_give_up(deadline: Instant) -> io::Result<()> {
+  if Instant::now() >= deadline {
+    return Err(io::Error::other("the instance owner is still starting"));
+  }
+  thread::sleep(Duration::from_millis(200));
+  Ok(())
+}
+
+/// Marca al dueno como listo: ya atiende `ctl.sock`. Desde aca, si deja de
+/// responder, otra instancia lo puede considerar colgado.
+pub fn mark_ready(file: &File) -> io::Result<()> {
+  write_state(file, true)
+}
+
+/// Contenido del archivo de bloqueo: el PID en la primera linea y, cuando el
+/// dueno ya atiende el socket, la palabra `ready` en la segunda.
+fn write_state(mut file: &File, ready: bool) -> io::Result<()> {
+  let mut content = format!("{}\n", std::process::id());
+  if ready {
+    content.push_str(READY_MARK);
+    content.push('\n');
+  }
   file.set_len(0)?;
   file.rewind()?;
-  writeln!(file, "{}", std::process::id())?;
+  file.write_all(content.as_bytes())?;
   file.sync_all()
 }
 
-fn read_pid(lock_path: &Path) -> Option<i32> {
-  fs::read_to_string(lock_path).ok()?.trim().parse().ok()
+fn read_state(lock_path: &Path) -> Option<(i32, bool)> {
+  let content = fs::read_to_string(lock_path).ok()?;
+  let mut lines = content.lines();
+  let pid = lines.next()?.trim().parse().ok()?;
+  let ready = lines.next().map(str::trim) == Some(READY_MARK);
+  Some((pid, ready))
 }
 
 /// Envia `daemon.hello` al socket y espera la respuesta con timeout.
@@ -110,7 +151,8 @@ fn owner_responds(socket_path: &Path) -> bool {
     line.clear();
     match reader.read_line(&mut line) {
       Ok(0) | Err(_) => return false,
-      Ok(_) if line.contains("\"id\":1") => return true,
+      // serde_json ordena las claves: la respuesta empieza con {"id":1,
+      Ok(_) if line.starts_with("{\"id\":1,") => return true,
       Ok(_) => continue,
     }
   }
@@ -211,8 +253,10 @@ fn terminate(proc_: &Process) {
   send_signal(proc_, libc::SIGKILL, "SIGKILL");
 }
 
-/// Escaneo de huerfanos: lo ejecuta solo la instancia duena del bloqueo.
-fn close_orphans() {
+/// Escaneo de huerfanos: lo ejecuta solo la instancia duena del bloqueo,
+/// despues de `mark_ready`, para no dejar el socket sin atender mientras
+/// espera a que los huerfanos terminen.
+pub fn close_orphans() {
   let Ok(entries) = fs::read_dir("/proc") else { return };
   let orphans: Vec<Process> = entries
     .filter_map(Result::ok)

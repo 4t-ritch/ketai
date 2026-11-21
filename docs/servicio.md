@@ -150,25 +150,41 @@ cliente. El arbitro es un bloqueo exclusivo (`flock`) sobre
 - Solo un proceso puede tener el bloqueo a la vez.
 - El kernel lo libera automaticamente si ese proceso muere, aunque sea con
   `SIGKILL`.
-- Solo el dueno del bloqueo puede cerrar otros procesos. Como hay un unico
-  dueno, dos instancias que arrancan a la vez no pueden matarse entre si.
+- El escaneo de huerfanos lo hace solo el dueno del bloqueo. Una instancia
+  que no es duena solo puede cerrar a un dueno ya listo que dejo de
+  responder (ver la secuencia de arranque). Asi, dos instancias que arrancan
+  a la vez no pueden matarse entre si.
 
 #### Secuencia de arranque
+
+El archivo de bloqueo guarda el PID del dueno en la primera linea y, cuando
+el dueno ya atiende `ctl.sock`, la palabra `ready` en la segunda.
 
 1. **Intentar tomar el bloqueo** (sin esperar).
 2. **Si el bloqueo ya tiene dueno:**
    1. Enviar `daemon.hello` a `ctl.sock` con 2 segundos de timeout.
    2. Si responde: ya hay una instancia en uso. La nueva instancia registra
       el motivo y **termina con codigo de salida 0**, sin abrir audio.
-   3. Si no responde: el dueno esta colgado. Se lee su PID desde el archivo
-      de bloqueo, se valida (ver "Validacion de procesos"), se envia
-      `SIGTERM` y, si sigue vivo a los 5 segundos, `SIGKILL`.
-   4. Volver al paso 1. Si tras 3 intentos no se consigue el bloqueo,
-      terminar con error.
+   3. Si no responde y el dueno **no** esta marcado `ready`: el dueno esta
+      arrancando. No se lo toca; se espera y se vuelve al paso 1. Si sigue
+      sin estar listo a los 10 segundos, la nueva instancia termina con
+      error.
+   4. Si no responde y el dueno esta marcado `ready`: esta colgado. Se
+      valida su PID (ver "Validacion de procesos"), se envia `SIGTERM` y, si
+      sigue vivo a los 5 segundos, `SIGKILL`. Despues se vuelve al paso 1.
+   5. Tras 3 duenos colgados cerrados sin conseguir el bloqueo, terminar con
+      error.
 3. **Si se consigue el bloqueo:** esta instancia es la duena.
-   1. Escribir su PID en el archivo de bloqueo.
-   2. **Escanear** procesos `ketaid` huerfanos (ver abajo) y cerrarlos.
-   3. Continuar el arranque normal: sockets, sesion, audio.
+   1. Escribir su PID en el archivo de bloqueo (sin `ready`).
+   2. Abrir `ctl.sock`.
+   3. Marcar `ready` en el archivo de bloqueo.
+   4. **Escanear** procesos `ketaid` huerfanos (ver abajo) y cerrarlos, en
+      segundo plano: el daemon ya atiende clientes mientras tanto.
+   5. Continuar el arranque normal: sesion, audio.
+
+La unica senal que envia una instancia que no es duena es contra un dueno
+marcado `ready` que dejo de responder. Un dueno que esta arrancando nunca
+recibe senales.
 
 #### Escaneo de huerfanos
 

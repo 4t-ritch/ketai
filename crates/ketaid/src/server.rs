@@ -49,11 +49,15 @@ pub fn run() -> io::Result<()> {
   let socket_path = dir.join("ctl.sock");
 
   // El bloqueo debe vivir hasta el final de run(): al soltarlo se libera.
-  let _lock = match instance::claim(&dir, &socket_path)? {
+  let lock = match instance::claim(&dir, &socket_path)? {
     instance::Claim::Owner(lock) => lock,
     instance::Claim::AlreadyRunning => return Ok(()),
   };
   let listener = bind_socket(&socket_path)?;
+  instance::mark_ready(&lock)?;
+  // Los huerfanos se cierran en segundo plano: el daemon ya atiende clientes
+  // mientras tanto.
+  thread::spawn(instance::close_orphans);
 
   let (tx, rx) = mpsc::channel();
   thread::spawn(move || accept_loop(listener, tx));

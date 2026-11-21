@@ -66,7 +66,31 @@ fn lock_file_holds_owner_pid() {
   let daemon = Daemon::start();
   let lock = daemon.runtime_dir.join("ketai").join("ketaid.lock");
   let content = fs::read_to_string(lock).unwrap();
-  assert_eq!(content.trim(), daemon.child.id().to_string());
+  let mut lines = content.lines();
+  assert_eq!(lines.next(), Some(daemon.child.id().to_string().as_str()));
+  assert_eq!(lines.next(), Some("ready"), "owner must be marked ready once serving");
+}
+
+#[test]
+fn owner_still_starting_is_never_killed() {
+  // Simula un dueno que tomo el bloqueo pero todavia no abrio el socket:
+  // detenido y sin la marca `ready`.
+  let mut starting = Daemon::start();
+  let pid = starting.child.id();
+  signal(pid, "STOP");
+  let dir = starting.runtime_dir.join("ketai");
+  fs::write(dir.join("ketaid.lock"), format!("{pid}\n")).unwrap();
+
+  let status = Command::new(env!("CARGO_BIN_EXE_ketaid"))
+    .env("XDG_RUNTIME_DIR", &starting.runtime_dir)
+    .stderr(Stdio::null())
+    .status()
+    .unwrap();
+  let _ = starting.child.try_wait();
+  let still_alive = alive(pid);
+  signal(pid, "CONT");
+  assert!(!status.success(), "new instance must give up, not take over");
+  assert!(still_alive, "a starting owner must never be signaled");
 }
 
 #[test]

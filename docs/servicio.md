@@ -67,7 +67,12 @@ cuelga, `SIGTERM` nunca llega. Por eso se guarda en tres momentos:
    cambios seguidos se agrupan y se escriben como maximo una vez por segundo.
 3. **Periodicamente mientras reproduce**: la posicion se guarda cada 10
    segundos. En el peor caso, tras un corte se pierden 10 segundos de
-   posicion.
+   posicion. La variable `KETAI_SESSION_SAVE_INTERVAL_MS` cambia este
+   intervalo (se usa en los tests).
+
+`daemon.shutdown` tambien hace el guardado final. Las senales se atienden
+en un thread propio con `sigwait`, asi el guardado final corre en el loop
+central como cualquier otro mensaje.
 
 ### Escritura segura
 
@@ -86,7 +91,14 @@ Si al arrancar `session.json` no se puede leer, se renombra a
   volumen, los modos y la salida.
 - La reproduccion **queda en pausa** en la posicion guardada, aunque al
   apagar estuviera sonando. Asi el audio nunca arranca solo al iniciar la
-  sesion; el usuario retoma con `player.play`.
+  sesion; el usuario retoma con `player.play`. Si al apagar estaba detenida
+  (`stopped`), queda detenida con la misma pista seleccionada.
+- La restauracion lee los metadatos fuera del loop central, asi el daemon
+  responde `daemon.hello` desde el primer momento. Mientras tanto, las
+  peticiones `player.*` y `queue.*` esperan y se ejecutan apenas termina,
+  de modo que siempre ven la sesion restaurada.
+- Mientras se restaura no se guarda nada, para no pisar la sesion que se
+  esta leyendo.
 - Si la salida guardada ya no existe, se usa el default del sistema.
 - Si un archivo de la cola ya no existe, esa pista se quita de la cola. Si
   era la pista actual, la sesion queda en la siguiente pista disponible, en

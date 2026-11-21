@@ -9,6 +9,7 @@
 mod instance;
 mod player;
 mod server;
+mod session;
 
 use std::process::ExitCode;
 

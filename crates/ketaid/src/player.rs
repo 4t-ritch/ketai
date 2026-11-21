@@ -20,7 +20,10 @@ use ketai_core::{
 use ketai_protocol::{ErrorReply, Request, codes};
 use serde_json::{Map, Value, json};
 
-use crate::server::{ClientId, Message};
+use crate::{
+  server::{ClientId, Message},
+  session::Saved,
+};
 
 /// Intervalo minimo entre eventos `player.position`.
 const POSITION_EVENT_INTERVAL_MS: u128 = 1000;
@@ -53,13 +56,17 @@ pub struct Resolved {
   tracks: Result<Vec<Track>, ErrorReply>,
 }
 
+/// Resultado de restaurar la sesion guardada.
+pub struct Restored {
+  saved: Saved,
+  /// Una entrada por URI guardada; `None` si ya no se puede reproducir.
+  tracks: Vec<Option<Track>>,
+}
+
 /// Trabajo pendiente para el thread de metadatos.
-struct ResolveJob {
-  client: ClientId,
-  request_id: u64,
-  position: Option<usize>,
-  uris: Vec<String>,
-  first_id: u64,
+enum ResolveJob {
+  Add { client: ClientId, request_id: u64, position: Option<usize>, uris: Vec<String>, first_id: u64 },
+  Restore { saved: Saved, first_id: u64 },
 }
 
 pub struct PlayerService {
@@ -84,6 +91,9 @@ pub struct PlayerService {
   consecutive_failures: usize,
   /// Ultimo estado informado a los suscriptores, para detectar cambios.
   published: Published,
+  /// Se esta restaurando la sesion guardada: las peticiones de reproductor y
+  /// cola esperan, y no se guarda nada (pisaria la sesion a restaurar).
+  restoring: bool,
 }
 
 /// Lo ultimo que se publico por eventos.
@@ -114,14 +124,33 @@ impl PlayerService {
     let resolved_tx = tx.clone();
     thread::spawn(move || {
       for job in jobs {
-        // Un archivo malformado puede hacer entrar en panico al decoder. Sin
-        // esto, el thread moriria y ningun queue.add volveria a responder.
-        let tracks = std::panic::catch_unwind(|| resolve(job.request_id, &job.uris, job.first_id))
-          .unwrap_or_else(|_| {
-            Err(ErrorReply::new(Some(job.request_id), 1003, "source unavailable: decoder failure"))
-          });
-        let msg = Resolved { client: job.client, request_id: job.request_id, position: job.position, tracks };
-        if resolved_tx.send(Message::Resolved(msg)).is_err() {
+        let msg = match job {
+          ResolveJob::Add { client, request_id, position, uris, first_id } => {
+            // Un archivo malformado puede hacer entrar en panico al decoder.
+            // Sin esto, el thread moriria y ningun queue.add volveria a
+            // responder.
+            let tracks = std::panic::catch_unwind(|| resolve(request_id, &uris, first_id))
+              .unwrap_or_else(|_| Err(ErrorReply::new(Some(request_id), 1003, "source unavailable: decoder failure")));
+            Message::Resolved(Resolved { client, request_id, position, tracks })
+          }
+          ResolveJob::Restore { saved, first_id } => {
+            // Al restaurar no es todo o nada: cada pista que falla se omite.
+            let tracks = saved
+              .queue
+              .iter()
+              .enumerate()
+              .map(|(n, uri)| {
+                let one = std::slice::from_ref(uri);
+                std::panic::catch_unwind(|| resolve(0, one, first_id + n as u64))
+                  .ok()
+                  .and_then(Result::ok)
+                  .and_then(|mut v| v.pop())
+              })
+              .collect();
+            Message::Restored(Restored { saved, tracks })
+          }
+        };
+        if resolved_tx.send(msg).is_err() {
           return;
         }
       }
@@ -151,9 +180,81 @@ impl PlayerService {
         position_at: Instant::now(),
         force_position: false,
       },
+      restoring: false,
     };
     service.published.state = service.state_without_position();
     service
+  }
+
+  /// Empieza a restaurar una sesion guardada (en el thread de metadatos).
+  pub fn restore(&mut self, saved: Saved) {
+    let first_id = self.next_track_id;
+    self.next_track_id += saved.queue.len() as u64;
+    self.restoring = true;
+    let _ = self.resolver.send(ResolveJob::Restore { saved, first_id });
+  }
+
+  pub fn restoring(&self) -> bool {
+    self.restoring
+  }
+
+  /// Aplica la sesion restaurada. Nunca reproduce: queda en pausa en la
+  /// posicion guardada (o detenida si estaba detenida).
+  pub fn on_restored(&mut self, r: Restored) {
+    self.restoring = false;
+    let saved = r.saved;
+    let mut tracks = Vec::new();
+    // Indice nuevo de la pista actual y si es la misma que la guardada.
+    let mut current: Option<(usize, bool)> = None;
+    for (i, track) in r.tracks.into_iter().enumerate() {
+      let Some(track) = track else { continue };
+      if let Some(saved_cur) = saved.current
+        && current.is_none()
+        && i >= saved_cur
+      {
+        current = Some((tracks.len(), i == saved_cur));
+      }
+      tracks.push(track);
+    }
+    let _ = self.queue.add(tracks, None);
+    self.volume = saved.volume;
+    self.muted = saved.muted;
+    self.apply_volume();
+    self.queue.set_repeat(match saved.repeat.as_str() {
+      "track" => Repeat::Track,
+      "queue" => Repeat::Queue,
+      _ => Repeat::Off,
+    });
+    if let Some((index, same)) = current {
+      let _ = self.queue.jump(index);
+      if saved.status == "stopped" {
+        self.status = Status::Stopped;
+      } else {
+        let start = if same { saved.position_ms } else { 0 };
+        self.load_current_at(false, start);
+      }
+    }
+    self.queue.set_shuffle(saved.shuffle);
+  }
+
+  /// Sesion para guardar en disco, con la posicion actual.
+  pub fn session_json(&self) -> Value {
+    json!({
+      "version": crate::session::VERSION,
+      "queue": self.queue.tracks().iter().map(|t| t.uri.clone()).collect::<Vec<_>>(),
+      "current": self.queue.current(),
+      "position_ms": if self.status == Status::Stopped { 0 } else { self.current_position() },
+      "volume": self.volume,
+      "muted": self.muted,
+      "repeat": repeat_str(self.queue.repeat()),
+      "shuffle": self.queue.shuffle(),
+      "output": Value::Null,
+      "status": self.status.as_str(),
+    })
+  }
+
+  pub fn is_playing(&self) -> bool {
+    self.status == Status::Playing
   }
 
   /// Estado actual para enviar al suscribirse al topico `player`.
@@ -367,6 +468,11 @@ impl PlayerService {
 
   /// Carga la pista seleccionada en el motor desde el principio.
   fn load_current(&mut self, play: bool) {
+    self.load_current_at(play, 0);
+  }
+
+  /// Carga la pista seleccionada en el motor desde `start_ms`.
+  fn load_current_at(&mut self, play: bool, start_ms: u64) {
     let Some(track) = self.queue.current_track() else {
       self.halt();
       return;
@@ -375,10 +481,14 @@ impl PlayerService {
     self.duration_ms = track.info.duration_ms;
     match track.path.clone() {
       Some(path) => {
-        self.engine.send(Command::Load { generation: self.generation, path, start_ms: 0, play });
+        let start_ms = match self.duration_ms {
+          Some(d) => start_ms.min(d),
+          None => start_ms,
+        };
+        self.engine.send(Command::Load { generation: self.generation, path, start_ms, play });
         self.loaded = true;
         self.status = if play { Status::Playing } else { Status::Paused };
-        self.set_position(0);
+        self.set_position(start_ms);
       }
       // Origen remoto: todavia no soportado (T13). Se trata como fallo.
       None => {
@@ -460,7 +570,7 @@ impl PlayerService {
     let first_id = self.next_track_id;
     self.next_track_id += uris.len() as u64;
     // Leer metadatos es I/O de disco: se hace fuera del loop central.
-    let _ = self.resolver.send(ResolveJob { client, request_id: id, position, uris, first_id });
+    let _ = self.resolver.send(ResolveJob::Add { client, request_id: id, position, uris, first_id });
     None
   }
 
@@ -495,11 +605,7 @@ impl PlayerService {
       "position_ms": if self.status == Status::Stopped { 0 } else { self.current_position() },
       "volume": self.volume,
       "muted": self.muted,
-      "repeat": match self.queue.repeat() {
-        Repeat::Off => "off",
-        Repeat::Track => "track",
-        Repeat::Queue => "queue",
-      },
+      "repeat": repeat_str(self.queue.repeat()),
       "shuffle": self.queue.shuffle(),
       "output": Value::Null,
     })
@@ -510,6 +616,14 @@ impl PlayerService {
       "current": self.queue.current(),
       "tracks": self.queue.tracks().iter().map(track_json).collect::<Vec<_>>(),
     })
+  }
+}
+
+fn repeat_str(r: Repeat) -> &'static str {
+  match r {
+    Repeat::Off => "off",
+    Repeat::Track => "track",
+    Repeat::Queue => "queue",
   }
 }
 

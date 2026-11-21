@@ -143,6 +143,8 @@ fn shutdown_replies_exits_and_removes_socket() {
 #[test]
 fn refuses_to_start_without_xdg_runtime_dir() {
   let status = Command::new(env!("CARGO_BIN_EXE_ketaid"))
+    .env("KETAI_AUDIO_BACKEND", "null")
+    .env("XDG_STATE_HOME", std::env::temp_dir().join("ketaid-test-state-never-used"))
     .env_remove("XDG_RUNTIME_DIR")
     .stderr(std::process::Stdio::null())
     .status()

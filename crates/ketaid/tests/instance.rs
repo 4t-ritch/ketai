@@ -15,6 +15,8 @@ use serde_json::json;
 
 fn spawn_in(runtime_dir: &Path) -> std::process::Child {
   Command::new(env!("CARGO_BIN_EXE_ketaid"))
+    .env("KETAI_AUDIO_BACKEND", "null")
+    .env("XDG_STATE_HOME", runtime_dir.join("state"))
     .env("XDG_RUNTIME_DIR", runtime_dir)
     .stdout(Stdio::null())
     .stderr(Stdio::null())
@@ -49,6 +51,8 @@ fn signal(pid: u32, sig: &str) {
 fn second_instance_exits_when_owner_is_healthy() {
   let daemon = Daemon::start();
   let status = Command::new(env!("CARGO_BIN_EXE_ketaid"))
+    .env("KETAI_AUDIO_BACKEND", "null")
+    .env("XDG_STATE_HOME", daemon.runtime_dir.join("state"))
     .env("XDG_RUNTIME_DIR", &daemon.runtime_dir)
     .stderr(Stdio::null())
     .status()
@@ -82,6 +86,8 @@ fn owner_still_starting_is_never_killed() {
   fs::write(dir.join("ketaid.lock"), format!("{pid}\n")).unwrap();
 
   let status = Command::new(env!("CARGO_BIN_EXE_ketaid"))
+    .env("KETAI_AUDIO_BACKEND", "null")
+    .env("XDG_STATE_HOME", starting.runtime_dir.join("state"))
     .env("XDG_RUNTIME_DIR", &starting.runtime_dir)
     .stderr(Stdio::null())
     .status()

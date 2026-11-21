@@ -19,15 +19,19 @@ Runner de tests: `cargo test --workspace`.
 - S5: Eventos: `events.subscribe` / `events.unsubscribe` y eventos de la
   seccion 6.
 - S6: Persistencia de sesion segun `docs/servicio.md`.
-- S7: Dispositivos de salida: `output.list`, `output.set`.
-- S8: Playlists: metodos `playlist.*`, incluido `playlist.transfer`.
-- S9: Letras: `lyrics.layers`, `lyrics.get`, `lyrics.set_offset` y reglas de
-  la seccion 11.
+- S7: Dispositivos de salida: `output.list`, `output.set` y el evento
+  `output.changed` (topico `output`).
+- S8: Playlists: metodos `playlist.*`, incluido `playlist.transfer`, y el
+  evento `playlist.changed` (topico `playlist`).
+- S9: Letras: `lyrics.layers`, `lyrics.get`, `lyrics.set_offset`, reglas de
+  la seccion 11 y el evento `lyrics.changed` (topico `lyrics`).
 - S10: Integracion con systemd: socket activation (`LISTEN_FDS`) y
   `sd_notify` `READY=1`.
 - S11: MPRIS 2 por D-Bus.
 - S12: Canal del visualizador segun la seccion 7.
-- S13: Biblioteca, cache y caratulas: `library.*`, `cache.*`, `track.cover`.
+- S13: Biblioteca, cache y caratulas: `library.*`, `cache.*`, `track.cover`
+  y los eventos `library.progress` (topico `library`) y `download.progress`
+  (topico `cache`).
 
 ## Tasks
 
@@ -38,7 +42,7 @@ Runner de tests: `cargo test --workspace`.
 | T3  | S3    | inline | hecho     | 1224433 + fix 608b06a; verificador independiente: B1 FAIL -> PASS en recheck; 7/7 instance, 13/13 control |
 | T4  | S4    | inline | hecho     | 5af0708 + fix 9e69fae (verificador: B1 FAIL -> PASS); RED: 19/19 fallan; GREEN: 19/19 conformidad + 15 unit (cola, metadatos); suite 64/64 x3; smoke backend real OK |
 | T5  | S5    | inline | hecho     | RED: 11/12 fallan; GREEN: 12/12; suite 81/81 x3 |
-| T6  | S6    | inline | pendiente | |
+| T6  | S6    | inline | hecho     | RED: 11/11 fallan; GREEN: 11/11 + 2 unit; suite 94/94 x3; ~/.local/state real intacto |
 | T7  | S7    | inline | pendiente | |
 | T8  | S8    | inline | pendiente | |
 | T9  | S9    | inline | pendiente | |
@@ -98,4 +102,12 @@ de contexto, asi que no aplica el trigger de writer.
 - L12: T5: el PlayerService compara una foto del estado despues de cada
   mensaje del loop central y genera los eventos; el servidor los reparte por
   topico. La respuesta sale siempre antes que los eventos que provoca.
-- Siguiente paso: T6 (persistencia de sesion).
+- L13 (usuario): "espero que estos pendientes los tengas mapeados para
+  realizarlos" -> los eventos pendientes de T5 quedan como parte explicita
+  de S7 (output.changed), S8 (playlist.changed), S9 (lyrics.changed) y S13
+  (library.progress, download.progress).
+- L14: T6: guardado en un thread propio (tmp + fsync + rename + fsync del
+  directorio); senales con sigwait; restauracion en el thread de metadatos
+  con las peticiones de reproductor/cola en espera. Los tests aislan
+  XDG_STATE_HOME para no tocar el estado real del usuario.
+- Siguiente paso: T7 (dispositivos de salida).

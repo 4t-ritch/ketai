@@ -31,23 +31,39 @@ pub fn temp_runtime_dir() -> PathBuf {
 pub struct Daemon {
   pub child: Child,
   pub runtime_dir: PathBuf,
+  /// Si es false, el directorio sobrevive al Drop (para reiniciar el daemon
+  /// sobre el mismo estado).
+  cleanup: bool,
 }
 
 impl Daemon {
   /// Lanza el daemon con un `XDG_RUNTIME_DIR` aislado y espera el socket.
   pub fn start() -> Self {
-    let runtime_dir = temp_runtime_dir();
+    let mut daemon = Self::start_in(temp_runtime_dir(), &[]);
+    daemon.cleanup = true;
+    daemon
+  }
+
+  /// Lanza el daemon sobre un directorio existente, sin borrarlo al final.
+  /// El estado de sesion va a `<dir>/state`, nunca al del usuario.
+  pub fn start_in(runtime_dir: PathBuf, envs: &[(&str, &str)]) -> Self {
     let child = Command::new(env!("CARGO_BIN_EXE_ketaid"))
       .env("XDG_RUNTIME_DIR", &runtime_dir)
+      .env("XDG_STATE_HOME", runtime_dir.join("state"))
       // Los tests nunca suenan por los parlantes.
       .env("KETAI_AUDIO_BACKEND", "null")
+      .envs(envs.iter().copied())
       .stdout(Stdio::null())
       .stderr(Stdio::null())
       .spawn()
       .expect("spawn ketaid");
-    let daemon = Self { child, runtime_dir };
+    let daemon = Self { child, runtime_dir, cleanup: false };
     daemon.wait_for_socket();
     daemon
+  }
+
+  pub fn session_file(&self) -> PathBuf {
+    self.runtime_dir.join("state").join("ketai").join("session.json")
   }
 
   pub fn socket_path(&self) -> PathBuf {
@@ -86,7 +102,9 @@ impl Drop for Daemon {
   fn drop(&mut self) {
     let _ = self.child.kill();
     let _ = self.child.wait();
-    let _ = std::fs::remove_dir_all(&self.runtime_dir);
+    if self.cleanup {
+      let _ = std::fs::remove_dir_all(&self.runtime_dir);
+    }
   }
 }
 

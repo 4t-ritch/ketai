@@ -11,6 +11,7 @@ use std::{
   path::{Path, PathBuf},
   sync::mpsc::{self, Receiver, Sender},
   thread,
+  time::{Duration, Instant},
 };
 
 use ketai_protocol::{
@@ -21,8 +22,16 @@ use serde_json::{Value, json};
 
 use crate::{
   instance,
-  player::{PlayerService, Resolved},
+  player::{PlayerService, Resolved, Restored},
+  session,
 };
+
+/// Intervalo del pulso periodico del loop central.
+const TICK: Duration = Duration::from_millis(250);
+/// Los cambios se escriben como maximo una vez por este intervalo.
+const SAVE_DEBOUNCE: Duration = Duration::from_secs(1);
+/// Mientras reproduce, la posicion se guarda cada este intervalo.
+const SAVE_INTERVAL_DEFAULT: Duration = Duration::from_secs(10);
 
 pub type ClientId = u64;
 
@@ -37,6 +46,12 @@ pub enum Message {
   Engine(ketai_core::engine::Event),
   /// Resultado diferido de `queue.add`.
   Resolved(Resolved),
+  /// Sesion guardada ya resuelta.
+  Restored(Restored),
+  /// Llego SIGTERM o SIGINT.
+  Signal,
+  /// Pulso periodico para tareas con tiempo (guardado de sesion).
+  Tick,
 }
 
 /// Lo que el loop central debe hacer despues de atender una peticion.
@@ -46,6 +61,14 @@ enum Flow {
 }
 
 pub fn run() -> io::Result<()> {
+  // Las senales se atienden en un thread propio con sigwait. Se bloquean
+  // aca, antes de crear cualquier thread, para que todos hereden la mascara
+  // y ninguno las reciba de forma asincronica.
+  let signals = block_shutdown_signals()?;
+  let (tx, rx) = mpsc::channel();
+  let signal_tx = tx.clone();
+  thread::spawn(move || wait_signals(signals, signal_tx));
+
   let runtime = std::env::var_os("XDG_RUNTIME_DIR")
     .filter(|v| !v.is_empty())
     .map(PathBuf::from)
@@ -66,12 +89,29 @@ pub fn run() -> io::Result<()> {
   // mientras tanto.
   thread::spawn(instance::close_orphans);
 
-  let (tx, rx) = mpsc::channel();
   let accept_tx = tx.clone();
   thread::spawn(move || accept_loop(listener, accept_tx));
+  let tick_tx = tx.clone();
+  thread::spawn(move || {
+    while tick_tx.send(Message::Tick).is_ok() {
+      thread::sleep(TICK);
+    }
+  });
 
-  let player = PlayerService::new(tx.clone());
-  let result = central_loop(rx, player);
+  let mut player = PlayerService::new(tx.clone());
+  let persist = match session::path() {
+    Some(path) => {
+      if let Some(saved) = session::load(&path) {
+        player.restore(saved);
+      }
+      Some(Persist::new(session::Writer::spawn(path), &player))
+    }
+    None => {
+      eprintln!("ketaid: no XDG_STATE_HOME or HOME; session will not be saved");
+      None
+    }
+  };
+  let result = central_loop(rx, player, persist);
   // El socket se borra al salir para que los clientes no vean uno muerto.
   let _ = fs::remove_file(&socket_path);
   result
@@ -185,7 +225,96 @@ struct ClientState {
   topics: HashSet<&'static str>,
 }
 
-fn central_loop(rx: Receiver<Message>, mut player: PlayerService) -> io::Result<()> {
+fn block_shutdown_signals() -> io::Result<libc::sigset_t> {
+  // SAFETY: sigset_t se inicializa con sigemptyset antes de usarse, y
+  // pthread_sigmask solo lee el conjunto.
+  unsafe {
+    let mut set: libc::sigset_t = std::mem::zeroed();
+    libc::sigemptyset(&mut set);
+    libc::sigaddset(&mut set, libc::SIGTERM);
+    libc::sigaddset(&mut set, libc::SIGINT);
+    if libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut()) != 0 {
+      return Err(io::Error::last_os_error());
+    }
+    Ok(set)
+  }
+}
+
+fn wait_signals(set: libc::sigset_t, tx: Sender<Message>) {
+  loop {
+    let mut sig: libc::c_int = 0;
+    // SAFETY: `set` es un conjunto valido y `sig` es un entero propio.
+    if unsafe { libc::sigwait(&set, &mut sig) } == 0 && tx.send(Message::Signal).is_err() {
+      return;
+    }
+  }
+}
+
+/// Cuando y que guardar de la sesion.
+struct Persist {
+  writer: session::Writer,
+  /// Ultima sesion escrita sin la posicion, para detectar cambios.
+  last_key: Value,
+  last_write: Instant,
+  dirty: bool,
+  interval: Duration,
+}
+
+impl Persist {
+  fn new(writer: session::Writer, player: &PlayerService) -> Self {
+    let interval = std::env::var("KETAI_SESSION_SAVE_INTERVAL_MS")
+      .ok()
+      .and_then(|v| v.parse().ok())
+      .map(Duration::from_millis)
+      .unwrap_or(SAVE_INTERVAL_DEFAULT);
+    Self {
+      writer,
+      last_key: key(&player.session_json()),
+      last_write: Instant::now(),
+      dirty: false,
+      interval,
+    }
+  }
+
+  /// Se llama despues de cada mensaje del loop central.
+  fn after_message(&mut self, player: &PlayerService) {
+    // Mientras se restaura, guardar pisaria la sesion que se esta leyendo.
+    if player.restoring() {
+      return;
+    }
+    let session = player.session_json();
+    let k = key(&session);
+    if k != self.last_key {
+      self.last_key = k;
+      self.dirty = true;
+    }
+    let since = self.last_write.elapsed();
+    let periodic = player.is_playing() && since >= self.interval;
+    if (self.dirty && since >= SAVE_DEBOUNCE) || periodic {
+      self.writer.save(session.to_string());
+      self.last_write = Instant::now();
+      self.dirty = false;
+    }
+  }
+
+  /// Guardado final al apagar: espera a que llegue al disco.
+  fn final_save(&self, player: &PlayerService) {
+    if !player.restoring() {
+      self.writer.save_and_wait(player.session_json().to_string(), Duration::from_secs(2));
+    }
+  }
+}
+
+/// La sesion sin la posicion: la posicion sola no cuenta como cambio.
+fn key(session: &Value) -> Value {
+  let mut k = session.clone();
+  if let Some(obj) = k.as_object_mut() {
+    obj.remove("position_ms");
+  }
+  k
+}
+
+fn central_loop(rx: Receiver<Message>, mut player: PlayerService, mut persist: Option<Persist>) -> io::Result<()> {
   let mut clients: HashMap<ClientId, ClientState> = HashMap::new();
 
   for msg in rx {
@@ -203,6 +332,23 @@ fn central_loop(rx: Receiver<Message>, mut player: PlayerService) -> io::Result<
         player.on_engine(event);
         Flow::Continue
       }
+      Message::Tick => Flow::Continue,
+      Message::Signal => Flow::Shutdown,
+      Message::Restored(restored) => {
+        player.on_restored(restored);
+        // Las peticiones que esperaban la restauracion ya pueden seguir.
+        let ids: Vec<ClientId> = clients.iter().filter(|(_, c)| c.blocked).map(|(id, _)| *id).collect();
+        let mut flow = Flow::Continue;
+        for id in ids {
+          if let Some(c) = clients.get_mut(&id) {
+            c.blocked = false;
+          }
+          if let Flow::Shutdown = drain(&mut clients, &mut player, id) {
+            flow = Flow::Shutdown;
+          }
+        }
+        flow
+      }
       Message::Invalid(id, err) => incoming(&mut clients, &mut player, id, Incoming::Invalid(err)),
       Message::Request(id, req) => incoming(&mut clients, &mut player, id, Incoming::Request(req)),
       Message::Resolved(resolved) => {
@@ -218,7 +364,13 @@ fn central_loop(rx: Receiver<Message>, mut player: PlayerService) -> io::Result<
       }
     };
     publish(&clients, &mut player);
+    if let Some(p) = persist.as_mut() {
+      p.after_message(&player);
+    }
     if let Flow::Shutdown = flow {
+      if let Some(p) = &persist {
+        p.final_save(&player);
+      }
       // Al soltar los Sender, cada escritor envia lo pendiente y cierra.
       drop(clients);
       // Pequena espera para que la respuesta salga antes del exit.
@@ -266,6 +418,12 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, player: &mut PlayerServic
         let _ = state.out.send(encode_event(name, data));
       }
       continue;
+    }
+    if player.restoring() && PlayerService::handles(&req.method) {
+      // Hasta que termine la restauracion, para que vea la cola restaurada.
+      state.pending.push_front(Incoming::Request(req));
+      state.blocked = true;
+      return Flow::Continue;
     }
     let (reply, flow) = if PlayerService::handles(&req.method) {
       match player.handle(id, &req) {

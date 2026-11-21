@@ -35,7 +35,7 @@ Runner de tests: `cargo test --workspace`.
 |-----|-------|--------|-----------|--------------------|
 | T1  | S1    | inline | hecho     | 80fd58c; 5 tests del decoder verdes tras mover |
 | T2  | S2    | inline | hecho     | 4371266; RED: 13 fallos sin daemon; GREEN: 13/13 (x5 corridas) |
-| T3  | S3    | inline | hecho     | RED: suite colgada sin T3; GREEN: 6/6 instance + 13/13 control (x4 corridas) |
+| T3  | S3    | inline | hecho     | 1224433 + fix 608b06a; verificador independiente: B1 FAIL -> PASS en recheck; 7/7 instance, 13/13 control |
 | T4  | S4    | inline | pendiente | |
 | T5  | S5    | inline | pendiente | |
 | T6  | S6    | inline | pendiente | |
@@ -64,4 +64,14 @@ de contexto, asi que no aplica el trigger de writer.
   /proc/<pid>/environ). Sin esto, los tests en paralelo se mataban entre si,
   y es la definicion correcta de "misma sesion". Documentado en
   docs/servicio.md.
+- L6: Verificador independiente sobre T3 encontro B1: una instancia nueva
+  podia matar a un dueno sano que estaba arrancando (no respondia hello
+  mientras cerraba huerfanos). Fix 608b06a: socket antes del escaneo, marca
+  `ready` en el lock, solo se senala a un dueno `ready`. Recheck: PASS.
+- L7: Riesgos residuales aceptados (previos al fix):
+  - Un dueno `ready` que tarda mas de 2 s en responder hello se considera
+    colgado. Invariante para T4 en adelante: el loop central nunca bloquea
+    (nada de I/O de audio, disco o red dentro del loop).
+  - El escaneo de huerfanos del dueno puede cerrar a una instancia nueva que
+    todavia esta en `claim`. Solo afecta a la nueva, que igual iba a salir.
 - Siguiente paso: T4 (reproductor y cola).

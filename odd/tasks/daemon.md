@@ -33,8 +33,8 @@ Runner de tests: `cargo test --workspace`.
 
 | ID  | Specs | Ruta   | Estado    | Commit / evidencia |
 |-----|-------|--------|-----------|--------------------|
-| T1  | S1    | inline | pendiente | |
-| T2  | S2    | inline | pendiente | |
+| T1  | S1    | inline | hecho     | 80fd58c; 5 tests del decoder verdes tras mover |
+| T2  | S2    | inline | hecho     | ver commit T2; RED: 13 fallos sin daemon; GREEN: 13/13 (x5 corridas) |
 | T3  | S3    | inline | pendiente | |
 | T4  | S4    | inline | pendiente | |
 | T5  | S5    | inline | pendiente | |
@@ -55,3 +55,9 @@ de contexto, asi que no aplica el trigger de writer.
 - L1 (2026-11-21, usuario): "arranquemos con el daemon"
 - L2: Los tests de conformidad hablan con el daemon solo por el socket, para
   poder correrlos despues contra el core en C.
+- L3: T1 quito tokio y stream-download (no se usaban); vuelven a evaluarse al
+  implementar origenes remotos (T13), con HTTP bloqueante.
+- L4: T2 usa un thread lector y uno escritor por cliente y un loop central
+  unico duenio del estado. El socket viejo se borra al arrancar; T3 lo
+  reemplaza por la revision de instancia unica.
+- Siguiente paso: T3 (instancia unica).

@@ -94,6 +94,8 @@ pub struct PlayerService {
   /// Se esta restaurando la sesion guardada: las peticiones de reproductor y
   /// cola esperan, y no se guarda nada (pisaria la sesion a restaurar).
   restoring: bool,
+  /// Salida elegida (la maneja OutputService); `None` sigue el default.
+  output: Option<String>,
 }
 
 /// Lo ultimo que se publico por eventos.
@@ -181,6 +183,7 @@ impl PlayerService {
         force_position: false,
       },
       restoring: false,
+      output: None,
     };
     service.published.state = service.state_without_position();
     service
@@ -248,9 +251,13 @@ impl PlayerService {
       "muted": self.muted,
       "repeat": repeat_str(self.queue.repeat()),
       "shuffle": self.queue.shuffle(),
-      "output": Value::Null,
+      "output": self.output,
       "status": self.status.as_str(),
     })
+  }
+
+  pub fn set_output(&mut self, output: Option<String>) {
+    self.output = output;
   }
 
   pub fn is_playing(&self) -> bool {
@@ -607,7 +614,7 @@ impl PlayerService {
       "muted": self.muted,
       "repeat": repeat_str(self.queue.repeat()),
       "shuffle": self.queue.shuffle(),
-      "output": Value::Null,
+      "output": self.output,
     })
   }
 

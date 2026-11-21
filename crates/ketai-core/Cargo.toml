@@ -10,3 +10,4 @@ symphonia.workspace = true
 symphonia-adapter-libopus.workspace = true
 symphonia-adapter-fdk-aac.workspace = true
 thiserror.workspace = true
+libpulse-binding = "2.30"

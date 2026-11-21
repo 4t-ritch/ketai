@@ -38,6 +38,7 @@ pub struct Saved {
   pub repeat: String,
   pub shuffle: bool,
   pub status: String,
+  pub output: Option<String>,
 }
 
 /// Lee la sesion. Si no existe devuelve None. Si existe pero no se puede
@@ -86,6 +87,7 @@ fn parse(text: &str) -> Option<Saved> {
     repeat,
     shuffle: v.get("shuffle")?.as_bool()?,
     status: v.get("status").and_then(Value::as_str).unwrap_or("paused").to_string(),
+    output: v.get("output").and_then(Value::as_str).map(str::to_string),
     queue,
   })
 }

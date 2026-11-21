@@ -45,7 +45,7 @@ Runner de tests: `cargo test --workspace`.
 | T4  | S4    | inline | hecho     | 5af0708 + fix 9e69fae (verificador: B1 FAIL -> PASS); RED: 19/19 fallan; GREEN: 19/19 conformidad + 15 unit (cola, metadatos); suite 64/64 x3; smoke backend real OK |
 | T5  | S5    | inline | hecho     | RED: 11/12 fallan; GREEN: 12/12; suite 81/81 x3 |
 | T6  | S6    | inline | hecho     | f96b5f4 + fix seek en pausa (verificador: sin bloqueantes); RED: 11/11 fallan; GREEN: 11/11 + 2 unit; suite 94/94 x3; ~/.local/state real intacto |
-| T7  | S7    | inline | pendiente | |
+| T7  | S7    | inline | hecho     | RED: 6/6 fallan; GREEN: 6/6; suite 101/101 x2; smoke real: bluetooth -> parlantes -> default |
 | T8  | S8    | inline | pendiente | |
 | T9  | S9    | inline | pendiente | |
 | T10 | S10   | inline | pendiente | |
@@ -118,4 +118,10 @@ de contexto, asi que no aplica el trigger de writer.
   Aceptados: un error de lectura transitorio tambien mueve la sesion a
   `.bad` (lo dice el doc); un apagado durante la restauracion no responde a
   las peticiones en espera.
-- Siguiente paso: T7 (dispositivos de salida).
+- L16: T7 usa libpulse (funciona con PipeWire via pipewire-pulse): lista
+  sinks, sigue el default y mueve los streams propios. El stream por el
+  plugin ALSA de PipeWire no publica el PID; se reconoce por node.name
+  `alsa_playback.<binario>`. No se probo un cambio del default del sistema
+  en vivo (habria que tocar la configuracion del usuario); la logica es la
+  misma que la de `output.set null`.
+- Siguiente paso: T8 (playlists).

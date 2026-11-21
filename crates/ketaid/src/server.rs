@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 
 use crate::{
   instance,
+  outputs::OutputService,
   player::{PlayerService, Resolved, Restored},
   session,
 };
@@ -48,6 +49,8 @@ pub enum Message {
   Resolved(Resolved),
   /// Sesion guardada ya resuelta.
   Restored(Restored),
+  /// Evento del control de salidas.
+  Output(ketai_core::output::Event),
   /// Llego SIGTERM o SIGINT.
   Signal,
   /// Pulso periodico para tareas con tiempo (guardado de sesion).
@@ -99,9 +102,11 @@ pub fn run() -> io::Result<()> {
   });
 
   let mut player = PlayerService::new(tx.clone());
+  let mut outputs = OutputService::new(tx.clone());
   let persist = match session::path() {
     Some(path) => {
       if let Some(saved) = session::load(&path) {
+        outputs.restore(saved.output.clone(), &mut player);
         player.restore(saved);
       }
       Some(Persist::new(session::Writer::spawn(path), &player))
@@ -111,7 +116,7 @@ pub fn run() -> io::Result<()> {
       None
     }
   };
-  let result = central_loop(rx, player, persist);
+  let result = central_loop(rx, Services { player, outputs }, persist);
   // El socket se borra al salir para que los clientes no vean uno muerto.
   let _ = fs::remove_file(&socket_path);
   result
@@ -318,7 +323,13 @@ fn key(session: &Value) -> Value {
   k
 }
 
-fn central_loop(rx: Receiver<Message>, mut player: PlayerService, mut persist: Option<Persist>) -> io::Result<()> {
+/// Todo el estado que maneja el loop central.
+struct Services {
+  player: PlayerService,
+  outputs: OutputService,
+}
+
+fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Option<Persist>) -> io::Result<()> {
   let mut clients: HashMap<ClientId, ClientState> = HashMap::new();
 
   for msg in rx {
@@ -333,13 +344,17 @@ fn central_loop(rx: Receiver<Message>, mut player: PlayerService, mut persist: O
         Flow::Continue
       }
       Message::Engine(event) => {
-        player.on_engine(event);
+        services.player.on_engine(event);
         Flow::Continue
       }
       Message::Tick => Flow::Continue,
+      Message::Output(event) => {
+        services.outputs.on_event(event, &mut services.player);
+        Flow::Continue
+      }
       Message::Signal => Flow::Shutdown,
       Message::Restored(restored) => {
-        player.on_restored(restored);
+        services.player.on_restored(restored);
         // Las peticiones que esperaban la restauracion ya pueden seguir.
         let ids: Vec<ClientId> = clients.iter().filter(|(_, c)| c.blocked).map(|(id, _)| *id).collect();
         let mut flow = Flow::Continue;
@@ -347,33 +362,33 @@ fn central_loop(rx: Receiver<Message>, mut player: PlayerService, mut persist: O
           if let Some(c) = clients.get_mut(&id) {
             c.blocked = false;
           }
-          if let Flow::Shutdown = drain(&mut clients, &mut player, id) {
+          if let Flow::Shutdown = drain(&mut clients, &mut services, id) {
             flow = Flow::Shutdown;
           }
         }
         flow
       }
-      Message::Invalid(id, err) => incoming(&mut clients, &mut player, id, Incoming::Invalid(err)),
-      Message::Request(id, req) => incoming(&mut clients, &mut player, id, Incoming::Request(req)),
+      Message::Invalid(id, err) => incoming(&mut clients, &mut services, id, Incoming::Invalid(err)),
+      Message::Request(id, req) => incoming(&mut clients, &mut services, id, Incoming::Request(req)),
       Message::Resolved(resolved) => {
-        let (client, request_id, reply) = player.on_resolved(resolved);
+        let (client, request_id, reply) = services.player.on_resolved(resolved);
         match clients.get_mut(&client) {
           Some(state) => {
             send_reply(&state.out, request_id, reply);
             state.blocked = false;
-            drain(&mut clients, &mut player, client)
+            drain(&mut clients, &mut services, client)
           }
           None => Flow::Continue,
         }
       }
     };
-    publish(&clients, &mut player);
+    publish(&clients, &mut services);
     if let Some(p) = persist.as_mut() {
-      p.after_message(&player);
+      p.after_message(&services.player);
     }
     if let Flow::Shutdown = flow {
       if let Some(p) = &persist {
-        p.final_save(&player);
+        p.final_save(&services.player);
       }
       // Al soltar los Sender, cada escritor envia lo pendiente y cierra.
       drop(clients);
@@ -388,18 +403,18 @@ fn central_loop(rx: Receiver<Message>, mut player: PlayerService, mut persist: O
 /// Encola lo que llego del cliente y procesa lo que se pueda.
 fn incoming(
   clients: &mut HashMap<ClientId, ClientState>,
-  player: &mut PlayerService,
+  services: &mut Services,
   id: ClientId,
   item: Incoming,
 ) -> Flow {
   let Some(state) = clients.get_mut(&id) else { return Flow::Continue };
   state.pending.push_back(item);
-  drain(clients, player, id)
+  drain(clients, services, id)
 }
 
 /// Procesa en orden lo pendiente del cliente hasta que se vacie o una
 /// peticion quede diferida.
-fn drain(clients: &mut HashMap<ClientId, ClientState>, player: &mut PlayerService, id: ClientId) -> Flow {
+fn drain(clients: &mut HashMap<ClientId, ClientState>, services: &mut Services, id: ClientId) -> Flow {
   loop {
     let Some(state) = clients.get_mut(&id) else { return Flow::Continue };
     if state.blocked {
@@ -418,19 +433,24 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, player: &mut PlayerServic
       let subscribed_player = reply.is_ok() && req.method == "events.subscribe" && state.topics.contains("player");
       send_reply(&state.out, req.id, reply);
       if subscribed_player {
-        let (name, data) = player.state_event();
+        let (name, data) = services.player.state_event();
         let _ = state.out.send(encode_event(name, data));
       }
       continue;
     }
-    if player.restoring() && PlayerService::handles(&req.method) {
+    if OutputService::handles(&req.method) {
+      let reply = services.outputs.handle(&req, &mut services.player);
+      send_reply(&state.out, req.id, reply);
+      continue;
+    }
+    if services.player.restoring() && PlayerService::handles(&req.method) {
       // Hasta que termine la restauracion, para que vea la cola restaurada.
       state.pending.push_front(Incoming::Request(req));
       state.blocked = true;
       return Flow::Continue;
     }
     let (reply, flow) = if PlayerService::handles(&req.method) {
-      match player.handle(id, &req) {
+      match services.player.handle(id, &req) {
         Some(reply) => (reply, Flow::Continue),
         None => {
           // La respuesta llega despues como Message::Resolved.
@@ -470,8 +490,14 @@ fn subscription(state: &mut ClientState, req: &Request) -> Result<Value, ErrorRe
 }
 
 /// Envia los eventos pendientes a los clientes suscritos a cada topico.
-fn publish(clients: &HashMap<ClientId, ClientState>, player: &mut PlayerService) {
-  for (topic, name, data) in player.take_events() {
+fn publish(clients: &HashMap<ClientId, ClientState>, services: &mut Services) {
+  if let Some(data) = services.outputs.take_event() {
+    let line = encode_event("output.changed", data);
+    for state in clients.values().filter(|c| c.topics.contains("output")) {
+      let _ = state.out.send(line.clone());
+    }
+  }
+  for (topic, name, data) in services.player.take_events() {
     let line = encode_event(name, data);
     for state in clients.values().filter(|c| c.topics.contains(topic)) {
       let _ = state.out.send(line.clone());

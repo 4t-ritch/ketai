@@ -326,6 +326,26 @@ embebidas en base64.
 
 `null` vuelve a seguir el dispositivo por defecto del sistema.
 
+Reglas:
+
+- Los dispositivos son los sinks del servidor de sonido (PulseAudio, o
+  PipeWire a traves de pipewire-pulse), asi aparecen tambien los de
+  bluetooth. `id` es el nombre del sink y `name` su descripcion.
+- `output.set` con un `id` que no esta en la lista devuelve `1004`; con un
+  valor que no es texto ni `null`, `-32602`.
+- Cambiar de salida mueve el stream de ketai al otro sink; el stream no se
+  reabre.
+- Con `id: null`, ketai sigue el default del sistema: si el default cambia,
+  el stream se mueve solo.
+- Si el dispositivo elegido se desconecta, el audio pasa al default, pero la
+  eleccion se mantiene: al volver a conectarse, el audio vuelve a el.
+- `PlayerState.output` y el campo `active` de `output.changed` son la
+  eleccion del usuario (`null` = siguiendo el default).
+- `output.changed` se emite cuando cambia la lista, el default o la
+  eleccion.
+- Si no hay servidor de sonido disponible, `output.list` devuelve una lista
+  vacia.
+
 ### Eventos
 | Metodo               | Params                            | Resultado |
 |----------------------|-----------------------------------|-----------|

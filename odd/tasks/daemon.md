@@ -50,7 +50,7 @@ Runner de tests: `cargo test --workspace`.
 | T9  | S9    | inline | hecho     | f2b8844 parsers, c8e3e31 capas/armado, slice 3 daemon; RED 9/9 -> GREEN 9/9 + 33 unit; suite 164/164 x3 |
 | T10 | S10   | inline | hecho | 25dd63e RED 2/3 -> GREEN 3/3 |
 | T11 | S11   | inline | hecho | 3777ed9 + fix 9c72637; verificador: (c) FAIL -> PASS en recheck |
-| T12 | S12   | inline | pendiente | |
+| T12 | S12   | inline | hecho | f5f736a + fix af767d2; verificador: (b) fuga -> corregida |
 | T13 | S13   | inline | pendiente | |
 
 Ruta inline en todas: no hay unidades paralelas lanzadas juntas ni backstop
@@ -219,4 +219,15 @@ de contexto, asi que no aplica el trigger de writer.
   al loop central); test de regresion con 2000 llamadas sin respuesta
   (no puede ser RED: la diferencia es memoria). Suite 3/3 (184 tests),
   clippy limpio.
-- Siguiente paso: T12 (canal del visualizador viz.sock).
+- L31 (2026-11-22) Usuario: "dale" (T12). T12 hecho (f5f736a):
+  ketai-core/viz.rs (Ring, Tap con try_lock en el thread de audio,
+  Analyzer con FFT radix-2 propia, 64 bandas log 30 Hz-16 kHz, dB -60..0),
+  ketaid/viz.rs (accept + analizador a 60 fps + escritor por cliente con
+  cola de 2 frames). viz.sock propio 0600 o heredado de systemd (fd 4).
+  Bug en el camino: bandas graves mas angostas que un bin -> bin del
+  centro. Prueba real: fixture 440 Hz -> pico en banda ~424 Hz a -22 dB.
+  Verificador: (a)(c)(d) PASS; (b) fuga: un cliente que se va en pausa
+  dejaba thread + socket hasta volver a sonar. Fix af767d2: el escritor
+  revisa cada 500 ms con recv MSG_PEEK si el cliente cerro; test RED (40
+  reconexiones: fds 7->47) -> GREEN. Suite 3/3 (194 tests).
+- Siguiente paso: T13 (biblioteca, cache, caratulas y eventos library/download).

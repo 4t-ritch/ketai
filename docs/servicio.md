@@ -21,8 +21,15 @@ consume recursos mientras nadie lo usa.
   que le pasa systemd en el orden del `.socket` (primero `ctl.sock`,
   despues `viz.sock`). Si no existe, crea los sockets por su cuenta en
   `$XDG_RUNTIME_DIR/ketai/`.
+  Solo se toman si `LISTEN_PID` es el pid del daemon; si no, se ignoran.
+  Esos sockets son de systemd: el daemon no los borra al salir.
 - **Listo para usar**: envia `READY=1` por `sd_notify` cuando ya acepta
-  conexiones (`Type=notify`).
+  conexiones (`Type=notify`), y `STOPPING=1` al empezar a apagarse. Se
+  implementa sin libsystemd: es un datagrama de texto al socket unix de
+  `NOTIFY_SOCKET` (con `@` al inicio es un socket abstracto).
+- **Instancia manual mas systemd**: si ya corre una instancia manual y
+  systemd levanta otra, la nueva termina sin enviar `READY=1` y systemd la
+  marca como fallida. Conviene usar una sola de las dos formas.
 - **Instancia unica**: si `ctl.sock` ya responde, una segunda instancia
   manual termina con error en lugar de abrir otra salida de audio.
 - **Apagado limpio**: ante `SIGTERM` o `SIGINT` guarda la sesion (ver

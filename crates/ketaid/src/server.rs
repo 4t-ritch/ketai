@@ -21,6 +21,7 @@ use ketai_protocol::{
 use serde_json::{Value, json};
 
 use crate::{
+  systemd,
   instance,
   lyrics::{LyricsService, TrackRef},
   outputs::OutputService,
@@ -70,6 +71,9 @@ enum Flow {
 }
 
 pub fn run() -> io::Result<()> {
+  // Los sockets de systemd se toman antes de crear threads: hay que borrar
+  // variables de entorno.
+  let inherited = systemd::listen_fds();
   // Las senales se atienden en un thread propio con sigwait. Se bloquean
   // aca, antes de crear cualquier thread, para que todos hereden la mascara
   // y ninguno las reciba de forma asincronica.
@@ -92,8 +96,18 @@ pub fn run() -> io::Result<()> {
     instance::Claim::Owner(lock) => lock,
     instance::Claim::AlreadyRunning => return Ok(()),
   };
-  let listener = bind_socket(&socket_path)?;
+  // Con socket activation el socket es de systemd: no se crea ni se borra.
+  let (listener, own_socket) = match inherited {
+    Some(sockets) => {
+      // viz.sock se atiende en T12; hasta entonces se cierra la copia
+      // propia (systemd conserva la suya).
+      drop(sockets.viz);
+      (sockets.ctl, false)
+    }
+    None => (bind_socket(&socket_path)?, true),
+  };
   instance::mark_ready(&lock)?;
+  systemd::notify("READY=1");
   // Los huerfanos se cierran en segundo plano: el daemon ya atiende clientes
   // mientras tanto.
   thread::spawn(instance::close_orphans);
@@ -125,8 +139,12 @@ pub fn run() -> io::Result<()> {
     }
   };
   let result = central_loop(rx, Services { player, outputs, playlists, lyrics }, persist);
-  // El socket se borra al salir para que los clientes no vean uno muerto.
-  let _ = fs::remove_file(&socket_path);
+  systemd::notify("STOPPING=1");
+  // El socket propio se borra al salir para que los clientes no vean uno
+  // muerto.
+  if own_socket {
+    let _ = fs::remove_file(&socket_path);
+  }
   result
 }
 

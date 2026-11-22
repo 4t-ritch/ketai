@@ -48,7 +48,7 @@ Runner de tests: `cargo test --workspace`.
 | T7  | S7    | inline | hecho     | 7e42a6f + 9263b20 (PID); RED: 6/6 fallan; GREEN: 6/6; suite 101/101 x2; smoke real: bluetooth -> parlantes -> default |
 | T8  | S8    | inline | hecho     | c3da656 + fix (verificador: B1 FAIL); RED: 15/15 fallan; GREEN: 15/15 + 7 unit (uri, m3u8); suite 120/120 x3 |
 | T9  | S9    | inline | hecho     | f2b8844 parsers, c8e3e31 capas/armado, slice 3 daemon; RED 9/9 -> GREEN 9/9 + 33 unit; suite 164/164 x3 |
-| T10 | S10   | inline | pendiente | |
+| T10 | S10   | inline | hecho | (ver commit feat(daemon): systemd) RED 2/3 -> GREEN 3/3 |
 | T11 | S11   | inline | pendiente | |
 | T12 | S12   | inline | pendiente | |
 | T13 | S13   | inline | pendiente | |
@@ -164,3 +164,13 @@ de contexto, asi que no aplica el trigger de writer.
   track_id fuera de la cola -> -32602; peticiones lyrics.* esperan la
   restauracion de sesion.
 - Siguiente paso: T10 (systemd: socket activation y sd_notify).
+- L25 (2026-11-22) T10 hecho. Sin libsystemd: `systemd.rs` lee LISTEN_PID/
+  LISTEN_FDS (fd 3 ctl, fd 4 viz, viz se cierra hasta T12), borra las
+  variables, marca CLOEXEC; notify envia READY=1 tras mark_ready y
+  STOPPING=1 al salir. El socket heredado no se borra. Tests: 3 en
+  tests/systemd.rs (sh + LISTEN_PID=$$ simula systemd). Prueba real con
+  systemd-socket-activate: arranque perezoso y respuesta en la conexion que
+  lo disparo. Suite 167/167; una falla intermitente sin identificar en 1 de
+  15 corridas (no se reprodujo en 14, ni bajo carga). Tambien se limpiaron
+  advertencias de clippy en tests propios.
+- Siguiente paso: T11 (MPRIS 2 por D-Bus).

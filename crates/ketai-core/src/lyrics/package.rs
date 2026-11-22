@@ -385,8 +385,8 @@ mod tests {
   #[test]
   fn errors_for_unknown_or_repeated_layers() {
     let o = original_lrc("[00:01.00]a");
-    assert_eq!(build(&[o.clone()], "nope", &[], false, 0), Err(BuildError::UnknownLayer("nope".into())));
-    assert_eq!(build(&[o.clone()], "original", &["zz".into()], false, 0), Err(BuildError::UnknownLayer("zz".into())));
+    assert_eq!(build(std::slice::from_ref(&o), "nope", &[], false, 0), Err(BuildError::UnknownLayer("nope".into())));
+    assert_eq!(build(std::slice::from_ref(&o), "original", &["zz".into()], false, 0), Err(BuildError::UnknownLayer("zz".into())));
     assert_eq!(build(&[o], "original", &["original".into()], false, 0), Err(BuildError::Repeated("original".into())));
   }
 }

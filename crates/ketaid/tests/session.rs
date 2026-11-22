@@ -5,7 +5,7 @@ mod common;
 
 use std::{
   fs,
-  path::PathBuf,
+  path::Path,
   process::Command,
   thread,
   time::{Duration, Instant},
@@ -21,8 +21,8 @@ struct Run {
 }
 
 impl Run {
-  fn start(dir: &PathBuf, envs: &[(&str, &str)]) -> Self {
-    let daemon = Daemon::start_in(dir.clone(), envs);
+  fn start(dir: &Path, envs: &[(&str, &str)]) -> Self {
+    let daemon = Daemon::start_in(dir.to_path_buf(), envs);
     let client = daemon.connect();
     Self { daemon, client, next_id: 1 }
   }
@@ -62,12 +62,12 @@ impl Run {
   }
 }
 
-fn session_json(dir: &PathBuf) -> Value {
+fn session_json(dir: &Path) -> Value {
   let text = fs::read_to_string(dir.join("state/ketai/session.json")).expect("session.json exists");
   serde_json::from_str(&text).expect("valid session json")
 }
 
-fn wait_session(dir: &PathBuf, cond: impl Fn(&Value) -> bool) -> Value {
+fn wait_session(dir: &Path, cond: impl Fn(&Value) -> bool) -> Value {
   let deadline = Instant::now() + Duration::from_secs(5);
   loop {
     if let Ok(text) = fs::read_to_string(dir.join("state/ketai/session.json"))

@@ -11,4 +11,5 @@ libc = "0.2"
 serde_json.workspace = true
 
 [dev-dependencies]
+libc = "0.2"
 serde_json.workspace = true

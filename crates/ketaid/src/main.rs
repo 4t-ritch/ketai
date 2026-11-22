@@ -13,6 +13,7 @@ mod player;
 mod playlists;
 mod server;
 mod session;
+mod systemd;
 
 use std::process::ExitCode;
 

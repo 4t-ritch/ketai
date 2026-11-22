@@ -807,8 +807,3 @@ impl Params<'_> {
   }
 }
 
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-}

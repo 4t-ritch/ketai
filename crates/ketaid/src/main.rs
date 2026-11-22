@@ -8,6 +8,7 @@
 
 mod instance;
 mod lyrics;
+mod mpris;
 mod outputs;
 mod player;
 mod playlists;

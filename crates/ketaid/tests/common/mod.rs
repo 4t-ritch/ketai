@@ -53,6 +53,10 @@ impl Daemon {
       .env("XDG_DATA_HOME", runtime_dir.join("data"))
       // Los tests nunca suenan por los parlantes.
       .env("KETAI_AUDIO_BACKEND", "null")
+      // Nunca el bus de sesion del usuario: un daemon de test no debe
+      // aparecer en su playerctl o waybar. Los tests de MPRIS pasan uno
+      // propio por `envs`.
+      .env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={}", runtime_dir.join("no-bus").display()))
       .envs(envs.iter().copied())
       .stdout(Stdio::null())
       .stderr(Stdio::null())

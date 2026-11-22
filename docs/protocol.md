@@ -470,7 +470,7 @@ del visualizador.
 
 ## 10. Fuera del alcance de v1
 
-- MPRIS (D-Bus) lo expone el daemon en paralelo y sigue la especificacion
+- MPRIS (D-Bus) lo expone el daemon en paralelo (ver `docs/mpris.md`) y sigue la especificacion
   MPRIS 2; no forma parte de este protocolo.
 - Letras desde proveedores online (por ejemplo LRCLIB).
 - Romanizacion automatica y estimacion de tiempos por diccionario:

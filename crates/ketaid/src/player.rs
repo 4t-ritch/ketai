@@ -284,6 +284,11 @@ impl PlayerService {
     self.output = output;
   }
 
+  /// Largo de la cola y pista actual, para saber si hay siguiente.
+  pub fn queue_position(&self) -> (usize, Option<usize>) {
+    (self.queue.tracks().len(), self.queue.current())
+  }
+
   pub fn is_playing(&self) -> bool {
     self.status == Status::Playing
   }

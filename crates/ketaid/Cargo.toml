@@ -7,9 +7,12 @@ license.workspace = true
 [dependencies]
 ketai-core.workspace = true
 ketai-protocol.workspace = true
+dbus = "0.9"
+dbus-crossroads = "0.5"
 libc = "0.2"
 serde_json.workspace = true
 
 [dev-dependencies]
+dbus = "0.9"
 libc = "0.2"
 serde_json.workspace = true

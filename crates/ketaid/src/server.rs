@@ -27,6 +27,7 @@ use crate::{
   systemd,
   instance,
   lyrics::{LyricsService, TrackRef},
+  mpris::MprisService,
   outputs::OutputService,
   playlists::PlaylistService,
   player::{PlayerService, Resolved, Restored},
@@ -65,6 +66,8 @@ pub enum Message {
   Signal,
   /// Pulso periodico para tareas con tiempo (guardado de sesion).
   Tick,
+  /// Pedido que llego por MPRIS (D-Bus), ya traducido al protocolo.
+  Mpris(Request),
 }
 
 /// Lo que el loop central debe hacer despues de atender una peticion.
@@ -139,6 +142,7 @@ pub fn run() -> io::Result<()> {
   let mut outputs = OutputService::new(tx.clone());
   let playlists = PlaylistService::new(tx.clone(), player.track_ids());
   let lyrics = LyricsService::new(tx.clone());
+  let mpris = MprisService::new(tx.clone());
   let persist = match session::path() {
     Some(path) => {
       if let Some(saved) = session::load(&path) {
@@ -152,7 +156,7 @@ pub fn run() -> io::Result<()> {
       None
     }
   };
-  let result = central_loop(rx, Services { player, outputs, playlists, lyrics }, persist);
+  let result = central_loop(rx, Services { player, outputs, playlists, lyrics, mpris }, persist);
   systemd::notify("STOPPING=1");
   // El socket propio se borra al salir para que los clientes no vean uno
   // muerto.
@@ -439,6 +443,7 @@ struct Services {
   outputs: OutputService,
   playlists: PlaylistService,
   lyrics: LyricsService,
+  mpris: MprisService,
 }
 
 fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Option<Persist>) -> io::Result<()> {
@@ -507,6 +512,17 @@ fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Opti
       }
       Message::Invalid(id, err) => incoming(&mut clients, &mut services, id, Incoming::Invalid(err)),
       Message::Request(id, req) => incoming(&mut clients, &mut services, id, Incoming::Request(req)),
+      Message::Mpris(req) => {
+        // Durante la restauracion se descarta: un pedido de las teclas
+        // multimedia no puede esperar a ningun cliente.
+        if PlayerService::handles(&req.method) && !services.player.restoring() {
+          let reply = services.player.handle(MPRIS_CLIENT, &req);
+          if matches!(reply, Some(Ok(_))) && is_seek(&req.method) {
+            services.mpris.note_seeked();
+          }
+        }
+        Flow::Continue
+      }
       Message::Resolved(resolved) => {
         let (client, request_id, reply) = services.player.on_resolved(resolved);
         match clients.get_mut(&client) {
@@ -616,7 +632,12 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, services: &mut Services, 
     }
     let (reply, flow) = if PlayerService::handles(&req.method) {
       match services.player.handle(id, &req) {
-        Some(reply) => (reply, Flow::Continue),
+        Some(reply) => {
+          if reply.is_ok() && is_seek(&req.method) {
+            services.mpris.note_seeked();
+          }
+          (reply, Flow::Continue)
+        }
         None => {
           // La respuesta llega despues como Message::Resolved.
           state.blocked = true;
@@ -655,7 +676,17 @@ fn subscription(state: &mut ClientState, req: &Request) -> Result<Value, ErrorRe
 }
 
 /// Envia los eventos pendientes a los clientes suscritos a cada topico.
+/// Id de "cliente" para los pedidos de MPRIS. Los clientes reales empiezan
+/// en 1, asi que una respuesta diferida para este id simplemente se descarta.
+const MPRIS_CLIENT: ClientId = 0;
+
+fn is_seek(method: &str) -> bool {
+  method == "player.seek" || method == "player.seek_relative"
+}
+
 fn publish(clients: &HashMap<ClientId, ClientState>, services: &mut Services) {
+  let (len, current) = services.player.queue_position();
+  services.mpris.update(&services.player.state_event().1, len, current);
   for track_id in services.lyrics.take_changed() {
     let line = encode_event("lyrics.changed", json!({"track_id": track_id}));
     for state in clients.values().filter(|c| c.topics.contains("lyrics")) {

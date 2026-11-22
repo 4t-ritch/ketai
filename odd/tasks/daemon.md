@@ -180,4 +180,10 @@ de contexto, asi que no aplica el trigger de writer.
   identifica cada socket por su posicion (viz nunca pasa a ctl). Test nuevo
   a_missing_first_socket_never_turns_viz_into_ctl (RED -> GREEN). 30/30
   corridas limpias.
+- L27 (2026-11-22) Usuario: "si" (implementar que el modo manual ceda a
+  systemd). Antes, un ketaid manual con ketaid.socket activo borraba el
+  socket de systemd. Ahora, con el bloqueo tomado, si ctl.sock acepta
+  conexiones es de systemd: no se toca, esa conexion lo activa y la manual
+  sale con 0. Test manual_start_yields_to_a_live_systemd_socket (RED ->
+  GREEN); prueba real con systemd-socket-activate ok. Suite 169/169.
 - Siguiente paso: T11 (MPRIS 2 por D-Bus).

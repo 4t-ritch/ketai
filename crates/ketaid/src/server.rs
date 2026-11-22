@@ -104,7 +104,18 @@ pub fn run() -> io::Result<()> {
       drop(sockets.viz);
       (sockets.ctl, false)
     }
-    None => (bind_socket(&socket_path)?, true),
+    None => {
+      // Tenemos el bloqueo, asi que ningun ketaid atiende ctl.sock. Si
+      // igual acepta conexiones, es el socket de systemd (ketaid.socket):
+      // no se toca. Esta misma conexion hace que systemd arranque el
+      // daemon, y esta instancia le cede el lugar.
+      if UnixStream::connect(&socket_path).is_ok() {
+        eprintln!("ketaid: ctl.sock belongs to systemd (ketaid.socket); the daemon runs under systemd");
+        drop(lock);
+        return Ok(());
+      }
+      (bind_socket(&socket_path)?, true)
+    }
   };
   instance::mark_ready(&lock)?;
   systemd::notify("READY=1");

@@ -196,3 +196,32 @@ fn a_missing_first_socket_never_turns_viz_into_ctl() {
   let r = hello(&ctl_path);
   assert!(r.get("result").is_some(), "{r}");
 }
+
+#[test]
+fn manual_start_yields_to_a_live_systemd_socket() {
+  // ketaid.socket activo y el daemon todavia sin arrancar: el socket existe
+  // y acepta conexiones, pero nadie tiene el bloqueo.
+  let dir = temp_runtime_dir();
+  let ketai = dir.join("ketai");
+  fs::create_dir_all(&ketai).unwrap();
+  let ctl_path = ketai.join("ctl.sock");
+  let systemd_socket = UnixListener::bind(&ctl_path).unwrap();
+
+  let mut cmd = base_command(&dir);
+  cmd.arg("-c").arg("exec \"$0\"").arg(env!("CARGO_BIN_EXE_ketaid"));
+  let mut child = cmd.spawn().unwrap();
+  let exited = wait_exit(&mut child, Duration::from_secs(5));
+  let status = child.try_wait().unwrap();
+  let _d = Activated { child, dir: dir.clone() };
+
+  assert!(exited, "manual instance must exit and leave the socket to systemd");
+  assert!(status.is_some_and(|s| s.success()));
+  // El socket sigue siendo el de systemd: su listener todavia recibe.
+  systemd_socket.set_nonblocking(true).unwrap();
+  let _probe = std::os::unix::net::UnixStream::connect(&ctl_path).expect("systemd socket still reachable");
+  let mut got = 0;
+  while systemd_socket.accept().is_ok() {
+    got += 1;
+  }
+  assert!(got >= 1);
+}

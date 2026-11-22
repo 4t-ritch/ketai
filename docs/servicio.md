@@ -27,9 +27,19 @@ consume recursos mientras nadie lo usa.
   conexiones (`Type=notify`), y `STOPPING=1` al empezar a apagarse. Se
   implementa sin libsystemd: es un datagrama de texto al socket unix de
   `NOTIFY_SOCKET` (con `@` al inicio es un socket abstracto).
-- **Instancia manual mas systemd**: si ya corre una instancia manual y
-  systemd levanta otra, la nueva termina sin enviar `READY=1` y systemd la
-  marca como fallida. Conviene usar una sola de las dos formas.
+- **systemd es la forma recomendada**: supervisa, reinicia ante fallas,
+  apaga bien al cerrar sesion (la sesion siempre se guarda) y arranca el
+  daemon recien cuando un cliente lo necesita. El modo manual queda para
+  desarrollo y para sistemas sin systemd.
+- **El modo manual le cede el lugar a systemd**: si un `ketaid` manual
+  encuentra un `ctl.sock` que acepta conexiones sin que ningun ketaid tenga
+  el bloqueo, ese socket es de `ketaid.socket`. No lo borra: esa conexion
+  hace que systemd arranque el daemon, y la instancia manual sale con
+  codigo 0. Un `ctl.sock` que no acepta conexiones es de una ejecucion
+  anterior y se reemplaza.
+- **Boton de inicio de los clientes**: si la unidad esta instalada, usa
+  `systemctl --user start ketaid.socket`; solo si no lo esta lanza
+  `ketaid` directo.
 - **Instancia unica**: si `ctl.sock` ya responde, una segunda instancia
   manual termina con error en lugar de abrir otra salida de audio.
 - **Apagado limpio**: ante `SIGTERM` o `SIGINT` guarda la sesion (ver

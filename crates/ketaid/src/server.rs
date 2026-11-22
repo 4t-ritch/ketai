@@ -661,7 +661,11 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, services: &mut Services, 
       return Flow::Continue;
     }
     if LibraryService::handles(&req.method) {
-      let track = if LibraryService::needs_track(&req.method) {
+      let by_uri = req.params.get("track_id").is_none().then(|| req.params.get("uri").and_then(Value::as_str)).flatten();
+      let track = if let (true, Some(uri)) = (LibraryService::needs_track(&req.method), by_uri) {
+        // Pista fuera de la cola (playlist, busqueda): se identifica por URI.
+        Some(LibTrack { id: crate::library::uri_cover_id(uri), path: ketai_core::uri::file_uri_to_path(uri) })
+      } else if LibraryService::needs_track(&req.method) {
         let found = LyricsService::track_id(&req).and_then(|tid| {
           services.player.find_track(&tid).map(|(_, path)| LibTrack { id: tid.clone(), path }).ok_or_else(|| {
             ErrorReply::new(Some(req.id), codes::INVALID_PARAMS, format!("unknown track_id: {tid}"))

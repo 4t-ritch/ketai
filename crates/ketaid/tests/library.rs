@@ -246,3 +246,23 @@ fn a_planted_link_in_place_of_a_cover_is_not_followed() {
   let _ = s.raw("track.cover", json!({"track_id": id}));
   assert_eq!(fs::read(&victim).unwrap(), b"original");
 }
+
+#[test]
+fn cover_by_uri_for_tracks_outside_the_queue() {
+  let mut s = S::new();
+  let tagged = s.put("tagged_cover.mp3", "x/red song.mp3");
+  let uri = format!("file://{}", tagged.display()).replace(' ', "%20");
+  let cover = s.ok("track.cover", json!({"uri": uri}));
+  assert_eq!(cover["mime"], "image/png");
+  let path = PathBuf::from(cover["path"].as_str().unwrap());
+  assert!(path.starts_with(s.dir.join("ketai/covers")), "{}", path.display());
+  assert!(path.file_name().unwrap().to_str().unwrap().starts_with("u_"));
+  assert_eq!(&fs::read(&path).unwrap()[..4], b"\x89PNG");
+  // El mismo archivo siempre da la misma ruta.
+  assert_eq!(s.ok("track.cover", json!({"uri": uri}))["path"], cover["path"]);
+  // Sin caratula, inexistente o remoto: null.
+  let plain = s.put("opus.ogg", "x/plain.ogg");
+  assert_eq!(s.ok("track.cover", json!({"uri": format!("file://{}", plain.display())})), Value::Null);
+  assert_eq!(s.ok("track.cover", json!({"uri": "file:///nope/missing.ogg"})), Value::Null);
+  assert_eq!(s.ok("track.cover", json!({"uri": "https://example.com/a.ogg"})), Value::Null);
+}

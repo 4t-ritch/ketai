@@ -353,6 +353,7 @@ Ver la seccion 4 para los tipos y la seccion 11 para las reglas.
 | Metodo        | Params                   | Resultado |
 |---------------|--------------------------|-----------|
 | `track.cover` | `{"track_id": "t_9f2c"}` | `{"path": "/run/user/1000/ketai/covers/t_9f2c.jpg", "mime": "image/jpeg"}` |
+| `track.cover` | `{"uri": "file:///music/song.flac"}` | igual; el archivo se llama `u_<hash>` |
 
 Las caratulas se escriben en disco y se devuelve la ruta; nunca se envian
 embebidas en base64.
@@ -375,7 +376,11 @@ Reglas de biblioteca, caratulas y cache (v1, solo archivos locales):
   `""` devuelve todo. `limit` (por defecto 50) debe ser un entero positivo.
   Los resultados van ordenados por ruta y su `id` es `null`: no son pistas
   de la cola (se agregan con `queue.add` usando su `uri`).
-- `track.cover` recibe un `track_id` de la cola (`-32602` si no existe).
+- `track.cover` recibe un `track_id` de la cola (`-32602` si no existe) o,
+  para pistas que no estan en la cola (playlists, resultados de busqueda),
+  una `uri` local. Si vienen los dos, se usa `track_id`. Con `uri`, el
+  archivo se llama `u_<hash de la uri>` y es siempre el mismo para la misma
+  URI; una URI remota o un archivo inexistente devuelven `null`.
   Usa la imagen embebida (preferentemente la de tapa) y si no hay, una
   imagen de la carpeta: `cover`, `folder`, `front` o `album`, con
   extension `jpg`, `jpeg`, `png` o `webp`, sin distinguir mayusculas. Se

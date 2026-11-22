@@ -168,7 +168,7 @@ impl Worker {
         Ok(json!({"tracks": tracks}))
       }
       "track.cover" => {
-        let track = track.ok_or_else(|| invalid("track_id is required"))?;
+        let track = track.ok_or_else(|| invalid("track_id or uri is required"))?;
         // Pistas remotas: todavia no tienen caratula.
         let Some(path) = &track.path else { return Ok(Value::Null) };
         let Some(cover) = metadata::cover(path) else { return Ok(Value::Null) };
@@ -318,6 +318,17 @@ fn load_index(path: &Path) -> Vec<Entry> {
         .collect()
     })
     .unwrap_or_default()
+}
+
+/// Nombre de archivo de la caratula de una pista pedida por URI:
+/// `u_<hash>`, siempre el mismo para la misma URI (FNV-1a de 64 bits).
+pub fn uri_cover_id(uri: &str) -> String {
+  let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+  for b in uri.bytes() {
+    h ^= b as u64;
+    h = h.wrapping_mul(0x0100_0000_01b3);
+  }
+  format!("u_{h:016x}")
 }
 
 /// Escribe la caratula en `$XDG_RUNTIME_DIR/ketai/covers/<track_id>.<ext>`

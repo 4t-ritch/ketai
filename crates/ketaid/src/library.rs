@@ -9,7 +9,7 @@
 use std::{
   fs,
   io::Write,
-  os::unix::fs::{DirBuilderExt, OpenOptionsExt},
+  os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
   path::{Path, PathBuf},
   sync::mpsc::{self, Sender},
   thread,
@@ -84,7 +84,10 @@ impl LibraryService {
               }
             }
             Job::Indexed { job, root, entries, total } => {
-              worker.replace(&root, entries);
+              // Si fallara, el worker sigue vivo para atender pedidos.
+              if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.replace(&root, entries))).is_err() {
+                eprintln!("ketaid: library index update failed");
+              }
               // El ultimo progreso sale despues de actualizar el indice: quien
               // busque al verlo ya encuentra las pistas nuevas.
               let _ = tx.send(Message::LibraryProgress(Progress { job, done: total, total }));
@@ -180,7 +183,10 @@ impl Worker {
         Ok(json!({"path": dir, "size_bytes": size, "entries": entries, "limit_bytes": CACHE_LIMIT_BYTES}))
       }
       "cache.clear" => {
-        let freed = cache_dir().map(|d| clear_dir(&d)).unwrap_or(0);
+        // Si la carpeta de cache es un enlace, no se borra lo que hay del
+        // otro lado.
+        let dir = cache_dir().filter(|d| !fs::symlink_metadata(d).is_ok_and(|m| m.file_type().is_symlink()));
+        let freed = dir.map(|d| clear_dir(&d)).unwrap_or(0);
         Ok(json!({"freed_bytes": freed}))
       }
       _ => Err(ErrorReply::new(Some(id), codes::METHOD_NOT_FOUND, "method not found")),
@@ -200,7 +206,10 @@ impl Worker {
       let mut entries = Vec::new();
       for (i, path) in files.into_iter().enumerate() {
         // Un archivo que no se puede reproducir no entra al indice.
-        if let Ok(info) = metadata::probe(&path) {
+        // Un archivo que hace fallar al decoder se salta: el escaneo siempre
+        // termina y siempre llega el progreso final.
+        let probed = std::panic::catch_unwind(|| metadata::probe(&path));
+        if let Ok(Ok(info)) = probed {
           entries.push(Entry { path, info });
         }
         let done = i as u64 + 1;
@@ -317,6 +326,7 @@ fn write_cover(track_id: &str, cover: &metadata::Cover) -> std::io::Result<PathB
   let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).ok_or_else(|| std::io::Error::other("XDG_RUNTIME_DIR is not set"))?;
   let dir = runtime.join("ketai").join("covers");
   fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+  fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
   let ext = match cover.mime.as_str() {
     "image/png" => "png",
     "image/webp" => "webp",
@@ -327,7 +337,9 @@ fn write_cover(track_id: &str, cover: &metadata::Cover) -> std::io::Result<PathB
   // para que nunca salga de la carpeta.
   let name: String = track_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
   let path = dir.join(format!("{name}.{ext}"));
-  let mut f = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&path)?;
+  // O_NOFOLLOW: un enlace puesto en lugar de la caratula no se sigue.
+  let mut f =
+    fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).custom_flags(libc::O_NOFOLLOW).open(&path)?;
   f.write_all(&cover.data)?;
   Ok(path)
 }
@@ -360,5 +372,6 @@ fn clear_dir(dir: &Path) -> u64 {
     let path = e.path();
     let _ = if e.file_type().is_ok_and(|k| k.is_dir()) { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
   }
-  size - dir_usage(dir).0
+  // Puede crecer mientras se borra: nunca un numero negativo.
+  size.saturating_sub(dir_usage(dir).0)
 }

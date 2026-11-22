@@ -220,3 +220,29 @@ fn cache_info_and_clear() {
   assert_eq!(s.ok("cache.info", json!({}))["entries"], 0);
   assert!(cache.exists(), "the cache folder itself stays");
 }
+
+#[test]
+fn cache_clear_never_follows_a_linked_cache_folder() {
+  let mut s = S::new();
+  let outside = s.dir.join("precious");
+  fs::create_dir_all(&outside).unwrap();
+  fs::write(outside.join("keep.txt"), b"keep").unwrap();
+  fs::create_dir_all(s.dir.join("cache")).unwrap();
+  std::os::unix::fs::symlink(&outside, s.dir.join("cache/ketai")).unwrap();
+  assert_eq!(s.ok("cache.clear", json!({})), json!({"freed_bytes": 0}));
+  assert!(outside.join("keep.txt").exists(), "files behind a linked cache folder must survive");
+}
+
+#[test]
+fn a_planted_link_in_place_of_a_cover_is_not_followed() {
+  let mut s = S::new();
+  let tagged = s.put("tagged_cover.mp3", "a/red.mp3");
+  let id = s.add(&tagged);
+  let victim = s.dir.join("victim.txt");
+  fs::write(&victim, b"original").unwrap();
+  let covers = s.dir.join("ketai/covers");
+  fs::create_dir_all(&covers).unwrap();
+  std::os::unix::fs::symlink(&victim, covers.join(format!("{id}.png"))).unwrap();
+  let _ = s.raw("track.cover", json!({"track_id": id}));
+  assert_eq!(fs::read(&victim).unwrap(), b"original");
+}

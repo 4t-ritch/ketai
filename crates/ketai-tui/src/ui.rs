@@ -34,6 +34,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     dim(f, t);
     palette(f, app);
   }
+  if app.devices_open {
+    dim(f, t);
+    devices(f, app);
+  }
 }
 
 /// Atenua todo lo dibujado (fondo de un popup modal).
@@ -54,6 +58,65 @@ fn popup_frame(f: &mut Frame, t: &Theme, area: Rect) {
   use ratatui::widgets::{Block, BorderType, Clear, Widget};
   Clear.render(area, f.buffer_mut());
   Block::bordered().border_type(BorderType::Rounded).border_style(t.accent()).style(Style::new().bg(POPUP)).render(area, f.buffer_mut());
+}
+
+/// Tipo de salida a partir del nombre del sink.
+fn device_kind(id: &str) -> &'static str {
+  if id.starts_with("bluez") {
+    "bluetooth"
+  } else if id.contains("hdmi") {
+    "HDMI"
+  } else {
+    "audio"
+  }
+}
+
+/// Selector de salida (maqueta 6-dispositivos).
+fn devices(f: &mut Frame, app: &App) {
+  let t = &app.theme;
+  let area = f.area();
+  let rows = app.device_rows();
+  let h = (rows.len() as u16 * 3 + 10).min(area.height.saturating_sub(4));
+  let w = 64.min(area.width.saturating_sub(4));
+  let pop = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 3, w, h);
+  popup_frame(f, t, pop);
+  let buf = f.buffer_mut();
+  let x = pop.x + 3;
+  buf.set_string(x, pop.y + 1, "Conectar a un dispositivo", t.title());
+  buf.set_string(pop.x + pop.width.saturating_sub(9), pop.y + 1, "esc ✕", t.faint());
+  let default_name = app.outputs.iter().find(|d| d["is_default"] == true).and_then(|d| d["name"].as_str()).unwrap_or("ninguno");
+  let mut y = pop.y + 3;
+  for (i, (id, name)) in rows.iter().enumerate() {
+    if i == 0 {
+      buf.set_string(x, y, "DISPOSITIVO ACTUAL", t.faint());
+      y += 1;
+    } else if i == 1 {
+      y += 1;
+      buf.set_string(x, y, "OTROS DISPOSITIVOS", t.faint());
+      y += 1;
+    }
+    if y + 2 > pop.y + pop.height - 1 {
+      break;
+    }
+    let sel = i == app.devices_cursor;
+    if sel {
+      buf.set_style(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), 2), Style::new().bg(t.row));
+      buf.set_string(pop.x + 1, y, "▌", t.accent());
+      buf.set_string(pop.x + 1, y + 1, "▌", t.accent());
+    }
+    let (icon, detail) = match id {
+      Some(id) => (if id.starts_with("bluez") { I_HEADPHONES } else { I_DEVICE }, format!("{} · {id}", device_kind(id))),
+      None => (I_DEVICE, format!("sigue al default: {default_name}")),
+    };
+    let style = if i == 0 { t.accent().add_modifier(Modifier::BOLD) } else { t.text() };
+    buf.set_stringn(x, y, format!("{icon}   {name}"), pop.width.saturating_sub(6) as usize, style);
+    buf.set_stringn(x + 5, y + 1, detail, pop.width.saturating_sub(11) as usize, t.faint());
+    y += 3;
+  }
+  if app.outputs.is_empty() {
+    buf.set_string(x, y, if app.outputs_loaded { "No hay servidor de sonido disponible" } else { "Cargando…" }, t.faint());
+  }
+  buf.set_string(x, pop.y + pop.height - 2, "⏎ conectar · ↑↓ elegir · esc cerrar", t.faint());
 }
 
 /// Busqueda rapida (maqueta 3-busqueda-rapida).
@@ -407,6 +470,8 @@ fn lyrics(f: &mut Frame, app: &App, area: Rect) {
 }
 
 const I_LIBRARY: &str = "\u{f02d}";
+const I_HEADPHONES: &str = "\u{f025}";
+const I_DEVICE: &str = "\u{f108}";
 const I_SEARCH: &str = "\u{f002}";
 const I_CLOCK: &str = "\u{f017}";
 
@@ -758,6 +823,12 @@ fn header(f: &mut Frame, app: &App, area: Rect) {
   } else {
     Line::from(vec![Span::styled("● ", Style::new().fg(t.error)), Span::styled("ketaid sin conexión", Style::new().fg(t.error))])
   };
+  let mut spans = Vec::new();
+  if let Some(name) = app.output_name() {
+    spans.push(Span::styled(format!("{I_HEADPHONES} {name}    "), t.dim()));
+  }
+  spans.extend(status.spans);
+  let status = Line::from(spans);
   let w = status.width() as u16;
   if area.width > w + 2 {
     buf.set_line(area.x + area.width - w - 2, area.y + 1, &status, w);

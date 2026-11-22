@@ -123,6 +123,12 @@ pub struct App {
   pub palette_cursor: usize,
   /// Selector de salida de audio abierto.
   pub devices_open: bool,
+  /// `output.list` / `output.changed`: dispositivos del servidor de sonido.
+  pub outputs: Vec<Value>,
+  pub outputs_loaded: bool,
+  /// Eleccion del usuario; `None` sigue el default del sistema.
+  pub output_active: Option<String>,
+  pub devices_cursor: usize,
 }
 
 /// Acciones de la busqueda rapida.
@@ -205,6 +211,10 @@ impl Default for App {
       palette_results: Vec::new(),
       palette_cursor: 0,
       devices_open: false,
+      outputs: Vec::new(),
+      outputs_loaded: false,
+      output_active: None,
+      devices_cursor: 0,
     }
   }
 }
@@ -215,8 +225,15 @@ impl App {
       self.quit = true;
       return Vec::new();
     }
+    if self.devices_open {
+      return self.devices_key(key);
+    }
     if self.palette_open {
       return self.palette_key(key);
+    }
+    let typing = self.tab == Tab::Search && self.search_editing;
+    if key.code == KeyCode::Char('d') && !typing {
+      return self.open_devices();
     }
     let ctrl_k = key.code == KeyCode::Char('k') && key.modifiers.contains(KeyModifiers::CONTROL);
     if ctrl_k || (key.code == KeyCode::Char('/') && self.tab != Tab::Search) {
@@ -446,6 +463,63 @@ impl App {
     }
   }
 
+  /// Opciones del selector de salida: (id, nombre). La actual va primero;
+  /// `None` es seguir el default del sistema.
+  pub fn device_rows(&self) -> Vec<(Option<String>, String)> {
+    let name_of = |id: &str| {
+      self.outputs.iter().find(|d| d["id"] == id).and_then(|d| d["name"].as_str()).unwrap_or(id).to_string()
+    };
+    let default = (None, "Predeterminado del sistema".to_string());
+    let mut rows = Vec::new();
+    match &self.output_active {
+      Some(id) => rows.push((Some(id.clone()), name_of(id))),
+      None => rows.push(default.clone()),
+    }
+    if self.output_active.is_some() {
+      rows.push(default);
+    }
+    for d in &self.outputs {
+      let Some(id) = d["id"].as_str() else { continue };
+      if self.output_active.as_deref() != Some(id) {
+        rows.push((Some(id.to_string()), name_of(id)));
+      }
+    }
+    rows
+  }
+
+  /// Nombre del dispositivo que suena: el elegido o el default.
+  pub fn output_name(&self) -> Option<String> {
+    let found = match &self.output_active {
+      Some(id) => self.outputs.iter().find(|d| d["id"] == id.as_str()),
+      None => self.outputs.iter().find(|d| d["is_default"] == true),
+    };
+    found.and_then(|d| d["name"].as_str()).map(str::to_string).or_else(|| self.output_active.clone())
+  }
+
+  fn open_devices(&mut self) -> Vec<Command> {
+    self.devices_open = true;
+    self.palette_open = false;
+    self.devices_cursor = 0;
+    if self.outputs_loaded { Vec::new() } else { vec![("output.list".into(), json!({}))] }
+  }
+
+  fn devices_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    let rows = self.device_rows();
+    match key.code {
+      KeyCode::Esc | KeyCode::Char('d') | KeyCode::Char('q') => self.devices_open = false,
+      KeyCode::Up | KeyCode::Char('k') => self.devices_cursor = self.devices_cursor.saturating_sub(1),
+      KeyCode::Down | KeyCode::Char('j') => self.devices_cursor = (self.devices_cursor + 1).min(rows.len().saturating_sub(1)),
+      KeyCode::Enter => {
+        self.devices_open = false;
+        if let Some((id, _)) = rows.get(self.devices_cursor) {
+          return vec![("output.set".into(), json!({"id": id}))];
+        }
+      }
+      _ => {}
+    }
+    Vec::new()
+  }
+
   /// Filas de la busqueda rapida: canciones, playlists y acciones.
   pub fn palette_items(&self) -> Vec<PaletteItem> {
     let q = self.palette_query.trim().to_lowercase();
@@ -507,7 +581,7 @@ impl App {
           Some(PaletteItem::Playlist(name)) => {
             return vec![("playlist.load".into(), json!({"name": name, "replace": true})), ("queue.jump".into(), json!({"index": 0}))];
           }
-          Some(PaletteItem::Action(PaletteAction::Devices)) => self.devices_open = true,
+          Some(PaletteItem::Action(PaletteAction::Devices)) => return self.open_devices(),
           Some(PaletteItem::Action(PaletteAction::Lyrics)) => self.tab = Tab::Lyrics,
           Some(PaletteItem::Action(PaletteAction::ScanMusic)) => {
             let home = std::env::var("HOME").unwrap_or_default();
@@ -639,6 +713,7 @@ impl App {
     match msg {
       DaemonMsg::Event { name, data } => match name.as_str() {
         "player.state" => {
+          self.output_active = data["output"].as_str().map(str::to_string);
           self.player = data;
           self.pos_at = Instant::now();
           return self.track_changed();
@@ -652,6 +727,11 @@ impl App {
           self.pos_at = Instant::now();
         }
         "queue.changed" | "track.changed" => return vec![("queue.list".into(), json!({}))],
+        "output.changed" => {
+          self.outputs = data["devices"].as_array().cloned().unwrap_or_default();
+          self.output_active = data["active"].as_str().map(str::to_string);
+          self.outputs_loaded = true;
+        }
         "playlist.changed" => {
           let mut cmds = vec![("playlist.list".into(), json!({}))];
           if let Some(open) = &self.lib_open
@@ -703,6 +783,10 @@ impl App {
             "lyrics.get" => {
               self.lyrics = v;
               self.lyrics_loaded = true;
+            }
+            "output.list" => {
+              self.outputs = v["devices"].as_array().cloned().unwrap_or_default();
+              self.outputs_loaded = true;
             }
             "library.search" => {
               let tracks = v["tracks"].as_array().cloned().unwrap_or_default();

@@ -48,6 +48,7 @@ fn on_connected(client: &mut Option<Client>, app: &mut App, tx: &Sender<Input>) 
   app.screen = Screen::Main;
   send(client, app, "player.state", json!({}));
   send(client, app, "queue.list", json!({}));
+  send(client, app, "output.list", json!({}));
   if let Some(path) = viz::socket_path() {
     let _ = viz::spawn(&path, tx.clone(), Input::Viz);
   }

@@ -55,7 +55,7 @@ Runner de tests: `cargo test --workspace`.
 | T10 | S10   | inline | hecho | 25dd63e RED 2/3 -> GREEN 3/3 |
 | T11 | S11   | inline | hecho | 3777ed9 + fix 9c72637; verificador: (c) FAIL -> PASS en recheck |
 | T12 | S12   | inline | hecho | f5f736a + fix af767d2; verificador: (b) fuga -> corregida |
-| T13 | S13   | inline | en verificacion | (ver L33) |
+| T13 | S13   | inline | hecho | dd5aa52 + df90635 + 70983fa; verificador PASS |
 
 Ruta inline en todas: no hay unidades paralelas lanzadas juntas ni backstop
 de contexto, asi que no aplica el trigger de writer.
@@ -249,4 +249,14 @@ de contexto, asi que no aplica el trigger de writer.
   borra XDG_*_HOME y usa HOME inexistente. Tests: 5 de conformidad (RED ->
   GREEN), unitarios de core. Prueba real: samples/ (3 ogg) escaneo,
   busqueda y caratulas ok.
-- Siguiente paso: verificacion de T13 y cierre del daemon.
+- L34 (2026-11-22) Verificador T13: PASS (a)-(d), 6 notas no bloqueantes,
+  todas corregidas en df90635 (cache con enlace en la raiz no se sigue;
+  caratula con O_NOFOLLOW; saturating_sub; probe con catch_unwind; replace
+  con catch_unwind; covers 0700). Tests RED -> GREEN para los dos de
+  seguridad. Usuario: "dale". Bug encontrado al investigar una falla
+  intermitente de orphan_of_same_session_is_closed (1 de 3 corridas, sin
+  mensaje capturado, 0/15 aislado): un huerfano borraba al salir ctl.sock y
+  viz.sock del dueno nuevo. Fix 70983fa (OwnPath: borra solo si dev+ino
+  coinciden); test extendido RED -> GREEN. Suite 10/10 (205 tests). La causa
+  exacta de aquella falla unica no quedo confirmada; no se repitio.
+- Estado: T1-T13 hechos. Daemon v1 local completo.

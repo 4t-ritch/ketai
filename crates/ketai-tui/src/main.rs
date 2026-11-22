@@ -5,7 +5,7 @@
 //! principal nunca espera a la red ni a systemd.
 
 use std::{
-  io,
+  io::{self, Read, Write},
   sync::mpsc::{self, Sender},
   thread,
   time::{Duration, Instant},
@@ -14,6 +14,7 @@ use std::{
 use ketai_tui::{
   app::{App, Screen},
   client::{self, Client, DaemonMsg},
+  covers, kitty,
   service::{self, Action, Observed},
   ui, viz,
 };
@@ -31,6 +32,50 @@ enum Input {
   ActionDone(Result<(), String>),
   /// Frame de `viz.sock`.
   Viz(Vec<f32>),
+  /// Caratula decodificada (o `None` si no se pudo leer).
+  Cover(String, Option<image::RgbImage>),
+}
+
+/// Pregunta a la terminal si soporta el protocolo de graficos de kitty. La
+/// respuesta llega por la entrada estandar antes que la de DA1.
+fn kitty_supported() -> bool {
+  let mut out = io::stdout();
+  if out.write_all(kitty::QUERY.as_bytes()).and_then(|_| out.flush()).is_err() {
+    return false;
+  }
+  let mut reply = Vec::new();
+  let deadline = Instant::now() + Duration::from_millis(1500);
+  let mut stdin = io::stdin();
+  while Instant::now() < deadline {
+    let mut fds = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
+    // SAFETY: un pollfd valido y una sola entrada.
+    let ready = unsafe { libc::poll(&mut fds, 1, 100) };
+    if ready <= 0 {
+      continue;
+    }
+    let mut chunk = [0u8; 256];
+    match stdin.read(&mut chunk) {
+      Ok(0) | Err(_) => break,
+      Ok(n) => reply.extend_from_slice(&chunk[..n]),
+    }
+    // DA1 termina con "c": la terminal ya contesto todo.
+    if reply.windows(3).any(|w| w == b"\x1b[?") && reply.ends_with(b"c") {
+      break;
+    }
+  }
+  kitty::supported_reply(&reply)
+}
+
+/// Escribe secuencias de la capa de imagenes sin perder el cursor.
+fn emit(seq: &str) {
+  if seq.is_empty() {
+    return;
+  }
+  let mut out = io::stdout();
+  let _ = out.write_all(b"\x1b7");
+  let _ = out.write_all(seq.as_bytes());
+  let _ = out.write_all(b"\x1b8");
+  let _ = out.flush();
 }
 
 /// Envia una peticion y la anota para reconocer su respuesta.
@@ -85,9 +130,22 @@ fn show_service(app: &mut App, tx: &Sender<Input>) {
   spawn_observe(tx);
 }
 
+const NEEDS_KITTY: &str = "ketai necesita una terminal con el protocolo de gráficos de kitty \
+(kitty, Ghostty, WezTerm, Konsole o herdr dentro de una de ellas).\n\
+Para usarlo igual sin carátulas: KETAI_NO_IMAGES=1 ketai";
+
 fn main() -> io::Result<()> {
   let (tx, rx) = mpsc::channel::<Input>();
   let mut app = App::default();
+  let mut terminal = ratatui::init();
+  // La pregunta se hace antes de leer teclas: la respuesta llega por stdin.
+  let no_images = std::env::var_os("KETAI_NO_IMAGES").is_some_and(|v| v == "1");
+  app.images = !no_images && kitty_supported();
+  if !no_images && !app.images {
+    ratatui::restore();
+    eprintln!("{NEEDS_KITTY}");
+    std::process::exit(1);
+  }
   let mut client = connect(&tx);
   if client.is_some() {
     on_connected(&mut client, &mut app, &tx);
@@ -110,11 +168,24 @@ fn main() -> io::Result<()> {
     }
   })?;
 
-  let mut terminal = ratatui::init();
   let mut last_retry = Instant::now();
+  // Imagenes ubicadas en el ultimo cuadro.
+  let mut placed: Vec<kitty::Placement> = Vec::new();
   let result = (|| -> io::Result<()> {
     loop {
       terminal.draw(|f| ui::draw(f, &app))?;
+      if app.images {
+        let frame = ui::take_frame(&app);
+        for uri in frame.wanted {
+          if let (Some((method, params)), Some(c)) = (app.covers.want(&uri), client.as_mut())
+            && let Ok(id) = c.request(&method, params)
+          {
+            app.covers.sent(id, &uri);
+          }
+        }
+        emit(&kitty::update(&placed, &frame.placements));
+        placed = frame.placements;
+      }
       let input = rx.recv_timeout(Duration::from_millis(250)).ok();
 
       // Desde la pantalla de servicio se reintenta conectar cada tanto.
@@ -127,7 +198,9 @@ fn main() -> io::Result<()> {
       }
 
       match input {
-        None | Some(Input::Resize) => {}
+        None => {}
+        // Al cambiar el tamano se vuelven a ubicar todas las imagenes.
+        Some(Input::Resize) => placed.clear(),
         Some(Input::Key(k)) => {
           if let Screen::Service { observed, .. } = &app.screen {
             let observed = observed.clone();
@@ -158,6 +231,15 @@ fn main() -> io::Result<()> {
           client = None;
           show_service(&mut app, &tx);
         }
+        Some(Input::Daemon(DaemonMsg::Reply { id, result })) if app.covers.owns(id) => {
+          if let Some((uri, path)) = app.covers.on_reply(id, result) {
+            let tx = tx.clone();
+            thread::spawn(move || {
+              let _ = tx.send(Input::Cover(uri, covers::decode(&path)));
+            });
+          }
+        }
+        Some(Input::Cover(uri, img)) => emit(&app.covers.decoded(&uri, img)),
         Some(Input::Daemon(msg)) => {
           for (method, params) in app.on_daemon(msg) {
             send(&mut client, &mut app, &method, params);
@@ -186,6 +268,9 @@ fn main() -> io::Result<()> {
       }
     }
   })();
+  if app.images {
+    emit(kitty::DELETE_ALL);
+  }
   ratatui::restore();
   result
 }

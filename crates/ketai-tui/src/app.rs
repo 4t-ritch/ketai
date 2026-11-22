@@ -123,6 +123,9 @@ pub struct App {
   pub palette_cursor: usize,
   /// Selector de salida de audio abierto.
   pub devices_open: bool,
+  /// La terminal muestra imagenes (protocolo kitty).
+  pub images: bool,
+  pub covers: crate::covers::CoverCache,
   /// `output.list` / `output.changed`: dispositivos del servidor de sonido.
   pub outputs: Vec<Value>,
   pub outputs_loaded: bool,
@@ -211,6 +214,8 @@ impl Default for App {
       palette_results: Vec::new(),
       palette_cursor: 0,
       devices_open: false,
+      images: false,
+      covers: Default::default(),
       outputs: Vec::new(),
       outputs_loaded: false,
       output_active: None,

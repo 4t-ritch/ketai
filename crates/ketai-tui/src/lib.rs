@@ -3,6 +3,8 @@
 
 pub mod app;
 pub mod client;
+pub mod covers;
+pub mod kitty;
 pub mod service;
 pub mod theme;
 pub mod ui;

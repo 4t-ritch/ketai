@@ -1,20 +1,25 @@
 //! Dibujo. Cada vista es una funcion pura del estado de la app.
 
 use ratatui::{
-  Frame,
+  Frame as RFrame,
   buffer::Buffer,
   layout::Rect,
   style::{Modifier, Style},
   text::{Line, Span},
 };
 
+use std::cell::RefCell;
+
 use crate::{
+  kitty,
   app::{App, Screen, Tab, fmt_ms},
   service::State,
   theme::Theme,
 };
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut RFrame, app: &App) {
+  SLOTS.with(|s| s.borrow_mut().clear());
+  WANTED.with(|w| w.borrow_mut().clear());
   let t = &app.theme;
   let area = f.area();
   f.buffer_mut().set_style(area, Style::new().bg(t.bg));
@@ -37,29 +42,35 @@ pub fn draw(f: &mut Frame, app: &App) {
   }
   if app.palette_open {
     dim(f, t);
+    begin_overlay();
     palette(f, app);
   }
   if app.devices_open {
     dim(f, t);
+    begin_overlay();
     devices(f, app);
   }
 }
 
 /// Atenua todo lo dibujado (fondo de un popup modal).
-fn dim(f: &mut Frame, t: &Theme) {
+fn dim(f: &mut RFrame, t: &Theme) {
   let black = crate::theme::rgb(0x000000);
   for cell in f.buffer_mut().content.iter_mut() {
     cell.fg = crate::theme::lerp(cell.fg, black, 0.6);
-    let bg = if cell.bg == ratatui::style::Color::Reset { t.bg } else { cell.bg };
-    cell.bg = crate::theme::lerp(bg, black, 0.6);
+    // Las celdas con fondo por defecto son caratulas: se atenua la imagen
+    // (se usa su version oscura), no la celda.
+    if cell.bg != ratatui::style::Color::Reset {
+      cell.bg = crate::theme::lerp(cell.bg, black, 0.6);
+    }
   }
+  let _ = t;
 }
 
 /// Fondo de los popups.
 const POPUP: ratatui::style::Color = crate::theme::rgb(0x0b0f16);
 
 /// Recuadro redondeado con el borde en el color de acento.
-fn popup_frame(f: &mut Frame, t: &Theme, area: Rect) {
+fn popup_frame(f: &mut RFrame, t: &Theme, area: Rect) {
   use ratatui::widgets::{Block, BorderType, Clear, Widget};
   Clear.render(area, f.buffer_mut());
   Block::bordered().border_type(BorderType::Rounded).border_style(t.accent()).style(Style::new().bg(POPUP)).render(area, f.buffer_mut());
@@ -77,7 +88,7 @@ fn device_kind(id: &str) -> &'static str {
 }
 
 /// Selector de salida (maqueta 6-dispositivos).
-fn devices(f: &mut Frame, app: &App) {
+fn devices(f: &mut RFrame, app: &App) {
   let t = &app.theme;
   let area = f.area();
   let rows = app.device_rows();
@@ -125,7 +136,7 @@ fn devices(f: &mut Frame, app: &App) {
 }
 
 /// Busqueda rapida (maqueta 3-busqueda-rapida).
-fn palette(f: &mut Frame, app: &App) {
+fn palette(f: &mut RFrame, app: &App) {
   use crate::app::PaletteItem;
   let t = &app.theme;
   let area = f.area();
@@ -167,7 +178,7 @@ fn palette(f: &mut Frame, app: &App) {
       }
       match item {
         PaletteItem::Song(tr) => {
-          slots.push(Rect::new(x, y, 4, 2));
+          slots.push((Rect::new(x, y, 4, 2), tr["uri"].as_str().map(str::to_string)));
           putn(buf, x + 6, y, track_title(tr), inner_w.saturating_sub(30) as usize, if sel { t.accent().add_modifier(Modifier::BOLD) } else { t.text() });
           putn(buf, x + 6, y + 1, tr["artist"].as_str().unwrap_or(""), inner_w.saturating_sub(30) as usize, t.faint());
           if sel {
@@ -185,8 +196,8 @@ fn palette(f: &mut Frame, app: &App) {
     }
     put(buf, x, pop.y + pop.height - 2, "↑↓ elegir · ⏎ ejecutar · esc cerrar", t.faint());
   }
-  for s in slots {
-    draw_cover_slot(f, t, s);
+  for (s, uri) in slots {
+    draw_cover(f, app, s, uri.as_deref());
   }
 }
 
@@ -255,7 +266,7 @@ fn spectrum(buf: &mut Buffer, t: &Theme, area: Rect, values: &[f32]) {
 }
 
 /// Reproduciendo (maqueta 1-inicio-reproduciendo).
-fn now_playing(f: &mut Frame, app: &App, area: Rect) {
+fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   let t = &app.theme;
   let track = &app.player["track"];
   if !track.is_object() {
@@ -269,7 +280,7 @@ fn now_playing(f: &mut Frame, app: &App, area: Rect) {
   // La caratula ocupa un cuadrado: las celdas miden ~1:2.2.
   let cover_h = top_h.saturating_sub(2).min(24);
   let cover = Rect::new(area.x + 6, area.y + 1, (cover_h as u32 * 2) as u16, cover_h);
-  draw_cover_slot(f, t, cover);
+  draw_cover(f, app, cover, app.player["track"]["uri"].as_str());
   let buf = f.buffer_mut();
   let x = cover.x + cover.width + 6;
   let w = (area.x + area.width).saturating_sub(x + 6);
@@ -400,14 +411,14 @@ fn layer_label(app: &App, id: &str) -> String {
 }
 
 /// Letras (maqueta 2-letras).
-fn lyrics(f: &mut Frame, app: &App, area: Rect) {
+fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
   let t = &app.theme;
   let track = &app.player["track"];
   if !track.is_object() {
     center(f, area.y + area.height / 3, Line::styled("Nada en reproducción", t.title()));
     return;
   }
-  draw_cover_slot(f, t, Rect::new(area.x + 4, area.y + 1, 8, 4));
+  draw_cover(f, app, Rect::new(area.x + 4, area.y + 1, 8, 4), app.player["track"]["uri"].as_str());
   let buf = f.buffer_mut();
   put(buf, area.x + 14, area.y + 2, track_title(track), t.title());
   put(buf, area.x + 14, area.y + 3, track["artist"].as_str().unwrap_or(""), t.dim());
@@ -481,7 +492,7 @@ const I_SEARCH: &str = "\u{f002}";
 const I_CLOCK: &str = "\u{f017}";
 
 /// Columna de playlists (izquierda en Biblioteca y Buscar).
-fn playlists_column(buf: &mut Buffer, app: &App, area: Rect) -> Vec<Rect> {
+fn playlists_column(buf: &mut Buffer, app: &App, area: Rect) -> Vec<(Rect, Option<String>)> {
   let t = &app.theme;
   let x = area.x + 2;
   put(buf, x, area.y, format!("{I_LIBRARY}  Tu biblioteca"), t.title());
@@ -502,7 +513,7 @@ fn playlists_column(buf: &mut Buffer, app: &App, area: Rect) -> Vec<Rect> {
         }
       }
     }
-    slots.push(Rect::new(x, y, 6, 3));
+    slots.push((Rect::new(x, y, 6, 3), playlist_cover(app, p["name"].as_str().unwrap_or(""))));
     let name = p["name"].as_str().unwrap_or("");
     let w = area.width.saturating_sub(11) as usize;
     putn(buf, x + 8, y, name, w, if sel { t.accent().add_modifier(Modifier::BOLD) } else { t.text() });
@@ -516,7 +527,7 @@ fn playlists_column(buf: &mut Buffer, app: &App, area: Rect) -> Vec<Rect> {
 }
 
 /// Columna derecha: lo que suena (como el panel de la opcion A).
-fn now_column(f: &mut Frame, app: &App, area: Rect) {
+fn now_column(f: &mut RFrame, app: &App, area: Rect) {
   let t = &app.theme;
   let track = &app.player["track"];
   let x = area.x + 1;
@@ -527,7 +538,7 @@ fn now_column(f: &mut Frame, app: &App, area: Rect) {
     return;
   }
   let side = w * 10 / 22 + 1;
-  draw_cover_slot(f, t, Rect::new(x, area.y + 2, w, side));
+  draw_cover(f, app, Rect::new(x, area.y + 2, w, side), app.player["track"]["uri"].as_str());
   let buf = f.buffer_mut();
   let y = area.y + 3 + side;
   putn(buf, x, y, track_title(track), w as usize, t.title());
@@ -541,11 +552,11 @@ fn now_column(f: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Barra de reproduccion de abajo, en las vistas de navegacion.
-fn player_bar(f: &mut Frame, app: &App, area: Rect) {
+fn player_bar(f: &mut RFrame, app: &App, area: Rect) {
   let t = &app.theme;
   let track = &app.player["track"];
   if track.is_object() {
-    draw_cover_slot(f, t, Rect::new(area.x + 2, area.y, 6, 3));
+    draw_cover(f, app, Rect::new(area.x + 2, area.y, 6, 3), app.player["track"]["uri"].as_str());
   }
   let buf = f.buffer_mut();
   if track.is_object() {
@@ -575,12 +586,12 @@ fn fmt_total(ms: u64) -> String {
 
 /// Biblioteca: playlists, la playlist abierta y lo que suena (maqueta
 /// 4-biblioteca-playlist).
-fn library(f: &mut Frame, app: &App, area: Rect) {
+fn library(f: &mut RFrame, app: &App, area: Rect) {
   let t = &app.theme;
   let body = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(6));
   let slots = playlists_column(f.buffer_mut(), app, Rect::new(body.x, body.y, 34, body.height));
-  for s in slots {
-    draw_cover_slot(f, t, s);
+  for (s, uri) in slots {
+    draw_cover(f, app, s, uri.as_deref());
   }
   let right_w = 34;
   let center = Rect::new(body.x + 37, body.y, body.width.saturating_sub(37 + right_w + 3), body.height);
@@ -589,7 +600,7 @@ fn library(f: &mut Frame, app: &App, area: Rect) {
 
   let Some(name) = app.lib_open.clone() else { return };
   let tracks = app.playlist["tracks"].as_array().cloned().unwrap_or_default();
-  draw_cover_slot(f, t, Rect::new(center.x, center.y, 20, 9));
+  draw_cover(f, app, Rect::new(center.x, center.y, 20, 9), tracks.first().and_then(|t| t["uri"].as_str()));
   let buf = f.buffer_mut();
   let x = center.x + 23;
   let w = center.width.saturating_sub(23);
@@ -624,15 +635,15 @@ fn library(f: &mut Frame, app: &App, area: Rect) {
       put(buf, center.x, ry + 1, "▌", t.accent());
     }
     put(buf, cols[0], ry, if playing { "▶".to_string() } else { (i + 1).to_string() }, if playing { t.accent() } else { t.faint() });
-    cover_slots.push(Rect::new(cols[1], ry, 4, 2));
+    cover_slots.push((Rect::new(cols[1], ry, 4, 2), tr["uri"].as_str().map(str::to_string)));
     let tw = cols[2].saturating_sub(cols[1] + 7) as usize;
     putn(buf, cols[1] + 6, ry, track_title(tr), tw, if playing { t.accent().add_modifier(Modifier::BOLD) } else { t.text() });
     putn(buf, cols[1] + 6, ry + 1, tr["artist"].as_str().unwrap_or(""), tw, t.faint());
     putn(buf, cols[2], ry, tr["album"].as_str().unwrap_or(""), cols[3].saturating_sub(cols[2] + 2) as usize, t.dim());
     put(buf, cols[3], ry, tr["duration_ms"].as_u64().map(fmt_ms).unwrap_or_default(), t.faint());
   }
-  for s in cover_slots {
-    draw_cover_slot(f, t, s);
+  for (s, uri) in cover_slots {
+    draw_cover(f, app, s, uri.as_deref());
   }
 }
 
@@ -642,12 +653,12 @@ fn uri_path(uri: &str) -> String {
 }
 
 /// Buscar (maqueta 5-buscar).
-fn search(f: &mut Frame, app: &App, area: Rect) {
+fn search(f: &mut RFrame, app: &App, area: Rect) {
   let t = &app.theme;
   let body = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(6));
   let slots = playlists_column(f.buffer_mut(), app, Rect::new(body.x, body.y, 34, body.height));
-  for s in slots {
-    draw_cover_slot(f, t, s);
+  for (s, uri) in slots {
+    draw_cover(f, app, s, uri.as_deref());
   }
   player_bar(f, app, Rect::new(area.x, area.y + area.height - 4, area.width, 3));
   let c = Rect::new(body.x + 37, body.y, body.width.saturating_sub(39), body.height);
@@ -682,7 +693,7 @@ fn search(f: &mut Frame, app: &App, area: Rect) {
   if let (Some(best), false) = (tracks.first(), files_only) {
     // Mejor resultado a la izquierda, canciones a la derecha.
     put(buf, c.x, y, "MEJOR RESULTADO", t.faint());
-    slots.push(Rect::new(c.x, y + 2, 20, 9));
+    slots.push((Rect::new(c.x, y + 2, 20, 9), best["uri"].as_str().map(str::to_string)));
     let title = track_title(best);
     putn(buf, c.x, y + 12, &title, 38, t.title());
     put(buf, c.x, y + 13, "▔".repeat(title.chars().count().min(38)), t.accent());
@@ -703,7 +714,7 @@ fn search(f: &mut Frame, app: &App, area: Rect) {
         put(buf, rx, ry, "▌", t.accent());
         put(buf, rx, ry + 1, "▌", t.accent());
       }
-      slots.push(Rect::new(rx + 2, ry, 4, 2));
+      slots.push((Rect::new(rx + 2, ry, 4, 2), tr["uri"].as_str().map(str::to_string)));
       putn(buf, rx + 8, ry, track_title(tr), rw.saturating_sub(16) as usize, t.text());
       putn(buf, rx + 8, ry + 1, tr["artist"].as_str().unwrap_or(""), rw.saturating_sub(16) as usize, t.faint());
       put(buf, rx + rw.saturating_sub(6), ry, tr["duration_ms"].as_u64().map(fmt_ms).unwrap_or_default(), t.faint());
@@ -727,18 +738,82 @@ fn search(f: &mut Frame, app: &App, area: Rect) {
       put_line(buf, c.x, y + 2 + i as u16, &line, c.width);
     }
   }
-  for s in slots {
-    draw_cover_slot(f, t, s);
+  for (s, uri) in slots {
+    draw_cover(f, app, s, uri.as_deref());
   }
 }
 
-/// Lugar de la caratula. La imagen real la pone la capa de graficos
-/// (protocolo kitty); aca solo se reserva el espacio.
-fn draw_cover_slot(f: &mut Frame, t: &Theme, area: Rect) {
+/// Caratula de la playlist en la columna: la de su primera pista, si es la
+/// playlist abierta (las demas todavia no se pidieron).
+fn playlist_cover(app: &App, name: &str) -> Option<String> {
+  if app.lib_open.as_deref() != Some(name) {
+    return None;
+  }
+  app.playlist["tracks"][0]["uri"].as_str().map(str::to_string)
+}
+
+thread_local! {
+  /// Caratulas del cuadro que se esta dibujando: (celdas, uri, atenuada).
+  static SLOTS: RefCell<Vec<(Rect, String, bool)>> = const { RefCell::new(Vec::new()) };
+  /// Caratulas que todavia no se pidieron.
+  static WANTED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Lo que dejo el ultimo dibujo para la capa de imagenes.
+#[derive(Debug, Default, PartialEq)]
+pub struct Frame {
+  pub placements: Vec<kitty::Placement>,
+  pub wanted: Vec<String>,
+}
+
+/// Ubicaciones y pedidos del ultimo `draw`.
+pub fn take_frame(app: &App) -> Frame {
+  let slots = SLOTS.with(|s| std::mem::take(&mut *s.borrow_mut()));
+  let wanted = WANTED.with(|w| std::mem::take(&mut *w.borrow_mut()));
+  let placements = slots
+    .into_iter()
+    .filter_map(|(area, uri, dimmed)| app.covers.image_for(&uri, dimmed).map(|image| kitty::Placement { image, area }))
+    .collect();
+  Frame { placements, wanted }
+}
+
+/// Lo que ya se dibujo queda detras de un popup: sus caratulas pasan a la
+/// version atenuada. Las del popup, que se dibujan despues, no.
+fn begin_overlay() {
+  SLOTS.with(|s| s.borrow_mut().iter_mut().for_each(|slot| slot.2 = true));
+}
+
+/// Caratula de `uri` en `area`. Con la imagen lista, las celdas quedan con el
+/// fondo por defecto para que la terminal muestre la imagen (protocolo
+/// kitty, ver `kitty.rs`); si no, se ve un lugar reservado.
+fn draw_cover(f: &mut RFrame, app: &App, area: Rect, uri: Option<&str>) {
+  let t = &app.theme;
+  let area = area.intersection(f.area());
+  if area.width == 0 || area.height == 0 {
+    return;
+  }
+  if let (true, Some(uri)) = (app.images, uri) {
+    if app.covers.image_for(uri, false).is_some() {
+      let buf = f.buffer_mut();
+      for y in area.y..area.y + area.height {
+        for x in area.x..area.x + area.width {
+          buf[(x, y)].set_symbol(" ").set_bg(ratatui::style::Color::Reset);
+        }
+      }
+      SLOTS.with(|s| s.borrow_mut().push((area, uri.to_string(), false)));
+      return;
+    }
+    if app.covers.state(uri).is_none() {
+      WANTED.with(|w| {
+        let mut w = w.borrow_mut();
+        if !w.iter().any(|u| u == uri) {
+          w.push(uri.to_string());
+        }
+      });
+    }
+  }
   f.buffer_mut().set_style(area, Style::new().bg(t.raised));
-  let y = area.y + area.height / 2;
-  let x = area.x + area.width / 2;
-  put(f.buffer_mut(), x, y, I_MUSIC, t.faint());
+  put(f.buffer_mut(), area.x + area.width / 2, area.y + area.height / 2, I_MUSIC, t.faint());
 }
 
 /// Escrituras que ignoran lo que cae fuera de la pantalla. Ratatui recorta
@@ -777,7 +852,7 @@ pub fn is_mini(area: Rect) -> bool {
 
 /// Modo mini (maqueta 7-mini): caratula, cancion, linea de letra,
 /// progreso, controles y un espectro chico.
-fn mini(f: &mut Frame, app: &App, area: Rect) {
+fn mini(f: &mut RFrame, app: &App, area: Rect) {
   let t = &app.theme;
   let track = &app.player["track"];
   if !track.is_object() {
@@ -790,7 +865,7 @@ fn mini(f: &mut Frame, app: &App, area: Rect) {
   let cover_w = cover_h * 2;
   let show_cover = area.width >= cover_w + 30 && cover_h >= 3;
   if show_cover {
-    draw_cover_slot(f, t, Rect::new(area.x + 1, area.y + 1, cover_w, cover_h));
+    draw_cover(f, app, Rect::new(area.x + 1, area.y + 1, cover_w, cover_h), app.player["track"]["uri"].as_str());
   }
   let buf = f.buffer_mut();
   let x = if show_cover { area.x + cover_w + 3 } else { area.x + 1 };
@@ -828,7 +903,7 @@ fn mini(f: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Texto centrado en una fila.
-fn center(f: &mut Frame, y: u16, line: Line) {
+fn center(f: &mut RFrame, y: u16, line: Line) {
   let area = f.area();
   let w = line.width() as u16;
   if y < area.height {
@@ -837,7 +912,7 @@ fn center(f: &mut Frame, y: u16, line: Line) {
 }
 
 /// Pantalla cuando no hay daemon (maqueta 8-servicio).
-fn service(f: &mut Frame, t: &Theme, state: State, binary: Option<&str>, message: Option<&str>, busy: bool, confirm: bool) {
+fn service(f: &mut RFrame, t: &Theme, state: State, binary: Option<&str>, message: Option<&str>, busy: bool, confirm: bool) {
   let top = f.area().height.saturating_sub(16) / 2;
   for (i, row) in ["█ █ █▀▀ ▀█▀ ▄▀█ █", "█▀▄ ██▄  █  █▀█ █"].iter().enumerate() {
     center(f, top + i as u16, Line::styled(*row, t.accent().add_modifier(Modifier::BOLD)));
@@ -883,7 +958,7 @@ fn service(f: &mut Frame, t: &Theme, state: State, binary: Option<&str>, message
 }
 
 /// Pestanas a la izquierda; dispositivo y estado del daemon a la derecha.
-fn header(f: &mut Frame, app: &App, area: Rect) {
+fn header(f: &mut RFrame, app: &App, area: Rect) {
   let t = &app.theme;
   let buf = f.buffer_mut();
   let mut x = area.x + 2;

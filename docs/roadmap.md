@@ -4,6 +4,20 @@ Funcionalidades planificadas fuera de la v1.
 
 ## Proxima major update
 
+### Fuentes remotas con descarga a cache
+
+La v1 solo reproduce archivos locales (`file://`). Esta actualizacion agrega
+pistas remotas.
+
+- Fuentes `http(s)://` que apuntan a archivos de audio. Antes de empezar se
+  define si se suma algun otro tipo de fuente.
+- Cliente HTTP con TLS sincronico (por ejemplo `ureq` con `rustls`), en un
+  thread propio, sin async.
+- Descarga a `$XDG_CACHE_HOME/ketai/` con limite de tamano; la reproduccion
+  arranca mientras descarga (`status: "buffering"`).
+- Evento `download.progress` (topico `cache`), ya reservado en el protocolo.
+- Letras y caratulas para pistas remotas.
+
 ### Romanizacion automatica de letras
 
 Generar la letra romanizada cuando el origen no la trae.

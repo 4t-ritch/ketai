@@ -9,7 +9,10 @@ use std::{
     net::{UnixListener, UnixStream},
   },
   path::{Path, PathBuf},
-  sync::mpsc::{self, Receiver, Sender},
+  sync::{
+    Arc, Condvar, Mutex,
+    mpsc::{self, Receiver, Sender},
+  },
   thread,
   time::{Duration, Instant},
 };
@@ -41,7 +44,7 @@ pub type ClientId = u64;
 
 /// Mensajes que llegan al loop central.
 pub enum Message {
-  Connected(ClientId, Sender<String>),
+  Connected(ClientId, Outbox),
   Request(ClientId, Request),
   /// Error de framing o parseo: se responde sin pasar por los handlers.
   Invalid(ClientId, ErrorReply),
@@ -190,26 +193,93 @@ fn spawn_client(id: ClientId, stream: UnixStream, tx: Sender<Message>) {
 
   // Thread escritor: todo lo que se envia al cliente pasa por este canal,
   // asi respuestas y eventos nunca se mezclan a mitad de linea.
-  let (out_tx, out_rx) = mpsc::channel::<String>();
-  thread::spawn(move || writer_loop(write_half, out_rx));
+  let (out_tx, out_rx) = mpsc::channel::<Line>();
+  let credit = Arc::new(Credit::default());
+  let writer_credit = credit.clone();
+  thread::spawn(move || writer_loop(write_half, out_rx, writer_credit));
 
-  if tx.send(Message::Connected(id, out_tx)).is_err() {
+  if tx.send(Message::Connected(id, Outbox(out_tx))).is_err() {
     return;
   }
-  thread::spawn(move || reader_loop(id, stream, tx));
+  thread::spawn(move || reader_loop(id, stream, tx, credit));
 }
 
-fn writer_loop(mut stream: UnixStream, rx: Receiver<String>) {
+/// Maximo de peticiones de un cliente leidas y todavia sin responder (la
+/// respuesta cuenta cuando ya se escribio en el socket). Al llegar al tope
+/// el daemon deja de leer a ese cliente hasta que lea respuestas: asi un
+/// cliente que no lee no hace crecer la memoria del daemon.
+const MAX_IN_FLIGHT: usize = 64;
+
+/// Contador de peticiones en vuelo de un cliente, compartido entre su
+/// thread lector (suma) y su thread escritor (resta). En C: un mutex y una
+/// variable de condicion.
+#[derive(Default)]
+struct Credit {
+  state: Mutex<(usize, bool)>,
+  freed: Condvar,
+}
+
+impl Credit {
+  /// Espera lugar para una peticion mas. false si la conexion se cerro.
+  fn acquire(&self) -> bool {
+    let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
+    while g.0 >= MAX_IN_FLIGHT && !g.1 {
+      g = self.freed.wait(g).unwrap_or_else(|e| e.into_inner());
+    }
+    if g.1 {
+      return false;
+    }
+    g.0 += 1;
+    true
+  }
+
+  fn release(&self) {
+    let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
+    g.0 = g.0.saturating_sub(1);
+    self.freed.notify_one();
+  }
+
+  fn close(&self) {
+    self.state.lock().unwrap_or_else(|e| e.into_inner()).1 = true;
+    self.freed.notify_all();
+  }
+}
+
+/// Linea para el cliente. Solo las respuestas liberan lugar en `Credit`.
+struct Line {
+  text: String,
+  reply: bool,
+}
+
+/// Canal hacia el thread escritor de un cliente.
+pub struct Outbox(Sender<Line>);
+
+impl Outbox {
+  fn reply(&self, text: String) {
+    let _ = self.0.send(Line { text, reply: true });
+  }
+
+  fn event(&self, text: String) {
+    let _ = self.0.send(Line { text, reply: false });
+  }
+}
+
+fn writer_loop(mut stream: UnixStream, rx: Receiver<Line>, credit: Arc<Credit>) {
   for line in rx {
-    if stream.write_all(line.as_bytes()).is_err() {
+    if stream.write_all(line.text.as_bytes()).is_err() {
       break;
     }
+    if line.reply {
+      credit.release();
+    }
   }
+  // Despierta al lector si estaba esperando lugar.
+  credit.close();
   // El canal se cerro: el loop central pidio cerrar la conexion.
   let _ = stream.shutdown(std::net::Shutdown::Both);
 }
 
-fn reader_loop(id: ClientId, stream: UnixStream, tx: Sender<Message>) {
+fn reader_loop(id: ClientId, stream: UnixStream, tx: Sender<Message>, credit: Arc<Credit>) {
   let mut reader = BufReader::new(stream);
   let mut line = Vec::new();
   loop {
@@ -230,7 +300,9 @@ fn reader_loop(id: ClientId, stream: UnixStream, tx: Sender<Message>) {
     }
     if line.len() > MAX_LINE_BYTES || (!complete && read as u64 == limit) {
       let err = ErrorReply::new(None, codes::INVALID_REQUEST, "line too long");
-      let _ = tx.send(Message::Invalid(id, err));
+      if credit.acquire() {
+        let _ = tx.send(Message::Invalid(id, err));
+      }
       break;
     }
     if !complete {
@@ -244,7 +316,8 @@ fn reader_loop(id: ClientId, stream: UnixStream, tx: Sender<Message>) {
       Ok(req) => Message::Request(id, req),
       Err(err) => Message::Invalid(id, err),
     };
-    if tx.send(msg).is_err() {
+    // Cada mensaje tiene respuesta: ocupa un lugar hasta que se escriba.
+    if !credit.acquire() || tx.send(msg).is_err() {
       return;
     }
   }
@@ -258,7 +331,7 @@ enum Incoming {
 }
 
 struct ClientState {
-  out: Sender<String>,
+  out: Outbox,
   /// Hay una peticion diferida sin responder. Mientras tanto, lo que manda
   /// este cliente espera en `pending` para respetar su orden.
   blocked: bool,
@@ -487,7 +560,7 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, services: &mut Services, 
     let Some(item) = state.pending.pop_front() else { return Flow::Continue };
     let req = match item {
       Incoming::Invalid(err) => {
-        let _ = state.out.send(encode_error(&err));
+        state.out.reply(encode_error(&err));
         continue;
       }
       Incoming::Request(req) => req,
@@ -498,7 +571,7 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, services: &mut Services, 
       send_reply(&state.out, req.id, reply);
       if subscribed_player {
         let (name, data) = services.player.state_event();
-        let _ = state.out.send(encode_event(name, data));
+        state.out.event(encode_event(name, data));
       }
       continue;
     }
@@ -586,35 +659,35 @@ fn publish(clients: &HashMap<ClientId, ClientState>, services: &mut Services) {
   for track_id in services.lyrics.take_changed() {
     let line = encode_event("lyrics.changed", json!({"track_id": track_id}));
     for state in clients.values().filter(|c| c.topics.contains("lyrics")) {
-      let _ = state.out.send(line.clone());
+      state.out.event(line.clone());
     }
   }
   for name in services.playlists.take_changed() {
     let line = encode_event("playlist.changed", json!({"name": name}));
     for state in clients.values().filter(|c| c.topics.contains("playlist")) {
-      let _ = state.out.send(line.clone());
+      state.out.event(line.clone());
     }
   }
   if let Some(data) = services.outputs.take_event() {
     let line = encode_event("output.changed", data);
     for state in clients.values().filter(|c| c.topics.contains("output")) {
-      let _ = state.out.send(line.clone());
+      state.out.event(line.clone());
     }
   }
   for (topic, name, data) in services.player.take_events() {
     let line = encode_event(name, data);
     for state in clients.values().filter(|c| c.topics.contains(topic)) {
-      let _ = state.out.send(line.clone());
+      state.out.event(line.clone());
     }
   }
 }
 
-fn send_reply(out: &Sender<String>, request_id: u64, reply: Result<Value, ErrorReply>) {
+fn send_reply(out: &Outbox, request_id: u64, reply: Result<Value, ErrorReply>) {
   let line = match reply {
     Ok(result) => encode_result(request_id, result),
     Err(err) => encode_error(&err),
   };
-  let _ = out.send(line);
+  out.reply(line);
 }
 
 fn handle(req: &Request) -> (Result<Value, ErrorReply>, Flow) {

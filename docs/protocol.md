@@ -52,6 +52,12 @@ son parte del contrato.
   aunque el cliente las envie sin esperar respuesta. Ejemplo: `queue.add`
   seguido de `queue.list` siempre ve las pistas agregadas. Las respuestas a
   un mismo cliente salen en ese mismo orden.
+- Un cliente puede tener hasta 64 peticiones sin respuesta (la respuesta
+  cuenta cuando ya se escribio en el socket). Al llegar a ese tope el daemon
+  deja de leer su socket hasta que el cliente lea respuestas, y sus
+  escrituras se bloquean. No se pierde ni se rechaza nada: un cliente que
+  nunca lee simplemente queda frenado, sin hacer crecer la memoria del
+  daemon.
 - `params` puede omitirse cuando esta vacio.
 
 ## 4. Tipos de datos

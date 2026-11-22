@@ -2,7 +2,7 @@
 
 mod common;
 
-use std::{os::unix::fs::PermissionsExt, process::Command, time::Duration};
+use std::{io::Write, os::unix::fs::PermissionsExt, process::Command, thread, time::Duration};
 
 use common::Daemon;
 use serde_json::{Value, json};
@@ -150,4 +150,43 @@ fn refuses_to_start_without_xdg_runtime_dir() {
     .status()
     .unwrap();
   assert!(!status.success());
+}
+
+#[test]
+fn a_client_that_never_reads_is_slowed_down_not_buffered() {
+  // Un cliente que manda peticiones sin leer las respuestas no debe hacer
+  // crecer la memoria del daemon: llegado el tope, el daemon deja de leerlo
+  // y las escrituras del cliente se bloquean.
+  let daemon = Daemon::start();
+  let mut client = daemon.connect();
+  client.writer.set_nonblocking(true).unwrap();
+  let line = b"{\"id\":1,\"method\":\"daemon.hello\",\"params\":{\"client\":\"t\",\"protocol\":1}}\n";
+  let total = 200_000;
+  let mut sent = 0;
+  let mut stalled = 0;
+  while sent < total {
+    match client.writer.write(line) {
+      Ok(n) if n == line.len() => {
+        sent += 1;
+        stalled = 0;
+      }
+      Ok(_) => panic!("partial write"),
+      Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+        stalled += 1;
+        if stalled > 50 {
+          break;
+        }
+        thread::sleep(Duration::from_millis(10));
+      }
+      Err(e) => panic!("{e}"),
+    }
+  }
+  assert!(sent < total, "daemon kept reading {sent} requests without replies being read");
+
+  // Al leer, todo lo aceptado se responde en orden.
+  client.writer.set_nonblocking(false).unwrap();
+  for _ in 0..sent {
+    let m = client.read_message().expect("reply");
+    assert_eq!(m["result"]["protocol"], 1);
+  }
 }

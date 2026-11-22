@@ -6,3 +6,4 @@ pub mod client;
 pub mod service;
 pub mod theme;
 pub mod ui;
+pub mod viz;

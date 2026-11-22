@@ -22,6 +22,17 @@ pub const fn rgb(hex: u32) -> Color {
   Color::Rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
+/// Mezcla dos colores RGB (`t` = 0 da `a`, 1 da `b`).
+pub fn lerp(a: Color, b: Color, t: f32) -> Color {
+  match (a, b) {
+    (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => {
+      let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t.clamp(0.0, 1.0)) as u8;
+      Color::Rgb(m(r1, r2), m(g1, g2), m(b1, b2))
+    }
+    _ => a,
+  }
+}
+
 impl Default for Theme {
   /// Colores sin caratula (antes de que suene algo).
   fn default() -> Self {

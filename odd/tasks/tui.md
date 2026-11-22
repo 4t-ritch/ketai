@@ -19,7 +19,7 @@ Tests: `cargo test -p ketai-tui` (vistas con `ratatui::backend::TestBackend`, cl
 |-----|------------|--------|-----------|-----------|
 | T1  | S2, S4     | inline | hecho     | Base: terminal, tema, pestanas, teclado, cliente IPC con eventos. RED (no compila) -> GREEN 6/6 |
 | T2  | S6         | inline | hecho     | Pantalla de servicio, deteccion y arranque por systemd. RED -> GREEN 3/3 |
-| T3  | S1, S2     | inline | pendiente | Reproduciendo (inicio), barra de reproduccion, visualizador (viz.sock) |
+| T3  | S1, S2     | inline | hecho     | Reproduciendo (inicio), controles, visualizador (viz.sock). RED -> GREEN 7/7 |
 | T4  | S1         | inline | pendiente | Letras (capas, sincronia, palabra, offset) |
 | T5  | S1         | inline | pendiente | Biblioteca/playlist |
 | T6  | S1         | inline | pendiente | Buscar y busqueda rapida (paleta) |
@@ -35,4 +35,5 @@ Tests: `cargo test -p ketai-tui` (vistas con `ratatui::backend::TestBackend`, cl
 - L4 Decisiones: el `view.rs` anterior del usuario (audio directo con rodio) se reemplaza; queda en la historia de git. Las maquetas y su generador se guardan en `samples/tui-maquetas/` (ignorado por git). Hueco detectado: `docs/servicio.md` menciona `ketaid --daemonize` para el modo manual, que el daemon no implementa; se resuelve en T2.
 - L5 (2026-11-22) T1 hecho: lib `ketai_tui` (client, app, theme, ui) + binario `ketai`. Threads y canales: lector del daemon y lector de teclado alimentan un canal; `App` no hace I/O y devuelve las peticiones. Tests: cliente contra servidor falso (id, eventos, errores, cierre) y app/pestanas con TestBackend. Suite 211/211.
 - L6 (2026-11-22) T2 hecho: `service.rs` (diagnose puro; observe/execute con systemd de usuario por D-Bus: LoadUnit, StartUnit, EnableUnitFiles, Reload, RestartUnit; proceso por /proc; binario en ~/.local/bin o PATH). Instalar copia las unidades de dist/systemd (incluidas en el binario). Modo manual: `setsid -f ketaid` (docs/servicio.md actualizado; reemplaza el `--daemonize` que no existia). Reiniciar pide confirmacion (Enter, despues y). Loop: reintento de conexion cada 2 s; si el daemon se cae se vuelve a la pantalla de servicio. Prueba real de solo lectura contra el systemd del usuario: NotInstalled (correcto: sin unidades ni binario). StartUnit/Install no se probaron en real: tocarian el systemd del usuario.
-- Siguiente paso: T3 (reproduciendo).
+- L7 (2026-11-22) T3 hecho: vista Reproduciendo (titulo, artista, album, progreso interpolado entre eventos, controles, siguiente de la cola, volumen, codec), espectro de viz.sock solo mientras suena, teclas de control (flechas 5 s, +/- volumen, m, s, r). `on_daemon` devuelve peticiones (queue.changed -> queue.list) y las respuestas se reconocen por metodo (`App::sent`). Comparada contra la maqueta aprobada con el mismo exportador: coincide; faltan caratula (T9), vista previa de letra (T4) y dispositivo arriba (T7).
+- Siguiente paso: T4 (letras).

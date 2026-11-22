@@ -15,7 +15,7 @@ use ketai_tui::{
   app::{App, Screen},
   client::{self, Client, DaemonMsg},
   service::{self, Action, Observed},
-  ui,
+  ui, viz,
 };
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use serde_json::json;
@@ -29,6 +29,28 @@ enum Input {
   Observed(Observed),
   /// Termino una accion sobre el servicio.
   ActionDone(Result<(), String>),
+  /// Frame de `viz.sock`.
+  Viz(Vec<f32>),
+}
+
+/// Envia una peticion y la anota para reconocer su respuesta.
+fn send(client: &mut Option<Client>, app: &mut App, method: &str, params: serde_json::Value) {
+  if let Some(c) = client.as_mut()
+    && let Ok(id) = c.request(method, params)
+  {
+    app.sent(id, method);
+  }
+}
+
+/// Lo que se pide al conectar: estado, cola y el espectro.
+fn on_connected(client: &mut Option<Client>, app: &mut App, tx: &Sender<Input>) {
+  app.connected = true;
+  app.screen = Screen::Main;
+  send(client, app, "player.state", json!({}));
+  send(client, app, "queue.list", json!({}));
+  if let Some(path) = viz::socket_path() {
+    let _ = viz::spawn(&path, tx.clone(), Input::Viz);
+  }
 }
 
 /// Cada cuanto se reintenta conectar desde la pantalla de servicio.
@@ -38,7 +60,6 @@ fn connect(tx: &Sender<Input>) -> Option<Client> {
   let mut c = Client::connect(&client::socket_path()?, tx.clone(), Input::Daemon).ok()?;
   c.request("daemon.hello", json!({"protocol": ketai_protocol::PROTOCOL_VERSION, "client": "ketai-tui"})).ok()?;
   c.request("events.subscribe", json!({"topics": ["player", "queue", "output", "lyrics", "playlist", "library"]})).ok()?;
-  c.request("player.state", json!({})).ok()?;
   Some(c)
 }
 
@@ -68,7 +89,7 @@ fn main() -> io::Result<()> {
   let mut app = App::default();
   let mut client = connect(&tx);
   if client.is_some() {
-    app.connected = true;
+    on_connected(&mut client, &mut app, &tx);
   } else {
     show_service(&mut app, &tx);
   }
@@ -100,8 +121,7 @@ fn main() -> io::Result<()> {
         last_retry = Instant::now();
         if let Some(c) = connect(&tx) {
           client = Some(c);
-          app.connected = true;
-          app.screen = Screen::Main;
+          on_connected(&mut client, &mut app, &tx);
         }
       }
 
@@ -129,9 +149,7 @@ fn main() -> io::Result<()> {
             }
           } else {
             for (method, params) in app.on_key(k) {
-              if let Some(c) = client.as_mut() {
-                let _ = c.request(&method, params);
-              }
+              send(&mut client, &mut app, &method, params);
             }
           }
         }
@@ -139,7 +157,12 @@ fn main() -> io::Result<()> {
           client = None;
           show_service(&mut app, &tx);
         }
-        Some(Input::Daemon(msg)) => app.on_daemon(msg),
+        Some(Input::Daemon(msg)) => {
+          for (method, params) in app.on_daemon(msg) {
+            send(&mut client, &mut app, &method, params);
+          }
+        }
+        Some(Input::Viz(frame)) => app.on_viz(frame),
         Some(Input::Observed(o)) => {
           let state = service::diagnose(&o);
           if let Screen::Service { state: s, observed, busy, .. } = &mut app.screen {

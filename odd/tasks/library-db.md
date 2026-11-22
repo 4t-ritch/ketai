@@ -25,7 +25,7 @@ Tests: `cargo test` (workspace).
 |----|-------|------|--------|-----------|
 | T1 | S1 | inline | hecho (falta ver en kitty real) | 6439a32 |
 | T1b | S1 | inline | hecho (falta ver en herdr) | redimensionar y layout 4:3 |
-| T2 | S3, S4, S7 | inline | pendiente | Indice SQLite en el daemon: un solo escritor, transacciones, eventos a todos los clientes |
+| T2 | S3, S4, S7 | inline | hecho | 384d9fc: library.db (WAL, transacciones, un solo thread), importa library.json una vez, genero/ano/numeros/artista del album |
 | T3 | S3 | inline | pendiente | Favoritos y pertenencia a varias playlists en la base |
 | T4 | S7, S9 | inline | pendiente | Biblioteca: todas, artista, album, carpeta, ano, genero |
 | T5 | S2 | inline | pendiente | Volumen, dispositivo, agregar a playlist y favorito en Reproduciendo |
@@ -43,4 +43,6 @@ Tests: `cargo test` (workspace).
 - L3 (2026-11-22) Usuario: "las imagenes se eliminan cuando se redimenciona la terminal" y "tambien debes trabajar en redimencionar las cosas o acomplarlas a un sistema mas compacto para que sea posible de visualizar todo en un espacion de 4/3 ya que la UI se ve cortada y no se muestra todo". Hecho en T1b: al redimensionar se vuelven a mandar las caratulas (`CoverCache::resend`); Reproduciendo, barra y Biblioteca se compactan en paneles angostos o bajos (tests a 88x40, 100x34, 76x28).
 - L4 (2026-11-22) S12, medicion: decodificar no es la causa (debug 442x tiempo real, peor trozo de 50 ms en 1,5 ms; release 933x). La salida de ketaid en PipeWire pide 2048/44100 (46 ms) y el dispositivo activo es Bluetooth (Hisense HS2100), que suma su propia latencia (A2DP suele rondar 150-300 ms). Hipotesis: la demora al pausar o hacer seek es el audio ya entregado a ALSA, PipeWire y Bluetooth; los cortes, faltas de datos (xrun) con un buffer de 46 ms. Falta medir con el usuario: `pw-top` mientras suena (columna ERR) y comparar con salida cableada.
 - L5 (2026-11-22) Usuario: "estoy viendo que la cancion de tokai_teio-my_jealousy se reproduce mas rapido en ketai que en su fichero original y no se porque". Causa: `AudioSource::current_span_len` devolvia None; la cola del player de rodio entra una sola vez al mezclador y sin tramos nunca vuelve a leer la frecuencia, asi que queda la de la primera pista. Archivo: vorbis 44,1 kHz; tras una de 48 kHz sonaba 8,8 % mas rapido. RED: test de cola opus 48k + vorbis 44,1k, 3,837 s en vez de 4,000 s. Arreglo b777e12: cada paquete es un tramo.
-- Siguiente paso: T2; T11 espera la medicion del usuario.
+- L6 (2026-11-22) Decision del usuario (opcion B): la base manda y ketai escribe los archivos de playlist como copia; la primera vez importa las playlists existentes, un archivo nuevo en la carpeta se importa, uno ya conocido editado a mano se reescribe desde la base.
+- L7 T2 hecho (384d9fc). Prueba con copia del library.json real en carpeta temporal: 1215 pistas importadas, busquedas de 0,4 a 0,7 ms, listar todo 36 ms en debug.
+- Siguiente paso: T3; T11 espera la medicion del usuario.

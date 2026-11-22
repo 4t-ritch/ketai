@@ -359,16 +359,19 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   }
   let viz_h = (area.height / 4).clamp(3, 12);
   let top_h = area.height.saturating_sub(viz_h + 2);
-  // La caratula ocupa un cuadrado: las celdas miden ~1:2.2.
-  let cover_h = top_h.saturating_sub(2).min(24);
-  let cover = Rect::new(area.x + 6, area.y + 1, (cover_h as u32 * 2) as u16, cover_h);
+  // La caratula ocupa un cuadrado: las celdas miden ~1:2.2. En paneles
+  // angostos (4:3) se achica para dejar al menos 34 columnas al texto.
+  let cover_h = top_h.saturating_sub(2).min(24).min(area.width.saturating_sub(52) / 2);
+  let margin = if area.width < 110 { 3 } else { 6 };
+  let cover = Rect::new(area.x + margin, area.y + 1, (cover_h as u32 * 2) as u16, cover_h);
   draw_cover(f, app, cover, app.player["track"]["uri"].as_str());
   let buf = f.buffer_mut();
-  let x = cover.x + cover.width + 6;
-  let w = (area.x + area.width).saturating_sub(x + 6);
+  let x = cover.x + cover.width + margin;
+  let w = (area.x + area.width).saturating_sub(x + margin);
   let s = |k: &str| track[k].as_str().unwrap_or("").to_string();
   let title = track_title(track);
-  let mut y = area.y + 3;
+  let roomy = top_h >= 24;
+  let mut y = area.y + if roomy { 3 } else { 1 };
   put(buf, x, y, "REPRODUCIENDO", t.faint());
   y += 2;
   putn(buf, x, y, &title, w as usize, t.title());
@@ -376,26 +379,22 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   y += 3;
   putn(buf, x, y, s("artist"), w as usize, t.text());
   putn(buf, x, y + 1, s("album"), w as usize, t.faint());
-  y += 4;
+  y += if roomy { 4 } else { 3 };
   progress(buf, t, x, y, w, app.position_ms(), track["duration_ms"].as_u64());
   y += 2;
-  let on = |b: bool| if b { t.accent() } else { t.faint() };
-  let shuffle = app.player["shuffle"].as_bool().unwrap_or(false);
-  let repeat = app.player["repeat"].as_str().unwrap_or("off");
-  let play = if app.playing() { I_PAUSE } else { I_PLAY };
-  let controls = Line::from(vec![
-    Span::styled(format!("{I_SHUFFLE}      "), on(shuffle)),
-    Span::styled(format!("{I_PREV}      "), t.text()),
-    Span::styled(format!("  {play}  "), Style::new().fg(t.on_accent).bg(t.fg)),
-    Span::styled(format!("      {I_NEXT}      "), t.text()),
-    Span::styled(format!("{I_REPEAT}{}", if repeat == "track" { "1" } else { "" }), on(repeat != "off")),
-  ]);
+  let mut controls = controls(app, false, true);
+  if controls.width() as u16 > w {
+    controls = self::controls(app, true, true);
+  }
   let cw = controls.width() as u16;
   put_line(buf, x + w.saturating_sub(cw) / 2, y, &controls, w);
   y += 3;
-  lyrics_preview(buf, app, x, y, w);
-  y += 5;
-  if let Some(next) = app.next_track() {
+  // Con poco alto se omiten la letra y lo que sigue.
+  if roomy {
+    lyrics_preview(buf, app, x, y, w);
+    y += 5;
+  }
+  if let Some(next) = app.next_track().filter(|_| roomy) {
     let line = Line::from(vec![
       Span::styled("Siguiente  ", t.faint()),
       Span::styled(next["title"].as_str().unwrap_or("").to_string(), t.text()),
@@ -403,7 +402,7 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
     ]);
     put_line(buf, x, y, &line, w);
   }
-  y += 1;
+  y += if roomy { 1 } else { 0 };
   let muted = app.player["muted"].as_bool().unwrap_or(false);
   let vol = app.player["volume"].as_f64().unwrap_or(1.0);
   let filled = (vol * 18.0).round() as usize;
@@ -425,6 +424,24 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
     let viz = Rect::new(area.x + 2, area.y + area.height - viz_h - 1, area.width.saturating_sub(4), viz_h);
     spectrum(buf, t, viz, &app.viz);
   }
+}
+
+/// Controles de reproduccion. Compactos cuando el espacio no alcanza.
+fn controls(app: &App, compact: bool, repeat_count: bool) -> Line<'static> {
+  let t = &app.theme;
+  let on = |b: bool| if b { t.accent() } else { t.faint() };
+  let shuffle = app.player["shuffle"].as_bool().unwrap_or(false);
+  let repeat = app.player["repeat"].as_str().unwrap_or("off");
+  let play = if app.playing() { I_PAUSE } else { I_PLAY };
+  let gap = if compact { "   " } else { "      " };
+  let one = if repeat_count && repeat == "track" { "1" } else { "" };
+  Line::from(vec![
+    Span::styled(format!("{I_SHUFFLE}{gap}"), on(shuffle)),
+    Span::styled(format!("{I_PREV}{gap}"), t.text()),
+    Span::styled(format!(" {play}  "), Style::new().fg(t.on_accent).bg(t.fg)),
+    Span::styled(format!("{gap}{I_NEXT}{gap}"), t.text()),
+    Span::styled(format!("{I_REPEAT}{one}"), on(repeat != "off")),
+  ])
 }
 
 /// Titulo de la pista, o el nombre del archivo si no tiene etiqueta.
@@ -642,23 +659,20 @@ fn player_bar(f: &mut RFrame, app: &App, area: Rect) {
     draw_cover(f, app, Rect::new(area.x + 2, area.y, 6, 3), app.player["track"]["uri"].as_str());
   }
   let buf = f.buffer_mut();
-  if track.is_object() {
-    putn(buf, area.x + 10, area.y, track_title(track), 40, t.title());
-    putn(buf, area.x + 10, area.y + 1, track["artist"].as_str().unwrap_or(""), 40, t.dim());
+  let mut controls = controls(app, false, false);
+  if area.width < 110 {
+    controls = self::controls(app, true, false);
   }
-  let play = if app.playing() { I_PAUSE } else { I_PLAY };
-  let shuffle = app.player["shuffle"].as_bool().unwrap_or(false);
-  let repeat = app.player["repeat"].as_str().unwrap_or("off") != "off";
-  let controls = Line::from(vec![
-    Span::styled(format!("{I_SHUFFLE}      "), if shuffle { t.accent() } else { t.faint() }),
-    Span::styled(format!("{I_PREV}      "), t.text()),
-    Span::styled(format!("  {play}  "), Style::new().fg(t.on_accent).bg(t.fg)),
-    Span::styled(format!("      {I_NEXT}      "), t.text()),
-    Span::styled(I_REPEAT, if repeat { t.accent() } else { t.faint() }),
-  ]);
   let cx = area.x + area.width / 2;
-  put_line(buf, cx.saturating_sub(controls.width() as u16 / 2), area.y, &controls, area.width);
-  let pw = 70.min(area.width.saturating_sub(70));
+  let start = cx.saturating_sub(controls.width() as u16 / 2);
+  if track.is_object() {
+    // El titulo termina antes de los controles.
+    let tw = start.saturating_sub(area.x + 12).min(40) as usize;
+    putn(buf, area.x + 10, area.y, track_title(track), tw, t.title());
+    putn(buf, area.x + 10, area.y + 1, track["artist"].as_str().unwrap_or(""), tw, t.dim());
+  }
+  put_line(buf, start, area.y, &controls, area.width);
+  let pw = 70.min(area.width.saturating_sub(70)).max(controls.width() as u16 + 12);
   progress(buf, t, cx.saturating_sub(pw / 2), area.y + 2, pw, app.position_ms(), track["duration_ms"].as_u64());
 }
 
@@ -672,34 +686,51 @@ fn fmt_total(ms: u64) -> String {
 fn library(f: &mut RFrame, app: &App, area: Rect) {
   let t = &app.theme;
   let body = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(6));
-  let slots = playlists_column(f.buffer_mut(), app, Rect::new(body.x, body.y, 34, body.height));
+  // En paneles angostos (4:3) la columna de lo que suena se oculta (ya esta
+  // la barra de abajo) y la de playlists se achica.
+  let side_w = if body.width < 130 { (body.width / 3).clamp(18, 34) } else { 34 };
+  let slots = playlists_column(f.buffer_mut(), app, Rect::new(body.x, body.y, side_w, body.height));
   for (s, uri) in slots {
     draw_cover(f, app, s, uri.as_deref());
   }
-  let right_w = 34;
-  let center = Rect::new(body.x + 37, body.y, body.width.saturating_sub(37 + right_w + 3), body.height);
-  now_column(f, app, Rect::new(body.x + body.width - right_w - 1, body.y, right_w, body.height));
+  let right_w = if body.width < 130 { 0 } else { 34 };
+  let center = Rect::new(body.x + side_w + 3, body.y, body.width.saturating_sub(side_w + 3 + right_w + 3), body.height);
+  if right_w > 0 {
+    now_column(f, app, Rect::new(body.x + body.width - right_w - 1, body.y, right_w, body.height));
+  }
   player_bar(f, app, Rect::new(area.x, area.y + area.height - 4, area.width, 3));
 
   let Some(name) = app.lib_open.clone() else { return };
   let tracks = app.playlist["tracks"].as_array().cloned().unwrap_or_default();
-  draw_cover(f, app, Rect::new(center.x, center.y, 20, 9), tracks.first().and_then(|t| t["uri"].as_str()));
+  // Con poco alto la cabecera se achica para dejar lugar a las canciones.
+  let short = center.height < 30;
+  let (cw, ch) = if short { (10, 4) } else { (20, 9) };
+  draw_cover(f, app, Rect::new(center.x, center.y, cw, ch), tracks.first().and_then(|t| t["uri"].as_str()));
   let buf = f.buffer_mut();
-  let x = center.x + 23;
-  let w = center.width.saturating_sub(23);
-  put(buf, x, center.y + 1, "PLAYLIST", t.faint());
-  putn(buf, x, center.y + 3, &name, w as usize, t.title());
-  put(buf, x, center.y + 4, "▔".repeat(name.chars().count().min(w as usize)), t.accent());
+  let x = center.x + cw + 3;
+  let w = center.width.saturating_sub(cw + 3);
   let total: u64 = tracks.iter().filter_map(|t| t["duration_ms"].as_u64()).sum();
-  put(buf, x, center.y + 6, format!("{} canciones · {}", tracks.len(), fmt_total(total)), t.dim());
-  // La ruta la dice el daemon (la carpeta se configura en config.toml).
-  putn(buf, x, center.y + 7, app.playlist["path"].as_str().unwrap_or(""), w as usize, t.faint());
-  let y = center.y + 11;
+  let count = format!("{} canciones · {}", tracks.len(), fmt_total(total));
+  let y = if short {
+    putn(buf, x, center.y, &name, w as usize, t.title());
+    put(buf, x, center.y + 1, "▔".repeat(name.chars().count().min(w as usize)), t.accent());
+    put(buf, x, center.y + 2, count, t.dim());
+    putn(buf, x, center.y + 3, app.playlist["path"].as_str().unwrap_or(""), w as usize, t.faint());
+    center.y + 5
+  } else {
+    put(buf, x, center.y + 1, "PLAYLIST", t.faint());
+    putn(buf, x, center.y + 3, &name, w as usize, t.title());
+    put(buf, x, center.y + 4, "▔".repeat(name.chars().count().min(w as usize)), t.accent());
+    put(buf, x, center.y + 6, count, t.dim());
+    // La ruta la dice el daemon (la carpeta se configura en config.toml).
+    putn(buf, x, center.y + 7, app.playlist["path"].as_str().unwrap_or(""), w as usize, t.faint());
+    center.y + 11
+  };
   put(buf, center.x, y, format!("  {I_PLAY}  "), Style::new().fg(t.on_accent).bg(t.accent).add_modifier(Modifier::BOLD));
-  put(buf, center.x + 9, y, "⏎ reproducir · a a la cola · esc volver", t.faint());
+  putn(buf, center.x + 9, y, "⏎ reproducir · a a la cola · esc volver", center.width.saturating_sub(9) as usize, t.faint());
 
   let cols = [center.x + 1, center.x + 5, center.x + center.width * 58 / 100, center.x + center.width.saturating_sub(6)];
-  let hy = y + 3;
+  let hy = y + if short { 2 } else { 3 };
   for (cx, h) in cols.iter().zip(["#", "TÍTULO", "ÁLBUM", I_CLOCK]) {
     put(buf, *cx, hy, h, t.faint());
   }

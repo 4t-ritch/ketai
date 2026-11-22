@@ -137,3 +137,23 @@ fn covers_are_sent_small() {
   assert_eq!((p.image.width(), p.image.height()), (ketai_tui::covers::MAX_SIDE, ketai_tui::covers::MAX_SIDE), "square crop, at most MAX_SIDE");
   let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn after_a_resize_every_cover_is_sent_again() {
+  // Algunas terminales y multiplexores (herdr) pierden las imagenes al
+  // cambiar de tamano: se vuelven a mandar con el mismo id.
+  let mut cache = CoverCache::default();
+  cache.want("u");
+  cache.sent(1, "u");
+  cache.on_reply(1, Ok(json!({"path": "/x.png"})));
+  assert!(!cache.decoded("u", Some(image::RgbImage::new(4, 4))).is_empty());
+  let id = cache.image_for("u", false).unwrap();
+  let again = cache.resend();
+  assert_eq!(again.len(), 1);
+  assert_eq!((again[0].0.as_str(), again[0].2), ("u", id));
+  assert_eq!(cache.image_for("u", false), None, "not placed until it is sent again");
+  let (uri, img, id) = again.into_iter().next().unwrap();
+  let seq = cache.ready(&uri, Some(ketai_tui::covers::prepare_image(img, id)));
+  assert!(seq.contains(&format!("i={id},")), "{seq:?}");
+  assert_eq!(cache.image_for("u", false), Some(id));
+}

@@ -99,3 +99,28 @@ fn shows_sidebar_header_and_tracks_marking_the_one_that_plays() {
   let burn_row = t.lines().find(|l| l.contains("Covers, Vol. 2")).unwrap();
   assert!(burn_row.contains('▶'), "playing track is marked: {burn_row}");
 }
+
+#[test]
+fn a_4_3_pane_shows_the_playlist_and_a_bar_that_does_not_overlap() {
+  let mut app = library_app();
+  app.on_key(key(KeyCode::Down));
+  reply(&mut app, "playlist.get", tracks());
+  app.on_daemon(DaemonMsg::Event {
+    name: "player.state".into(),
+    data: json!({"status": "playing", "position_ms": 0, "repeat": "off", "track": {"id": "t_1", "uri": "file:///m/burn.ogg", "title": "#umamusume #umamusumeprettyderby long title", "artist": "Midnight Blu", "duration_ms": 201000}}),
+  });
+  for (w, h) in [(88, 40), (76, 28)] {
+    let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+    term.draw(|f| ui::draw(f, &app)).unwrap();
+    let buf = term.backend().buffer();
+    let t: String = (0..h).map(|y| (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect();
+    for want in ["chill", "metal", "My Jealousy", ui::I_NEXT, ui::I_REPEAT] {
+      assert!(t.contains(want), "{w}x{h} missing {want:?}\n{t}");
+    }
+    // El titulo de la barra nunca se mete en los controles.
+    let bar = t.lines().find(|l| l.contains(ui::I_SHUFFLE)).unwrap();
+    let title_end = bar.find("#uma").map(|i| i + bar[i..].find("  ").unwrap_or(bar.len() - i));
+    let shuffle = bar.find(ui::I_SHUFFLE).unwrap();
+    assert!(title_end.is_none_or(|e| e <= shuffle), "{w}x{h}: {bar}");
+  }
+}

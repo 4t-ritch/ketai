@@ -80,6 +80,22 @@ impl CoverCache {
     ((std::process::id() % 4000) + 1) << 20
   }
 
+  /// Algunas terminales y multiplexores (herdr) pierden las imagenes al
+  /// cambiar de tamano. Devuelve las caratulas listas para volver a
+  /// prepararlas con el mismo id; mientras tanto no se ubican.
+  pub fn resend(&mut self) -> Vec<(String, RgbImage, u32)> {
+    let mut out = Vec::new();
+    for (uri, state) in self.covers.iter_mut() {
+      if let CoverState::Ready { normal, dimmed, .. } = *state
+        && let Some(img) = self.images.get(uri)
+      {
+        *state = CoverState::Preparing { normal, dimmed };
+        out.push((uri.clone(), img.clone(), normal));
+      }
+    }
+    out
+  }
+
   /// Ids de imagen reservados por este cache (para borrarlos al salir).
   pub fn ids(&self) -> Vec<u32> {
     let mut ids: Vec<u32> = self
@@ -206,7 +222,8 @@ fn png(img: &RgbImage) -> Vec<u8> {
   out
 }
 
-fn prepare_image(image: RgbImage, id: u32) -> Prepared {
+/// Arma una caratula ya decodificada. Corre en otro thread.
+pub fn prepare_image(image: RgbImage, id: u32) -> Prepared {
   let palette = palette(&image);
   let transmit = kitty::transmit(id, &png(&image));
   Prepared { image, palette, transmit }

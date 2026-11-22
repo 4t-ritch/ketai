@@ -133,3 +133,21 @@ fn viz_reader_parses_header_and_frames() {
   server.join().unwrap();
   let _ = std::fs::remove_dir_all(dir);
 }
+
+fn text_at(app: &App, w: u16, h: u16) -> String {
+  let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+  term.draw(|f| ui::draw(f, app)).unwrap();
+  let buf = term.backend().buffer();
+  (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect()
+}
+
+#[test]
+fn a_4_3_pane_shows_everything() {
+  // Un panel de herdr de 4:3 (unas 88 columnas por 40 filas).
+  for (w, h) in [(88, 40), (100, 34), (76, 28)] {
+    let t = text_at(&playing_app(), w, h);
+    for want in ["LET THE WORLD BURN", "Midnight Blu", "1:24", "3:21", ui::I_SHUFFLE, ui::I_PREV, ui::I_NEXT, ui::I_REPEAT, "70%"] {
+      assert!(t.contains(want), "{w}x{h} missing {want:?}\n{t}");
+    }
+  }
+}

@@ -90,9 +90,19 @@ vista compacta: caratula, cancion, linea de letra, progreso, controles y un
 espectro chico. Pensado para un panel chico de herdr o tmux; las teclas de
 reproduccion siguen funcionando.
 
+En paneles medianos (por ejemplo 4:3, unas 88x40) la vista completa se
+compacta: caratula mas chica, controles mas juntos, en Biblioteca se oculta
+la columna de lo que suena (queda la barra de abajo) y, con poco alto, se
+omiten la letra y lo que sigue.
+
 ## Caratulas
 
 Las caratulas las entrega el daemon (`track.cover`, por pista o por URI) y
 la TUI las transmite a la terminal con el protocolo de kitty. Se ubican por
 debajo del fondo de las celdas: un popup, que tiene fondo propio, las tapa
 sin recortes manuales. Detras de un popup se usa una version atenuada.
+
+Cada ketai usa su propio rango de ids de imagen y solo borra las suyas: se
+pueden tener varios abiertos en la misma terminal. Al cambiar el tamano las
+caratulas se vuelven a mandar, porque algunos multiplexores (herdr) las
+pierden.

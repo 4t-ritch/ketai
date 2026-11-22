@@ -228,8 +228,19 @@ fn main() -> io::Result<()> {
 
       match input {
         None => {}
-        // Al cambiar el tamano se vuelven a ubicar todas las imagenes.
-        Some(Input::Resize) => placed.clear(),
+        // Al cambiar el tamano se vuelven a mandar y ubicar todas las
+        // imagenes: algunas terminales (herdr) las pierden.
+        Some(Input::Resize) => {
+          placed.clear();
+          if app.images {
+            for (uri, img, id) in app.covers.resend() {
+              let tx = tx.clone();
+              thread::spawn(move || {
+                let _ = tx.send(Input::Cover(uri, Some(covers::prepare_image(img, id))));
+              });
+            }
+          }
+        }
         Some(Input::Key(k)) => {
           if let Screen::Service { observed, .. } = &app.screen {
             let observed = observed.clone();

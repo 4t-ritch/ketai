@@ -72,6 +72,19 @@ pub struct App {
   pub pos_at: Instant,
   /// Peticiones enviadas sin respuesta: id -> metodo.
   pub pending: HashMap<u64, String>,
+  /// Pista de la que son las letras cargadas.
+  pub lyrics_track: Option<String>,
+  /// Capas ofrecidas (`lyrics.layers`).
+  pub lyrics_layers: Vec<Value>,
+  /// Paquete de `lyrics.get` (`null` si la pista no tiene letra).
+  pub lyrics: Value,
+  /// Ya llego la respuesta de `lyrics.get` para la pista actual.
+  pub lyrics_loaded: bool,
+  pub lyrics_primary: String,
+  pub lyrics_secondary: Vec<String>,
+  pub lyrics_estimate: bool,
+  /// El usuario eligio las capas a mano: no se cambian solas.
+  pub lyrics_chosen: bool,
 }
 
 /// `m:ss` o `h:mm:ss`.
@@ -94,12 +107,25 @@ impl Default for App {
       viz: Vec::new(),
       pos_at: Instant::now(),
       pending: HashMap::new(),
+      lyrics_track: None,
+      lyrics_layers: Vec::new(),
+      lyrics: Value::Null,
+      lyrics_loaded: false,
+      lyrics_primary: "original".into(),
+      lyrics_secondary: Vec::new(),
+      lyrics_estimate: false,
+      lyrics_chosen: false,
     }
   }
 }
 
 impl App {
   pub fn on_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    if self.tab == Tab::Lyrics
+      && let Some(cmds) = self.lyrics_key(key)
+    {
+      return cmds;
+    }
     let cmd = |m: &str| vec![(m.to_string(), json!({}))];
     match key.code {
       KeyCode::Char('q') => self.quit = true,
@@ -179,6 +205,82 @@ impl App {
     }
   }
 
+  /// Teclas propias de la pestana Letras. `None` si la tecla no es suya.
+  fn lyrics_key(&mut self, key: KeyEvent) -> Option<Vec<Command>> {
+    let track = self.lyrics_track.clone()?;
+    match key.code {
+      KeyCode::Char(c @ ('[' | ']')) => {
+        let step = if c == ']' { 50 } else { -50 };
+        let offset = self.lyrics["user_offset_ms"].as_i64().unwrap_or(0) + step;
+        Some(vec![("lyrics.set_offset".into(), json!({"track_id": track, "offset_ms": offset}))])
+      }
+      KeyCode::Char('t') => {
+        self.lyrics_chosen = true;
+        self.lyrics_secondary = if self.lyrics_secondary.is_empty() { self.first_translation().into_iter().collect() } else { Vec::new() };
+        Some(vec![self.lyrics_get(&track)])
+      }
+      KeyCode::Char('o') => {
+        // Capas que pueden ser principales: original y romanizadas.
+        let ids: Vec<String> = self
+          .lyrics_layers
+          .iter()
+          .filter(|l| l["kind"] != "translation")
+          .filter_map(|l| l["id"].as_str().map(str::to_string))
+          .collect();
+        if ids.len() < 2 {
+          return Some(Vec::new());
+        }
+        let at = ids.iter().position(|i| *i == self.lyrics_primary).unwrap_or(0);
+        self.lyrics_primary = ids[(at + 1) % ids.len()].clone();
+        self.lyrics_secondary.retain(|s| *s != self.lyrics_primary);
+        self.lyrics_chosen = true;
+        Some(vec![self.lyrics_get(&track)])
+      }
+      KeyCode::Char('w') => {
+        self.lyrics_estimate = !self.lyrics_estimate;
+        Some(vec![self.lyrics_get(&track)])
+      }
+      _ => None,
+    }
+  }
+
+  fn first_translation(&self) -> Option<String> {
+    self.lyrics_layers.iter().find(|l| l["kind"] == "translation").and_then(|l| l["id"].as_str()).map(str::to_string)
+  }
+
+  fn lyrics_get(&self, track: &str) -> Command {
+    (
+      "lyrics.get".into(),
+      json!({"track_id": track, "primary": self.lyrics_primary, "secondary": self.lyrics_secondary, "estimate_words": self.lyrics_estimate}),
+    )
+  }
+
+  /// Si cambio la pista, se piden sus letras desde cero.
+  fn track_changed(&mut self) -> Vec<Command> {
+    let id = self.player["track"]["id"].as_str().map(str::to_string);
+    if id == self.lyrics_track {
+      return Vec::new();
+    }
+    self.lyrics_track = id.clone();
+    self.lyrics = Value::Null;
+    self.lyrics_layers.clear();
+    self.lyrics_loaded = false;
+    self.lyrics_primary = "original".into();
+    self.lyrics_secondary.clear();
+    self.lyrics_chosen = false;
+    match id {
+      Some(id) => vec![("lyrics.layers".into(), json!({"track_id": id})), self.lyrics_get(&id)],
+      None => Vec::new(),
+    }
+  }
+
+  /// Linea actual de la letra: la ultima que ya empezo.
+  pub fn lyrics_line(&self) -> Option<usize> {
+    let pos = self.position_ms();
+    let lines = self.lyrics["lines"].as_array()?;
+    lines.iter().rposition(|l| l["start_ms"].as_u64().is_some_and(|s| s <= pos))
+  }
+
   /// Se envio la peticion `id`: su respuesta se reconoce por el metodo.
   pub fn sent(&mut self, id: u64, method: &str) {
     self.pending.insert(id, method.to_string());
@@ -192,6 +294,7 @@ impl App {
         "player.state" => {
           self.player = data;
           self.pos_at = Instant::now();
+          return self.track_changed();
         }
         "player.position" => {
           if let (Some(obj), Some(pos)) = (self.player.as_object_mut(), data.get("position_ms")) {
@@ -202,16 +305,44 @@ impl App {
           self.pos_at = Instant::now();
         }
         "queue.changed" | "track.changed" => return vec![("queue.list".into(), json!({}))],
+        "lyrics.changed" => {
+          if let Some(track) = self.lyrics_track.clone()
+            && data["track_id"] == track.as_str()
+          {
+            return vec![self.lyrics_get(&track)];
+          }
+        }
         _ => {}
       },
       DaemonMsg::Reply { id, result } => {
         let method = self.pending.remove(&id).unwrap_or_default();
+        // Una letra que no se puede leer (1006) se muestra como sin letra.
+        if method == "lyrics.get" && result.is_err() {
+          self.lyrics = Value::Null;
+          self.lyrics_loaded = true;
+        }
         if let Ok(v) = result {
           match method.as_str() {
             "queue.list" => self.queue = v,
             "player.state" => {
               self.player = v;
               self.pos_at = Instant::now();
+              return self.track_changed();
+            }
+            "lyrics.layers" => {
+              self.lyrics_layers = v["layers"].as_array().cloned().unwrap_or_default();
+              // Por defecto se muestra la primera traduccion debajo.
+              if !self.lyrics_chosen
+                && self.lyrics_secondary.is_empty()
+                && let (Some(tr), Some(track)) = (self.first_translation(), self.lyrics_track.clone())
+              {
+                self.lyrics_secondary = vec![tr];
+                return vec![self.lyrics_get(&track)];
+              }
+            }
+            "lyrics.get" => {
+              self.lyrics = v;
+              self.lyrics_loaded = true;
             }
             _ => {}
           }

@@ -1,0 +1,175 @@
+//! Letras (maqueta 2-letras): pedido al cambiar de pista, sincronia, palabra
+//! actual, capas y offset.
+
+use ketai_tui::{
+  app::{App, Tab},
+  client::DaemonMsg,
+  ui,
+};
+use ratatui::{
+  Terminal,
+  backend::TestBackend,
+  buffer::Buffer,
+  crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+  style::Modifier,
+};
+use serde_json::{Value, json};
+
+fn key(c: KeyCode) -> KeyEvent {
+  KeyEvent::new(c, KeyModifiers::NONE)
+}
+
+fn state(track_id: &str, pos: u64) -> DaemonMsg {
+  DaemonMsg::Event {
+    name: "player.state".into(),
+    data: json!({"status": "paused", "position_ms": pos, "volume": 1.0, "repeat": "off", "shuffle": false,
+                 "track": {"id": track_id, "title": "LET THE WORLD BURN", "artist": "Midnight Blu", "duration_ms": 201000}}),
+  }
+}
+
+fn methods(cmds: &[(String, Value)]) -> Vec<&str> {
+  cmds.iter().map(|(m, _)| m.as_str()).collect()
+}
+
+const LAYERS: &str = r#"{"layers": [
+  {"id": "original", "kind": "original", "language": "en", "timing": "word", "format": "lrc", "origin": "sidecar"},
+  {"id": "es", "kind": "translation", "language": "es", "timing": "line", "format": "lrc", "origin": "sidecar"},
+  {"id": "en-Latn", "kind": "romanized", "language": "en-Latn", "timing": "line", "format": "text", "origin": "sidecar"}
+]}"#;
+
+fn package() -> Value {
+  json!({
+    "primary": "original", "secondary": ["es"], "timing": "word", "offset_ms": 0, "user_offset_ms": -250, "agents": [],
+    "lines": [
+      {"start_ms": 1000, "end_ms": 3000, "text": "let the world burn", "words": null, "agent": null, "background": false, "secondary": {"es": "deja que el mundo arda"}},
+      {"start_ms": 3000, "end_ms": 6000, "text": "just to feel something", "agent": null, "background": false, "secondary": {"es": "solo para sentir algo"},
+       "words": [{"start_ms": 3000, "end_ms": 3500, "text": "just "}, {"start_ms": 3500, "end_ms": 4000, "text": "to "},
+                 {"start_ms": 4000, "end_ms": 4800, "text": "feel "}, {"start_ms": 4800, "end_ms": 6000, "text": "something"}]},
+      {"start_ms": 6000, "end_ms": 9000, "text": "i'd set it all on fire", "words": null, "agent": null, "background": false, "secondary": {"es": "le prendería fuego a todo"}}
+    ]
+  })
+}
+
+/// App con la pista t_1, capas y paquete cargados, en `pos`.
+fn loaded(pos: u64) -> App {
+  let mut app = App { connected: true, ..App::default() };
+  let cmds = app.on_daemon(state("t_1", pos));
+  for (i, (m, _)) in cmds.iter().enumerate() {
+    app.sent(100 + i as u64, m);
+  }
+  for (i, (m, _)) in cmds.iter().enumerate() {
+    let result = match m.as_str() {
+      "lyrics.layers" => serde_json::from_str(LAYERS).unwrap(),
+      "lyrics.get" => package(),
+      _ => continue,
+    };
+    app.on_daemon(DaemonMsg::Reply { id: 100 + i as u64, result: Ok(result) });
+  }
+  app
+}
+
+#[test]
+fn a_new_track_asks_for_its_lyrics() {
+  let mut app = App::default();
+  let cmds = app.on_daemon(state("t_1", 0));
+  assert!(methods(&cmds).contains(&"lyrics.layers"));
+  let get = cmds.iter().find(|(m, _)| m == "lyrics.get").expect("lyrics.get");
+  assert_eq!(get.1["track_id"], "t_1");
+  assert_eq!(get.1["primary"], "original");
+  // Mismo track: no se vuelve a pedir.
+  assert!(!methods(&app.on_daemon(state("t_1", 500))).contains(&"lyrics.get"));
+}
+
+#[test]
+fn the_first_translation_is_shown_as_secondary_once_layers_arrive() {
+  let app = loaded(0);
+  assert_eq!(app.lyrics_secondary, vec!["es".to_string()]);
+}
+
+fn render(app: &App) -> Buffer {
+  let mut term = Terminal::new(TestBackend::new(160, 44)).unwrap();
+  term.draw(|f| ui::draw(f, app)).unwrap();
+  term.backend().buffer().clone()
+}
+
+fn text(buf: &Buffer) -> String {
+  (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect()
+}
+
+fn find(buf: &Buffer, needle: &str) -> (u16, u16) {
+  for y in 0..buf.area.height {
+    let row: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect();
+    if let Some(x) = row.find(needle) {
+      return (row[..x].chars().count() as u16, y);
+    }
+  }
+  panic!("{needle:?} not found\n{}", text(buf));
+}
+
+#[test]
+fn lyrics_tab_shows_lines_translations_and_offset_with_the_current_word_lit() {
+  let mut app = loaded(4200);
+  app.tab = Tab::Lyrics;
+  let buf = render(&app);
+  let t = text(&buf);
+  for want in ["let the world burn", "deja que el mundo arda", "just to feel something", "solo para sentir algo", "i'd set it all on fire", "-250 ms", "Traducción (es)"] {
+    assert!(t.contains(want), "missing {want:?}\n{t}");
+  }
+  // "feel" es la palabra que suena (4000..4800): acento y subrayado.
+  let (x, y) = find(&buf, "feel ");
+  let cell = &buf[(x, y)];
+  assert_eq!(cell.fg, app.theme.accent);
+  assert!(cell.modifier.contains(Modifier::UNDERLINED));
+  // "just" ya se canto: blanco y en negrita.
+  let (x, y) = find(&buf, "just ");
+  assert_eq!(buf[(x, y)].fg, app.theme.fg);
+}
+
+#[test]
+fn now_playing_previews_the_current_line() {
+  let app = loaded(4200);
+  let t = text(&render(&app));
+  assert!(t.contains("▶ just to feel something"), "{t}");
+}
+
+#[test]
+fn keys_change_layers_and_offset() {
+  let mut app = loaded(0);
+  app.tab = Tab::Lyrics;
+  let cmds = app.on_key(key(KeyCode::Char(']')));
+  assert_eq!(cmds, vec![("lyrics.set_offset".into(), json!({"track_id": "t_1", "offset_ms": -200}))]);
+  let cmds = app.on_key(key(KeyCode::Char('[')));
+  assert_eq!(cmds, vec![("lyrics.set_offset".into(), json!({"track_id": "t_1", "offset_ms": -300}))]);
+  // t oculta la traduccion y vuelve a pedir el paquete.
+  let cmds = app.on_key(key(KeyCode::Char('t')));
+  assert_eq!(cmds[0].0, "lyrics.get");
+  assert_eq!(cmds[0].1["secondary"], json!([]));
+  // o pasa a la romanizada como principal.
+  let cmds = app.on_key(key(KeyCode::Char('o')));
+  assert_eq!(cmds[0].1["primary"], "en-Latn");
+  // Fuera de la pestana Letras, ']' no hace nada.
+  app.tab = Tab::NowPlaying;
+  assert!(app.on_key(key(KeyCode::Char(']'))).is_empty());
+}
+
+#[test]
+fn offset_changes_refetch_the_package() {
+  let mut app = loaded(0);
+  let cmds = app.on_daemon(DaemonMsg::Event { name: "lyrics.changed".into(), data: json!({"track_id": "t_1"}) });
+  assert_eq!(methods(&cmds), vec!["lyrics.get"]);
+  assert!(app.on_daemon(DaemonMsg::Event { name: "lyrics.changed".into(), data: json!({"track_id": "t_other"}) }).is_empty());
+}
+
+#[test]
+fn a_track_without_lyrics_says_so() {
+  let mut app = App { connected: true, ..App::default() };
+  let cmds = app.on_daemon(state("t_9", 0));
+  for (i, (m, _)) in cmds.iter().enumerate() {
+    app.sent(200 + i as u64, m);
+    let result = if m == "lyrics.layers" { json!({"layers": []}) } else { Value::Null };
+    app.on_daemon(DaemonMsg::Reply { id: 200 + i as u64, result: Ok(result) });
+  }
+  app.tab = Tab::Lyrics;
+  let t = text(&render(&app));
+  assert!(t.contains("Esta canción no tiene letra"), "{t}");
+}

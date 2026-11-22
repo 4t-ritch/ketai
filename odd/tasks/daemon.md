@@ -49,7 +49,7 @@ Runner de tests: `cargo test --workspace`.
 | T8  | S8    | inline | hecho     | c3da656 + fix (verificador: B1 FAIL); RED: 15/15 fallan; GREEN: 15/15 + 7 unit (uri, m3u8); suite 120/120 x3 |
 | T9  | S9    | inline | hecho     | f2b8844 parsers, c8e3e31 capas/armado, slice 3 daemon; RED 9/9 -> GREEN 9/9 + 33 unit; suite 164/164 x3 |
 | T10 | S10   | inline | hecho | 25dd63e RED 2/3 -> GREEN 3/3 |
-| T11 | S11   | inline | pendiente | |
+| T11 | S11   | inline | hecho | 3777ed9 + fix 9c72637; verificador: (c) FAIL -> PASS en recheck |
 | T12 | S12   | inline | pendiente | |
 | T13 | S13   | inline | pendiente | |
 
@@ -199,4 +199,17 @@ de contexto, asi que no aplica el trigger de writer.
   independiente: PASS x3, sin bloqueantes. Nota: rodio clear() espera al
   thread de audio; solo colgaria si la salida deja de pedir muestras.
   Suite 10/10 (174 tests), clippy limpio.
-- Siguiente paso: T11 (MPRIS 2 por D-Bus).
+- L29 (2026-11-22) T11 hecho (3777ed9). mpris.rs: thread propio con
+  libdbus (dbus 0.9 + dbus-crossroads 0.5, sin async); propiedades desde
+  una copia del estado; metodos -> peticiones del protocolo por
+  Message::Mpris (cliente 0). Seeked tras seek ok; PropertiesChanged por
+  diferencia. Prueba real con playerctl en bus privado encontro 2 bugs
+  (CanPlay false con cola sin pista actual; lectura inmediata tras
+  escribir devolvia el valor viejo), ambos con test RED -> GREEN. Docs:
+  docs/mpris.md. Verificador independiente: (a)(b)(d) PASS, (c) FAIL:
+  tests de instance/session lanzaban ketaid con el bus real del usuario.
+  Fix 9c72637: common::ketaid_command() unico + test guardian. Recheck:
+  suite 3/3 (182 tests) vigilando el bus real cada 50 ms: 0 nombres ketai.
+  Notas no bloqueantes: Message::Mpris no tiene contrapresion (pedidos
+  baratos); Seek mas alla del final se limita en vez de pasar a Next.
+- Siguiente paso: T12 (canal del visualizador viz.sock).

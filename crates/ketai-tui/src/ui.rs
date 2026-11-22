@@ -30,6 +30,96 @@ pub fn draw(f: &mut Frame, app: &App) {
     Tab::Library => library(f, app, body),
     Tab::Search => search(f, app, body),
   }
+  if app.palette_open {
+    dim(f, t);
+    palette(f, app);
+  }
+}
+
+/// Atenua todo lo dibujado (fondo de un popup modal).
+fn dim(f: &mut Frame, t: &Theme) {
+  let black = crate::theme::rgb(0x000000);
+  for cell in f.buffer_mut().content.iter_mut() {
+    cell.fg = crate::theme::lerp(cell.fg, black, 0.6);
+    let bg = if cell.bg == ratatui::style::Color::Reset { t.bg } else { cell.bg };
+    cell.bg = crate::theme::lerp(bg, black, 0.6);
+  }
+}
+
+/// Fondo de los popups.
+const POPUP: ratatui::style::Color = crate::theme::rgb(0x0b0f16);
+
+/// Recuadro redondeado con el borde en el color de acento.
+fn popup_frame(f: &mut Frame, t: &Theme, area: Rect) {
+  use ratatui::widgets::{Block, BorderType, Clear, Widget};
+  Clear.render(area, f.buffer_mut());
+  Block::bordered().border_type(BorderType::Rounded).border_style(t.accent()).style(Style::new().bg(POPUP)).render(area, f.buffer_mut());
+}
+
+/// Busqueda rapida (maqueta 3-busqueda-rapida).
+fn palette(f: &mut Frame, app: &App) {
+  use crate::app::PaletteItem;
+  let t = &app.theme;
+  let area = f.area();
+  let w = 90.min(area.width.saturating_sub(4));
+  let h = 30.min(area.height.saturating_sub(4));
+  let pop = Rect::new(area.x + (area.width - w) / 2, area.y + 4.min(area.height / 8), w, h);
+  popup_frame(f, t, pop);
+  let x = pop.x + 3;
+  let inner_w = pop.width.saturating_sub(6);
+  let mut slots = Vec::new();
+  {
+    let buf = f.buffer_mut();
+    let field = Line::from(vec![Span::styled(format!("{I_SEARCH}  "), t.accent()), Span::styled(app.palette_query.clone(), t.title()), Span::styled("█", t.text())]);
+    buf.set_line(x, pop.y + 1, &field, inner_w);
+    buf.set_string(pop.x + 1, pop.y + 2, "─".repeat(pop.width.saturating_sub(2) as usize), Style::new().fg(t.raised));
+    let mut y = pop.y + 3;
+    let mut section = "";
+    for (i, item) in app.palette_items().iter().enumerate() {
+      let title = match item {
+        PaletteItem::Song(_) => "CANCIONES",
+        PaletteItem::Playlist(_) => "PLAYLISTS",
+        PaletteItem::Action(_) => "ACCIONES",
+      };
+      if title != section {
+        if !section.is_empty() {
+          y += 1;
+        }
+        section = title;
+        buf.set_string(x, y, title, t.faint());
+        y += 1;
+      }
+      let rows = if matches!(item, PaletteItem::Song(_)) { 2 } else { 1 };
+      if y + rows > pop.y + pop.height - 1 {
+        break;
+      }
+      let sel = i == app.palette_cursor;
+      if sel {
+        buf.set_style(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), rows), Style::new().bg(t.row));
+      }
+      match item {
+        PaletteItem::Song(tr) => {
+          slots.push(Rect::new(x, y, 4, 2));
+          buf.set_stringn(x + 6, y, track_title(tr), inner_w.saturating_sub(30) as usize, if sel { t.accent().add_modifier(Modifier::BOLD) } else { t.text() });
+          buf.set_stringn(x + 6, y + 1, tr["artist"].as_str().unwrap_or(""), inner_w.saturating_sub(30) as usize, t.faint());
+          if sel {
+            buf.set_string(pop.x + pop.width.saturating_sub(24), y, "⏎ reproducir  ⇥ cola", t.faint());
+          }
+        }
+        PaletteItem::Playlist(name) => {
+          buf.set_string(x, y, format!("{I_LIBRARY}  {name}"), if sel { t.accent() } else { t.text() });
+        }
+        PaletteItem::Action(a) => {
+          buf.set_string(x, y, a.label(), if sel { t.accent() } else { t.dim() });
+        }
+      }
+      y += rows;
+    }
+    buf.set_string(x, pop.y + pop.height - 2, "↑↓ elegir · ⏎ ejecutar · esc cerrar", t.faint());
+  }
+  for s in slots {
+    draw_cover_slot(f, t, s);
+  }
 }
 
 // Iconos de Nerd Font (rango FontAwesome, presente en todas).

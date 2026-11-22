@@ -113,14 +113,50 @@ pub struct App {
   pub search_cursor: usize,
   /// Filtro: 0 Todo, 1 Canciones, 2 Playlists, 3 Archivos locales.
   pub search_filter: usize,
-  /// Consultas enviadas sin respuesta, en orden (el daemon responde en
-  /// el orden en que llegan las peticiones de un cliente).
-  pub search_inflight: std::collections::VecDeque<String>,
+  /// Consultas enviadas sin respuesta, en orden: (de la paleta, texto).
+  /// El daemon responde en el orden en que llegan las peticiones.
+  pub search_inflight: std::collections::VecDeque<(bool, String)>,
+  /// Busqueda rapida abierta.
+  pub palette_open: bool,
+  pub palette_query: String,
+  pub palette_results: Vec<Value>,
+  pub palette_cursor: usize,
+  /// Selector de salida de audio abierto.
+  pub devices_open: bool,
+}
+
+/// Acciones de la busqueda rapida.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaletteAction {
+  Devices,
+  ScanMusic,
+  Lyrics,
+}
+
+impl PaletteAction {
+  pub const ALL: [PaletteAction; 3] = [PaletteAction::Devices, PaletteAction::ScanMusic, PaletteAction::Lyrics];
+
+  pub fn label(self) -> &'static str {
+    match self {
+      PaletteAction::Devices => "Cambiar salida de audio…",
+      PaletteAction::ScanMusic => "Escanear ~/Music",
+      PaletteAction::Lyrics => "Letras: elegir capas…",
+    }
+  }
+}
+
+/// Una fila de la busqueda rapida.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PaletteItem {
+  Song(Value),
+  Playlist(String),
+  Action(PaletteAction),
 }
 
 /// Nombres de los filtros de Buscar.
 pub const SEARCH_FILTERS: [&str; 4] = ["Todo", "Canciones", "Playlists", "Archivos locales"];
 const SEARCH_LIMIT: u64 = 50;
+const PALETTE_LIMIT: u64 = 5;
 
 /// `m:ss` o `h:mm:ss`.
 pub fn fmt_ms(ms: u64) -> String {
@@ -164,6 +200,11 @@ impl Default for App {
       search_cursor: 0,
       search_filter: 0,
       search_inflight: Default::default(),
+      palette_open: false,
+      palette_query: String::new(),
+      palette_results: Vec::new(),
+      palette_cursor: 0,
+      devices_open: false,
     }
   }
 }
@@ -172,6 +213,17 @@ impl App {
   pub fn on_key(&mut self, key: KeyEvent) -> Vec<Command> {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
       self.quit = true;
+      return Vec::new();
+    }
+    if self.palette_open {
+      return self.palette_key(key);
+    }
+    let ctrl_k = key.code == KeyCode::Char('k') && key.modifiers.contains(KeyModifiers::CONTROL);
+    if ctrl_k || (key.code == KeyCode::Char('/') && self.tab != Tab::Search) {
+      self.palette_open = true;
+      self.palette_query.clear();
+      self.palette_results.clear();
+      self.palette_cursor = 0;
       return Vec::new();
     }
     if self.tab == Tab::Search
@@ -314,7 +366,7 @@ impl App {
       self.search_results.clear();
       return Vec::new();
     }
-    self.search_inflight.push_back(self.search_query.clone());
+    self.search_inflight.push_back((false, self.search_query.clone()));
     vec![("library.search".into(), json!({"query": self.search_query, "limit": SEARCH_LIMIT}))]
   }
 
@@ -392,6 +444,81 @@ impl App {
       }
       _ => None,
     }
+  }
+
+  /// Filas de la busqueda rapida: canciones, playlists y acciones.
+  pub fn palette_items(&self) -> Vec<PaletteItem> {
+    let q = self.palette_query.trim().to_lowercase();
+    let mut items: Vec<PaletteItem> = Vec::new();
+    if !q.is_empty() {
+      items.extend(self.palette_results.iter().cloned().map(PaletteItem::Song));
+      items.extend(
+        self
+          .playlists
+          .iter()
+          .filter_map(|p| p["name"].as_str())
+          .filter(|n| n.to_lowercase().contains(&q))
+          .take(3)
+          .map(|n| PaletteItem::Playlist(n.to_string())),
+      );
+    }
+    // Las acciones siempre estan, debajo de los resultados (maqueta 3).
+    items.extend(PaletteAction::ALL.into_iter().map(PaletteItem::Action));
+    items
+  }
+
+  fn palette_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    let items = self.palette_items();
+    let selected = items.get(self.palette_cursor).cloned();
+    match key.code {
+      KeyCode::Esc => self.palette_open = false,
+      KeyCode::Up => self.palette_cursor = self.palette_cursor.saturating_sub(1),
+      KeyCode::Down => self.palette_cursor = (self.palette_cursor + 1).min(items.len().saturating_sub(1)),
+      KeyCode::Backspace | KeyCode::Char(_) => {
+        match key.code {
+          KeyCode::Char(c) => self.palette_query.push(c),
+          _ => {
+            self.palette_query.pop();
+          }
+        }
+        self.palette_cursor = 0;
+        self.palette_results.clear();
+        if self.palette_query.trim().is_empty() {
+          return Vec::new();
+        }
+        self.search_inflight.push_back((true, self.palette_query.clone()));
+        return vec![("library.search".into(), json!({"query": self.palette_query, "limit": PALETTE_LIMIT}))];
+      }
+      KeyCode::Tab => {
+        if let Some(PaletteItem::Song(t)) = selected
+          && let Some(uri) = t["uri"].as_str()
+        {
+          return vec![("queue.add".into(), json!({"uris": [uri]}))];
+        }
+      }
+      KeyCode::Enter => {
+        self.palette_open = false;
+        match selected {
+          Some(PaletteItem::Song(t)) => {
+            if let Some(uri) = t["uri"].as_str() {
+              return self.play_uri(uri);
+            }
+          }
+          Some(PaletteItem::Playlist(name)) => {
+            return vec![("playlist.load".into(), json!({"name": name, "replace": true})), ("queue.jump".into(), json!({"index": 0}))];
+          }
+          Some(PaletteItem::Action(PaletteAction::Devices)) => self.devices_open = true,
+          Some(PaletteItem::Action(PaletteAction::Lyrics)) => self.tab = Tab::Lyrics,
+          Some(PaletteItem::Action(PaletteAction::ScanMusic)) => {
+            let home = std::env::var("HOME").unwrap_or_default();
+            return vec![("library.scan".into(), json!({"path": format!("{home}/Music")}))];
+          }
+          None => self.palette_open = true,
+        }
+      }
+      _ => {}
+    }
+    Vec::new()
   }
 
   /// Cambia de pestana y pide lo que esa pestana necesita la primera vez.
@@ -578,10 +705,14 @@ impl App {
               self.lyrics_loaded = true;
             }
             "library.search" => {
-              let query = self.search_inflight.pop_front().unwrap_or_default();
-              if query == self.search_query {
-                self.search_results = v["tracks"].as_array().cloned().unwrap_or_default();
-                self.search_done = true;
+              let tracks = v["tracks"].as_array().cloned().unwrap_or_default();
+              match self.search_inflight.pop_front() {
+                Some((true, q)) if q == self.palette_query => self.palette_results = tracks,
+                Some((false, q)) if q == self.search_query => {
+                  self.search_results = tracks;
+                  self.search_done = true;
+                }
+                _ => {}
               }
             }
             "playlist.list" => {

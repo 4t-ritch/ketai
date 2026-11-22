@@ -50,7 +50,9 @@ fn playback_keys_become_protocol_requests() {
   assert_eq!(app.on_key(key(KeyCode::Char(' '))), vec![("player.toggle".to_string(), json!({}))]);
   assert_eq!(app.on_key(key(KeyCode::Char('n'))), vec![("player.next".to_string(), json!({}))]);
   assert_eq!(app.on_key(key(KeyCode::Char('p'))), vec![("player.previous".to_string(), json!({}))]);
-  assert!(app.on_key(key(KeyCode::Char('3'))).is_empty());
+  // Cambiar de pestana no pide nada, salvo cargar la Biblioteca la primera vez.
+  assert!(app.on_key(key(KeyCode::Char('2'))).is_empty());
+  assert_eq!(app.on_key(key(KeyCode::Char('3'))), vec![("playlist.list".to_string(), json!({}))]);
 }
 
 #[test]

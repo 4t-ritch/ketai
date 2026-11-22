@@ -37,6 +37,13 @@ impl Tab {
   }
 }
 
+/// Panel con el foco en Biblioteca.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibFocus {
+  Playlists,
+  Tracks,
+}
+
 /// Pantalla principal o la de servicio (cuando no hay daemon).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
@@ -85,6 +92,16 @@ pub struct App {
   pub lyrics_estimate: bool,
   /// El usuario eligio las capas a mano: no se cambian solas.
   pub lyrics_chosen: bool,
+  /// `playlist.list`: `{name, count}`.
+  pub playlists: Vec<Value>,
+  pub playlists_loaded: bool,
+  pub lib_cursor: usize,
+  pub lib_focus: LibFocus,
+  /// Playlist abierta (la ultima pedida con `playlist.get`).
+  pub lib_open: Option<String>,
+  /// Resultado de `playlist.get`.
+  pub playlist: Value,
+  pub track_cursor: usize,
 }
 
 /// `m:ss` o `h:mm:ss`.
@@ -115,6 +132,13 @@ impl Default for App {
       lyrics_secondary: Vec::new(),
       lyrics_estimate: false,
       lyrics_chosen: false,
+      playlists: Vec::new(),
+      playlists_loaded: false,
+      lib_cursor: 0,
+      lib_focus: LibFocus::Playlists,
+      lib_open: None,
+      playlist: Value::Null,
+      track_cursor: 0,
     }
   }
 }
@@ -126,13 +150,18 @@ impl App {
     {
       return cmds;
     }
+    if self.tab == Tab::Library
+      && let Some(cmds) = self.library_key(key)
+    {
+      return cmds;
+    }
     let cmd = |m: &str| vec![(m.to_string(), json!({}))];
     match key.code {
       KeyCode::Char('q') => self.quit = true,
       KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
-      KeyCode::Char(c @ '1'..='4') => self.tab = Tab::ALL[c as usize - '1' as usize],
-      KeyCode::Tab => self.tab = Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()],
-      KeyCode::BackTab => self.tab = Tab::ALL[(self.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len()],
+      KeyCode::Char(c @ '1'..='4') => return self.go_to(Tab::ALL[c as usize - '1' as usize]),
+      KeyCode::Tab => return self.go_to(Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()]),
+      KeyCode::BackTab => return self.go_to(Tab::ALL[(self.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]),
       KeyCode::Char(' ') => return cmd("player.toggle"),
       KeyCode::Char('n') => return cmd("player.next"),
       KeyCode::Char('p') => return cmd("player.previous"),
@@ -244,6 +273,72 @@ impl App {
     }
   }
 
+  /// Cambia de pestana y pide lo que esa pestana necesita la primera vez.
+  fn go_to(&mut self, tab: Tab) -> Vec<Command> {
+    self.tab = tab;
+    if tab == Tab::Library && !self.playlists_loaded {
+      return vec![("playlist.list".into(), json!({}))];
+    }
+    Vec::new()
+  }
+
+  fn open_selected(&mut self) -> Vec<Command> {
+    let Some(name) = self.playlists.get(self.lib_cursor).and_then(|p| p["name"].as_str()).map(str::to_string) else {
+      return Vec::new();
+    };
+    if self.lib_open.as_deref() == Some(&name) {
+      return Vec::new();
+    }
+    self.lib_open = Some(name.clone());
+    self.track_cursor = 0;
+    vec![("playlist.get".into(), json!({"name": name}))]
+  }
+
+  /// Teclas de Biblioteca. `None` si la tecla no es suya.
+  fn library_key(&mut self, key: KeyEvent) -> Option<Vec<Command>> {
+    let up = matches!(key.code, KeyCode::Up | KeyCode::Char('k'));
+    let down = matches!(key.code, KeyCode::Down | KeyCode::Char('j'));
+    match self.lib_focus {
+      LibFocus::Playlists => {
+        if up || down {
+          let max = self.playlists.len().saturating_sub(1);
+          self.lib_cursor = if up { self.lib_cursor.saturating_sub(1) } else { (self.lib_cursor + 1).min(max) };
+          return Some(self.open_selected());
+        }
+        if key.code == KeyCode::Enter && !self.playlists.is_empty() {
+          self.lib_focus = LibFocus::Tracks;
+          return Some(Vec::new());
+        }
+        None
+      }
+      LibFocus::Tracks => {
+        let tracks = self.playlist["tracks"].as_array().map(|t| t.len()).unwrap_or(0);
+        if up || down {
+          self.track_cursor = if up { self.track_cursor.saturating_sub(1) } else { (self.track_cursor + 1).min(tracks.saturating_sub(1)) };
+          return Some(Vec::new());
+        }
+        match key.code {
+          KeyCode::Esc => {
+            self.lib_focus = LibFocus::Playlists;
+            Some(Vec::new())
+          }
+          KeyCode::Enter if tracks > 0 => {
+            let name = self.lib_open.clone()?;
+            Some(vec![
+              ("playlist.load".into(), json!({"name": name, "replace": true})),
+              ("queue.jump".into(), json!({"index": self.track_cursor})),
+            ])
+          }
+          KeyCode::Char('a') => {
+            let uri = self.playlist["tracks"][self.track_cursor]["uri"].as_str()?.to_string();
+            Some(vec![("queue.add".into(), json!({"uris": [uri]}))])
+          }
+          _ => None,
+        }
+      }
+    }
+  }
+
   fn first_translation(&self) -> Option<String> {
     self.lyrics_layers.iter().find(|l| l["kind"] == "translation").and_then(|l| l["id"].as_str()).map(str::to_string)
   }
@@ -305,6 +400,15 @@ impl App {
           self.pos_at = Instant::now();
         }
         "queue.changed" | "track.changed" => return vec![("queue.list".into(), json!({}))],
+        "playlist.changed" => {
+          let mut cmds = vec![("playlist.list".into(), json!({}))];
+          if let Some(open) = &self.lib_open
+            && data["name"] == open.as_str()
+          {
+            cmds.push(("playlist.get".into(), json!({"name": open})));
+          }
+          return cmds;
+        }
         "lyrics.changed" => {
           if let Some(track) = self.lyrics_track.clone()
             && data["track_id"] == track.as_str()
@@ -343,6 +447,18 @@ impl App {
             "lyrics.get" => {
               self.lyrics = v;
               self.lyrics_loaded = true;
+            }
+            "playlist.list" => {
+              self.playlists = v["playlists"].as_array().cloned().unwrap_or_default();
+              self.playlists_loaded = true;
+              self.lib_cursor = self.lib_cursor.min(self.playlists.len().saturating_sub(1));
+              return self.open_selected();
+            }
+            // Solo cuenta la respuesta de la playlist que sigue abierta.
+            "playlist.get" if v["name"].as_str() == self.lib_open.as_deref() => {
+              self.playlist = v;
+              let n = self.playlist["tracks"].as_array().map(|t| t.len()).unwrap_or(0);
+              self.track_cursor = self.track_cursor.min(n.saturating_sub(1));
             }
             _ => {}
           }

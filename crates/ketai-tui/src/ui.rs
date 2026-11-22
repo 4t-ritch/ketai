@@ -27,6 +27,7 @@ pub fn draw(f: &mut Frame, app: &App) {
   match app.tab {
     Tab::NowPlaying => now_playing(f, app, body),
     Tab::Lyrics => lyrics(f, app, body),
+    Tab::Library => library(f, app, body),
     _ => {}
   }
 }
@@ -313,6 +314,165 @@ fn lyrics(f: &mut Frame, app: &App, area: Rect) {
     Span::styled(format!("      {I_NEXT}"), t.text()),
   ]);
   center(f, area.y + area.height - 2, controls);
+}
+
+const I_LIBRARY: &str = "\u{f02d}";
+const I_CLOCK: &str = "\u{f017}";
+
+/// Columna de playlists (izquierda en Biblioteca y Buscar).
+fn playlists_column(buf: &mut ratatui::buffer::Buffer, app: &App, area: Rect) -> Vec<Rect> {
+  let t = &app.theme;
+  let x = area.x + 2;
+  buf.set_string(x, area.y, format!("{I_LIBRARY}  Tu biblioteca"), t.title());
+  buf.set_string(x, area.y + 2, " Playlists ", Style::new().fg(t.on_accent).bg(t.accent));
+  let mut slots = Vec::new();
+  let focused = app.lib_focus == crate::app::LibFocus::Playlists && app.tab == Tab::Library;
+  for (i, p) in app.playlists.iter().enumerate() {
+    let y = area.y + 4 + i as u16 * 4;
+    if y + 3 > area.y + area.height {
+      break;
+    }
+    let sel = i == app.lib_cursor && app.tab == Tab::Library;
+    if sel {
+      buf.set_style(Rect::new(area.x, y, area.width, 3), Style::new().bg(t.row));
+      if focused {
+        for dy in 0..3 {
+          buf.set_string(area.x, y + dy, "▌", t.accent());
+        }
+      }
+    }
+    slots.push(Rect::new(x, y, 6, 3));
+    let name = p["name"].as_str().unwrap_or("");
+    let w = area.width.saturating_sub(11) as usize;
+    buf.set_stringn(x + 8, y, name, w, if sel { t.accent().add_modifier(Modifier::BOLD) } else { t.text() });
+    let count = p["count"].as_u64().unwrap_or(0);
+    buf.set_stringn(x + 8, y + 1, format!("{count} canciones"), w, t.faint());
+  }
+  if app.playlists.is_empty() {
+    buf.set_string(x, area.y + 4, if app.playlists_loaded { "Sin playlists" } else { "Cargando…" }, t.faint());
+  }
+  slots
+}
+
+/// Columna derecha: lo que suena (como el panel de la opcion A).
+fn now_column(f: &mut Frame, app: &App, area: Rect) {
+  let t = &app.theme;
+  let track = &app.player["track"];
+  let x = area.x + 1;
+  let w = area.width.saturating_sub(2);
+  f.buffer_mut().set_string(x, area.y, "REPRODUCIENDO", t.faint());
+  if !track.is_object() {
+    f.buffer_mut().set_string(x, area.y + 2, "Nada en reproducción", t.dim());
+    return;
+  }
+  let side = w * 10 / 22 + 1;
+  draw_cover_slot(f, t, Rect::new(x, area.y + 2, w, side));
+  let buf = f.buffer_mut();
+  let y = area.y + 3 + side;
+  buf.set_stringn(x, y, track_title(track), w as usize, t.title());
+  buf.set_stringn(x, y + 1, track["artist"].as_str().unwrap_or(""), w as usize, t.dim());
+  lyrics_preview(buf, app, x, y + 3, w);
+  if let Some(next) = app.next_track() {
+    buf.set_string(x, y + 8, "SIGUIENTE", t.faint());
+    buf.set_stringn(x, y + 10, track_title(next), w as usize, t.text());
+    buf.set_stringn(x, y + 11, next["artist"].as_str().unwrap_or(""), w as usize, t.faint());
+  }
+}
+
+/// Barra de reproduccion de abajo, en las vistas de navegacion.
+fn player_bar(f: &mut Frame, app: &App, area: Rect) {
+  let t = &app.theme;
+  let track = &app.player["track"];
+  if track.is_object() {
+    draw_cover_slot(f, t, Rect::new(area.x + 2, area.y, 6, 3));
+  }
+  let buf = f.buffer_mut();
+  if track.is_object() {
+    buf.set_stringn(area.x + 10, area.y, track_title(track), 40, t.title());
+    buf.set_stringn(area.x + 10, area.y + 1, track["artist"].as_str().unwrap_or(""), 40, t.dim());
+  }
+  let play = if app.playing() { I_PAUSE } else { I_PLAY };
+  let shuffle = app.player["shuffle"].as_bool().unwrap_or(false);
+  let repeat = app.player["repeat"].as_str().unwrap_or("off") != "off";
+  let controls = Line::from(vec![
+    Span::styled(format!("{I_SHUFFLE}      "), if shuffle { t.accent() } else { t.faint() }),
+    Span::styled(format!("{I_PREV}      "), t.text()),
+    Span::styled(format!("  {play}  "), Style::new().fg(t.on_accent).bg(t.fg)),
+    Span::styled(format!("      {I_NEXT}      "), t.text()),
+    Span::styled(I_REPEAT, if repeat { t.accent() } else { t.faint() }),
+  ]);
+  let cx = area.x + area.width / 2;
+  buf.set_line(cx.saturating_sub(controls.width() as u16 / 2), area.y, &controls, area.width);
+  let pw = 70.min(area.width.saturating_sub(70));
+  progress(buf, t, cx.saturating_sub(pw / 2), area.y + 2, pw, app.position_ms(), track["duration_ms"].as_u64());
+}
+
+fn fmt_total(ms: u64) -> String {
+  let min = ms / 60_000;
+  if min >= 60 { format!("{} h {} min", min / 60, min % 60) } else { format!("{min} min") }
+}
+
+/// Biblioteca: playlists, la playlist abierta y lo que suena (maqueta
+/// 4-biblioteca-playlist).
+fn library(f: &mut Frame, app: &App, area: Rect) {
+  let t = &app.theme;
+  let body = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(6));
+  let slots = playlists_column(f.buffer_mut(), app, Rect::new(body.x, body.y, 34, body.height));
+  for s in slots {
+    draw_cover_slot(f, t, s);
+  }
+  let right_w = 34;
+  let center = Rect::new(body.x + 37, body.y, body.width.saturating_sub(37 + right_w + 3), body.height);
+  now_column(f, app, Rect::new(body.x + body.width - right_w - 1, body.y, right_w, body.height));
+  player_bar(f, app, Rect::new(area.x, area.y + area.height - 4, area.width, 3));
+
+  let Some(name) = app.lib_open.clone() else { return };
+  let tracks = app.playlist["tracks"].as_array().cloned().unwrap_or_default();
+  draw_cover_slot(f, t, Rect::new(center.x, center.y, 20, 9));
+  let buf = f.buffer_mut();
+  let x = center.x + 23;
+  let w = center.width.saturating_sub(23);
+  buf.set_string(x, center.y + 1, "PLAYLIST", t.faint());
+  buf.set_stringn(x, center.y + 3, &name, w as usize, t.title());
+  buf.set_string(x, center.y + 4, "▔".repeat(name.chars().count().min(w as usize)), t.accent());
+  let total: u64 = tracks.iter().filter_map(|t| t["duration_ms"].as_u64()).sum();
+  buf.set_string(x, center.y + 6, format!("{} canciones · {}", tracks.len(), fmt_total(total)), t.dim());
+  let dir = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| "~/.local/share".into());
+  buf.set_stringn(x, center.y + 7, format!("{dir}/ketai/playlists/{name}.m3u8"), w as usize, t.faint());
+  let y = center.y + 11;
+  buf.set_string(center.x, y, format!("  {I_PLAY}  "), Style::new().fg(t.on_accent).bg(t.accent).add_modifier(Modifier::BOLD));
+  buf.set_string(center.x + 9, y, "⏎ reproducir · a a la cola · esc volver", t.faint());
+
+  let cols = [center.x + 1, center.x + 5, center.x + center.width * 58 / 100, center.x + center.width.saturating_sub(6)];
+  let hy = y + 3;
+  for (cx, h) in cols.iter().zip(["#", "TÍTULO", "ÁLBUM", I_CLOCK]) {
+    buf.set_string(*cx, hy, h, t.faint());
+  }
+  let playing_uri = app.player["track"]["uri"].as_str();
+  let rows = ((center.y + center.height).saturating_sub(hy + 2) / 3) as usize;
+  let first = app.track_cursor.saturating_sub(rows.saturating_sub(1));
+  let mut cover_slots = Vec::new();
+  let tracks_focus = app.lib_focus == crate::app::LibFocus::Tracks;
+  for (slot, i) in (first..tracks.len()).take(rows).enumerate() {
+    let tr = &tracks[i];
+    let ry = hy + 2 + slot as u16 * 3;
+    let playing = playing_uri.is_some() && tr["uri"].as_str() == playing_uri;
+    if tracks_focus && i == app.track_cursor {
+      buf.set_style(Rect::new(center.x, ry, center.width, 2), Style::new().bg(t.row));
+      buf.set_string(center.x, ry, "▌", t.accent());
+      buf.set_string(center.x, ry + 1, "▌", t.accent());
+    }
+    buf.set_string(cols[0], ry, if playing { "▶".to_string() } else { (i + 1).to_string() }, if playing { t.accent() } else { t.faint() });
+    cover_slots.push(Rect::new(cols[1], ry, 4, 2));
+    let tw = cols[2].saturating_sub(cols[1] + 7) as usize;
+    buf.set_stringn(cols[1] + 6, ry, track_title(tr), tw, if playing { t.accent().add_modifier(Modifier::BOLD) } else { t.text() });
+    buf.set_stringn(cols[1] + 6, ry + 1, tr["artist"].as_str().unwrap_or(""), tw, t.faint());
+    buf.set_stringn(cols[2], ry, tr["album"].as_str().unwrap_or(""), cols[3].saturating_sub(cols[2] + 2) as usize, t.dim());
+    buf.set_string(cols[3], ry, tr["duration_ms"].as_u64().map(fmt_ms).unwrap_or_default(), t.faint());
+  }
+  for s in cover_slots {
+    draw_cover_slot(f, t, s);
+  }
 }
 
 /// Lugar de la caratula. La imagen real la pone la capa de graficos

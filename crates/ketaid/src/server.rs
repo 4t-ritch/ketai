@@ -218,14 +218,14 @@ const MAX_IN_FLIGHT: usize = 64;
 /// thread lector (suma) y su thread escritor (resta). En C: un mutex y una
 /// variable de condicion.
 #[derive(Default)]
-struct Credit {
+pub struct Credit {
   state: Mutex<(usize, bool)>,
   freed: Condvar,
 }
 
 impl Credit {
   /// Espera lugar para una peticion mas. false si la conexion se cerro.
-  fn acquire(&self) -> bool {
+  pub fn acquire(&self) -> bool {
     let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
     while g.0 >= MAX_IN_FLIGHT && !g.1 {
       g = self.freed.wait(g).unwrap_or_else(|e| e.into_inner());
@@ -237,7 +237,7 @@ impl Credit {
     true
   }
 
-  fn release(&self) {
+  pub fn release(&self) {
     let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
     g.0 = g.0.saturating_sub(1);
     self.freed.notify_one();
@@ -521,6 +521,8 @@ fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Opti
             services.mpris.note_seeked();
           }
         }
+        // Libera el lugar que ocupaba el pedido (ver `Credit`).
+        services.mpris.handled();
         Flow::Continue
       }
       Message::Resolved(resolved) => {

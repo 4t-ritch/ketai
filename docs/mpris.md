@@ -17,6 +17,9 @@ Si no hay bus de sesion, el daemon lo registra y sigue funcionando sin MPRIS.
   al loop central.
 - Los metodos y las propiedades escribibles se traducen a peticiones del
   protocolo y viajan al loop central como cualquier otra peticion.
+- Los pedidos de MPRIS tienen el mismo tope que un cliente: hasta 64 sin
+  atender. Si un programa inunda el bus de llamadas, el thread de MPRIS
+  espera al loop central en vez de llenar su cola. No se pierde ninguno.
 - Al escribir `Volume`, `LoopStatus` o `Shuffle`, la copia se actualiza al
   instante: una lectura inmediata ya ve el valor nuevo.
 - Los cambios se anuncian con `PropertiesChanged`. `Position` no se anuncia:
@@ -32,7 +35,7 @@ Si no hay bus de sesion, el daemon lo registra y sigue funcionando sin MPRIS.
 | `Stop` | `player.stop` |
 | `Next` | `player.next` |
 | `Previous` | `player.previous` |
-| `Seek(offset_us)` | `player.seek_relative` |
+| `Seek(offset_us)` | `player.seek_relative`; si pasa el final de la pista actua como `Next` (sin efecto si no hay siguiente) |
 | `SetPosition(track, pos_us)` | `player.seek`; se ignora si `track` no es la pista actual o la posicion esta fuera de rango |
 | `OpenUri(uri)` | `queue.add` (solo `file://`) |
 | `Raise` | no hace nada (`CanRaise` es false) |

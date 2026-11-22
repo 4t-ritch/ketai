@@ -16,6 +16,7 @@
 use std::{
   cell::RefCell,
   rc::Rc,
+  sync::Arc,
   sync::mpsc::{self, Receiver, Sender, TryRecvError},
   thread,
   time::{Duration, Instant},
@@ -32,7 +33,7 @@ use dbus_crossroads::{Crossroads, IfaceBuilder, MethodErr};
 use ketai_protocol::Request;
 use serde_json::{Map, Value, json};
 
-use crate::server::Message;
+use crate::server::{Credit, Message};
 
 const NAME: &str = "org.mpris.MediaPlayer2.ketai";
 const OBJECT: &str = "/org/mpris/MediaPlayer2";
@@ -199,20 +200,31 @@ pub struct MprisService {
   updates: Sender<Update>,
   last: Option<Snapshot>,
   seeked: bool,
+  /// Pedidos de MPRIS en vuelo hacia el loop central, con el mismo tope que
+  /// un cliente: si un programa inunda el bus de llamadas, el thread de
+  /// MPRIS espera en vez de llenar la cola del loop central.
+  credit: Arc<Credit>,
 }
 
 impl MprisService {
   pub fn new(tx: Sender<Message>) -> Self {
     let (updates, rx) = mpsc::channel();
+    let credit = Arc::new(Credit::default());
+    let thread_credit = credit.clone();
     thread::Builder::new()
       .name("ketai-mpris".into())
       .spawn(move || {
-        if let Err(e) = run(rx, tx) {
+        if let Err(e) = run(rx, tx, thread_credit) {
           eprintln!("ketaid: MPRIS disabled: {e}");
         }
       })
       .expect("spawn mpris thread");
-    Self { updates, last: None, seeked: false }
+    Self { updates, last: None, seeked: false, credit }
+  }
+
+  /// El loop central termino de atender un pedido de MPRIS.
+  pub fn handled(&self) {
+    self.credit.release();
   }
 
   /// Hubo un seek (de cualquier cliente o de MPRIS).
@@ -253,11 +265,16 @@ struct Data {
   /// Momento en que se recibio `snapshot`, para estimar la posicion.
   at: Instant,
   tx: Sender<Message>,
+  credit: Arc<Credit>,
 }
 
 impl Data {
   fn send(&self, method: &str, params: Value) {
-    let _ = self.tx.send(Message::Mpris(MprisService::request(method, params)));
+    // Espera lugar si ya hay demasiados pedidos sin atender.
+    self.credit.acquire();
+    if self.tx.send(Message::Mpris(MprisService::request(method, params))).is_err() {
+      self.credit.release();
+    }
   }
 
   /// Posicion actual en microsegundos: la ultima conocida mas lo que paso
@@ -274,7 +291,7 @@ impl Data {
   }
 }
 
-fn run(updates: Receiver<Update>, tx: Sender<Message>) -> Result<(), dbus::Error> {
+fn run(updates: Receiver<Update>, tx: Sender<Message>, credit: Arc<Credit>) -> Result<(), dbus::Error> {
   let conn = LocalConnection::new_session()?;
   // Si el nombre ya esta tomado (otro ketai en el mismo bus), se usa uno
   // con el pid, como pide la especificacion.
@@ -286,7 +303,7 @@ fn run(updates: Receiver<Update>, tx: Sender<Message>) -> Result<(), dbus::Error
   let mut cr = Crossroads::new();
   let root = cr.register(ROOT, root_iface);
   let player = cr.register(PLAYER, player_iface);
-  cr.insert(OBJECT, &[root, player], Data { snapshot: Snapshot::default(), announced: Snapshot::default(), at: Instant::now(), tx });
+  cr.insert(OBJECT, &[root, player], Data { snapshot: Snapshot::default(), announced: Snapshot::default(), at: Instant::now(), tx, credit });
   let cr = Rc::new(RefCell::new(cr));
 
   let handler = cr.clone();
@@ -359,7 +376,16 @@ fn player_iface(b: &mut IfaceBuilder<Data>) {
     });
   }
   b.method("Seek", ("Offset",), (), |_, d: &mut Data, (offset_us,): (i64,)| {
-    d.send("player.seek_relative", json!({"offset_ms": offset_us / 1000}));
+    // La especificacion pide que pasar el final se comporte como Next (que
+    // no hace nada si no hay siguiente). Antes del principio se queda en 0.
+    let len_us = d.snapshot.track.as_ref().and_then(|t| t.duration_ms).map(|ms| ms as i64 * 1000);
+    if len_us.is_some_and(|len| d.position_us().saturating_add(offset_us) > len) {
+      if d.snapshot.can_next {
+        d.send("player.next", json!({}));
+      }
+    } else {
+      d.send("player.seek_relative", json!({"offset_ms": offset_us / 1000}));
+    }
     Ok(())
   });
   b.method("SetPosition", ("TrackId", "Position"), (), |_, d: &mut Data, (track, pos_us): (Path<'static>, i64)| {

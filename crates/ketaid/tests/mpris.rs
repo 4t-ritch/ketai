@@ -325,3 +325,44 @@ fn written_properties_read_back_immediately() {
   s.proxy().set(PLAYER, "Shuffle", true).unwrap();
   assert!(s.get::<bool>("Shuffle"));
 }
+
+#[test]
+fn seek_past_the_end_acts_like_next() {
+  // Especificacion: si el offset pasa el final de la pista, Seek se comporta
+  // como Next.
+  let mut s = S::new();
+  let ids = s.queue(&["vorbis.ogg", "opus.ogg"]);
+  s.ok("player.play", json!({}));
+  s.ok("player.pause", json!({}));
+  s.wait_prop::<bool>("CanSeek", |v| *v);
+  s.call("Seek", (5_000_000i64,));
+  s.wait_state(|st| st["track"]["id"] == ids[1]);
+
+  // En la ultima pista y sin repeticion, Next no hace nada: Seek tampoco.
+  s.wait_prop::<bool>("CanGoNext", |v| !*v);
+  s.call("Seek", (5_000_000i64,));
+  thread::sleep(Duration::from_millis(200));
+  let st = s.state();
+  assert_eq!(st["track"]["id"], ids[1]);
+  assert!(st["position_ms"].as_u64().unwrap() < 500, "{st}");
+}
+
+#[test]
+fn a_flood_of_dbus_calls_is_applied_in_order() {
+  // Muchas llamadas sin esperar respuesta: con el tope de pedidos en vuelo
+  // el thread de MPRIS espera al loop central, pero no pierde ni desordena
+  // ninguna. Gana la ultima.
+  let mut s = S::new();
+  for i in 0..2000 {
+    let v = if i == 1999 { 0.25 } else { (i % 10) as f64 / 10.0 };
+    let msg = Message::new_method_call(NAME, "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "Set")
+      .unwrap()
+      .append3(PLAYER, "Volume", dbus::arg::Variant(v));
+    let mut msg = msg;
+    msg.set_no_reply(true);
+    dbus::channel::Sender::send(&s.dbus, msg).unwrap();
+  }
+  s.dbus.channel().flush();
+  s.wait_state(|st| st["volume"] == 0.25);
+  assert_eq!(s.wait_prop::<f64>("Volume", |v| *v == 0.25), 0.25);
+}

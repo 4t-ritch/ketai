@@ -212,4 +212,11 @@ de contexto, asi que no aplica el trigger de writer.
   suite 3/3 (182 tests) vigilando el bus real cada 50 ms: 0 nombres ketai.
   Notas no bloqueantes: Message::Mpris no tiene contrapresion (pedidos
   baratos); Seek mas alla del final se limita en vez de pasar a Next.
+- L30 (2026-11-22) Usuario: "corrige los detalles antes de pasar al T12".
+  Seek de MPRIS mas alla del final actua como Next (sin efecto si no hay
+  siguiente): test seek_past_the_end_acts_like_next RED -> GREEN. Pedidos
+  de MPRIS con el mismo Credit de 64 en vuelo (el thread de D-Bus espera
+  al loop central); test de regresion con 2000 llamadas sin respuesta
+  (no puede ser RED: la diferencia es memoria). Suite 3/3 (184 tests),
+  clippy limpio.
 - Siguiente paso: T12 (canal del visualizador viz.sock).

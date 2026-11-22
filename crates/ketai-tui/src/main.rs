@@ -14,6 +14,7 @@ use std::{
 use ketai_tui::{
   app::{App, Screen},
   client::{self, Client, DaemonMsg},
+  config::{self, Config},
   covers, kitty,
   service::{self, Action, Observed},
   ui, viz,
@@ -137,6 +138,13 @@ Para usarlo igual sin carátulas: KETAI_NO_IMAGES=1 ketai";
 fn main() -> io::Result<()> {
   let (tx, rx) = mpsc::channel::<Input>();
   let mut app = App::default();
+  if let Some(path) = config::path() {
+    match Config::load(&path) {
+      Ok(c) => app.config = c,
+      Err(e) => app.config_error = Some(e),
+    }
+  }
+  app.refresh_theme();
   let mut terminal = ratatui::init();
   // La pregunta se hace antes de leer teclas: la respuesta llega por stdin.
   let no_images = std::env::var_os("KETAI_NO_IMAGES").is_some_and(|v| v == "1");
@@ -239,7 +247,11 @@ fn main() -> io::Result<()> {
             });
           }
         }
-        Some(Input::Cover(uri, img)) => emit(&app.covers.decoded(&uri, img)),
+        Some(Input::Cover(uri, img)) => {
+          emit(&app.covers.decoded(&uri, img));
+          // Si es la caratula que suena, el tema toma sus colores.
+          app.refresh_theme();
+        }
         Some(Input::Daemon(msg)) => {
           for (method, params) in app.on_daemon(msg) {
             send(&mut client, &mut app, &method, params);

@@ -145,6 +145,10 @@ pub struct App {
   pub folders_error: Option<String>,
   /// Escaneo en curso: (job, hecho, total).
   pub scan: Option<(String, u64, u64)>,
+  /// Configuracion vigente (config.toml).
+  pub config: crate::config::Config,
+  /// Error del ultimo intento de leer config.toml (se mantiene la anterior).
+  pub config_error: Option<String>,
 }
 
 /// Acciones de la busqueda rapida.
@@ -242,6 +246,8 @@ impl Default for App {
       folder_confirm_remove: false,
       folders_error: None,
       scan: None,
+      config: Default::default(),
+      config_error: None,
     }
   }
 }
@@ -778,12 +784,21 @@ impl App {
     )
   }
 
+  /// Recalcula el tema: config.toml mas los colores de la caratula que
+  /// suena. Se llama al cambiar la configuracion, la pista o al llegar una
+  /// caratula.
+  pub fn refresh_theme(&mut self) {
+    let palette = self.player["track"]["uri"].as_str().and_then(|u| self.covers.palette(u));
+    self.theme = self.config.theme(palette);
+  }
+
   /// Si cambio la pista, se piden sus letras desde cero.
   fn track_changed(&mut self) -> Vec<Command> {
     let id = self.player["track"]["id"].as_str().map(str::to_string);
     if id == self.lyrics_track {
       return Vec::new();
     }
+    self.refresh_theme();
     self.lyrics_track = id.clone();
     self.lyrics = Value::Null;
     self.lyrics_layers.clear();

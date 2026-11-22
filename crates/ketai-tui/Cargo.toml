@@ -17,6 +17,7 @@ ketai-protocol.workspace = true
 dbus = "0.9"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 libc = "0.2"
+toml = "0.8"
 ratatui = "0.29"
 serde_json.workspace = true
 

@@ -16,6 +16,8 @@ pub struct Theme {
   pub row: Color,
   pub ok: Color,
   pub error: Color,
+  /// Color de la parte alta del espectro.
+  pub spectrum_top: Color,
 }
 
 pub const fn rgb(hex: u32) -> Color {
@@ -47,6 +49,7 @@ impl Default for Theme {
       row: rgb(0x16202e),
       ok: rgb(0x7ee787),
       error: rgb(0xff7b8a),
+      spectrum_top: rgb(0xff7ab6),
     }
   }
 }

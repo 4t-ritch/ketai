@@ -55,6 +55,25 @@ pub fn draw(f: &mut RFrame, app: &App) {
     begin_overlay();
     folders(f, app);
   }
+  config_notice(f, app);
+}
+
+/// Error o aviso de config.toml en la ultima fila. Un error deja el tema
+/// anterior: se muestra hasta que el archivo se corrige.
+fn config_notice(f: &mut RFrame, app: &App) {
+  let t = &app.theme;
+  let area = f.area();
+  let (text, color) = match (&app.config_error, app.config.warnings.first()) {
+    (Some(e), _) => (format!("config.toml: {e}"), t.error),
+    (None, Some(w)) => (format!("config.toml: {w}"), t.faint),
+    _ => return,
+  };
+  if area.height == 0 {
+    return;
+  }
+  let y = area.y + area.height - 1;
+  f.buffer_mut().set_style(Rect::new(area.x, y, area.width, 1), Style::new().bg(t.bg));
+  putn(f.buffer_mut(), area.x + 1, y, text, area.width.saturating_sub(2) as usize, Style::new().fg(color));
 }
 
 /// Atenua todo lo dibujado (fondo de un popup modal).
@@ -310,7 +329,7 @@ fn spectrum(buf: &mut Buffer, t: &Theme, area: Rect, values: &[f32]) {
   let bars = (area.width as usize / 2).min(values.len()).max(1);
   let per = values.len() as f32 / bars as f32;
   let x0 = area.x + (area.width - bars as u16 * 2) / 2;
-  let top = crate::theme::rgb(0xff7ab6);
+  let top = t.spectrum_top;
   for b in 0..bars {
     let from = (b as f32 * per) as usize;
     let to = (((b + 1) as f32 * per) as usize).max(from + 1).min(values.len());

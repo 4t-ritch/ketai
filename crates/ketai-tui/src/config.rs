@@ -1,0 +1,156 @@
+//! Configuracion de la TUI: `$XDG_CONFIG_HOME/ketai/config.toml`
+//! (`~/.config/ketai/config.toml`). Ver docs/config.md.
+//!
+//! TOML: declarativo, con comentarios y secciones. Funciones nuevas se
+//! agregan como secciones nuevas sin romper los archivos existentes; una
+//! clave desconocida se avisa pero no frena el resto.
+
+use std::path::{Path, PathBuf};
+
+use ratatui::style::Color as RColor;
+
+use crate::theme::Theme;
+
+/// Un color del tema: fijo o tomado de la caratula que suena.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Color {
+  Cover,
+  Fixed(RColor),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThemeConfig {
+  pub background: Color,
+  pub accent: Color,
+  /// Colores fijos opcionales; `None` deja el valor por defecto.
+  pub fixed: Vec<(&'static str, RColor)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Config {
+  pub theme: ThemeConfig,
+  /// Claves que no se reconocen (no frenan la carga).
+  pub warnings: Vec<String>,
+}
+
+impl Default for Config {
+  fn default() -> Self {
+    Self { theme: ThemeConfig { background: Color::Cover, accent: Color::Cover, fixed: Vec::new() }, warnings: Vec::new() }
+  }
+}
+
+/// Claves de `[theme]` que solo admiten un color fijo.
+const FIXED_KEYS: [&str; 9] = ["foreground", "dim", "faint", "raised", "on_accent", "row", "ok", "error", "spectrum_top"];
+
+/// `#rrggbb`.
+fn hex(s: &str) -> Option<RColor> {
+  let h = s.strip_prefix('#')?;
+  if h.len() != 6 {
+    return None;
+  }
+  let v = u32::from_str_radix(h, 16).ok()?;
+  Some(crate::theme::rgb(v))
+}
+
+impl Config {
+  pub fn parse(text: &str) -> Result<Config, String> {
+    let table: toml::Table = text.parse().map_err(|e: toml::de::Error| e.to_string().trim().to_string())?;
+    let mut config = Config::default();
+    for (key, value) in &table {
+      match key.as_str() {
+        "theme" => {
+          let theme = value.as_table().ok_or("theme: tiene que ser una sección [theme]")?;
+          for (k, v) in theme {
+            let name = format!("theme.{k}");
+            let text = v.as_str().ok_or_else(|| format!("{name}: tiene que ser un texto como \"#rrggbb\""))?;
+            match k.as_str() {
+              "background" | "accent" => {
+                let c = if text == "cover" {
+                  Color::Cover
+                } else {
+                  Color::Fixed(hex(text).ok_or_else(|| format!("{name}: color inválido \"{text}\" (usá \"#rrggbb\" o \"cover\")"))?)
+                };
+                if k == "background" {
+                  config.theme.background = c;
+                } else {
+                  config.theme.accent = c;
+                }
+              }
+              other => match FIXED_KEYS.iter().find(|f| **f == other) {
+                Some(f) => {
+                  let c = hex(text).ok_or_else(|| format!("{name}: color inválido \"{text}\" (usá \"#rrggbb\")"))?;
+                  config.theme.fixed.push((f, c));
+                }
+                None => config.warnings.push(format!("{name}: clave desconocida, se ignora")),
+              },
+            }
+          }
+        }
+        other => config.warnings.push(format!("{other}: sección desconocida, se ignora")),
+      }
+    }
+    Ok(config)
+  }
+
+  /// Lee el archivo. Si no existe, la configuracion por defecto.
+  pub fn load(path: &Path) -> Result<Config, String> {
+    match std::fs::read_to_string(path) {
+      Ok(text) => Config::parse(&text),
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
+      Err(e) => Err(format!("no se pudo leer: {e}")),
+    }
+  }
+
+  /// Tema final. `cover` son los colores de la caratula que suena (acento,
+  /// fondo, fondo elevado), si hay.
+  pub fn theme(&self, cover: Option<CoverPalette>) -> Theme {
+    let mut t = Theme::default();
+    for (key, c) in &self.theme.fixed {
+      match *key {
+        "foreground" => t.fg = *c,
+        "dim" => t.dim = *c,
+        "faint" => t.faint = *c,
+        "raised" => t.raised = *c,
+        "on_accent" => t.on_accent = *c,
+        "row" => t.row = *c,
+        "ok" => t.ok = *c,
+        "error" => t.error = *c,
+        "spectrum_top" => t.spectrum_top = *c,
+        _ => {}
+      }
+    }
+    match (self.theme.background, cover) {
+      (Color::Fixed(c), _) => t.bg = c,
+      (Color::Cover, Some(p)) => {
+        t.bg = p.background;
+        if !self.theme.fixed.iter().any(|(k, _)| *k == "raised") {
+          t.raised = p.raised;
+        }
+      }
+      (Color::Cover, None) => {}
+    }
+    match (self.theme.accent, cover) {
+      (Color::Fixed(c), _) => t.accent = c,
+      (Color::Cover, Some(p)) => t.accent = p.accent,
+      (Color::Cover, None) => {}
+    }
+    t
+  }
+}
+
+/// Colores derivados de una caratula.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CoverPalette {
+  pub accent: RColor,
+  pub background: RColor,
+  pub raised: RColor,
+}
+
+/// `$XDG_CONFIG_HOME/ketai/config.toml` o `~/.config/ketai/config.toml`.
+pub fn path() -> Option<PathBuf> {
+  let base = std::env::var_os("XDG_CONFIG_HOME")
+    .map(PathBuf::from)
+    .filter(|p| p.is_absolute())
+    .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+  Some(base.join("ketai").join("config.toml"))
+}

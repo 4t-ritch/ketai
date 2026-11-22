@@ -1,0 +1,18 @@
+# Configuracion de ketai: ~/.config/ketai/config.toml
+# Los cambios se aplican al guardar, sin reiniciar.
+
+[theme]
+# "cover": el color sale de la caratula que suena. O un color fijo "#rrggbb".
+background = "cover"
+accent = "cover"
+
+# Colores fijos (descomentar para cambiarlos).
+# foreground = "#ffffff"
+# dim = "#c8d3e0"
+# faint = "#7f8ea3"
+# raised = "#1c2a3a"
+# on_accent = "#04121f"
+# row = "#16202e"
+# ok = "#7ee787"
+# error = "#ff7b8a"
+# spectrum_top = "#ff7ab6"

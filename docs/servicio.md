@@ -41,7 +41,7 @@ consume recursos mientras nadie lo usa.
   `systemctl --user start ketaid.socket`; solo si no lo esta lanza
   `ketaid` directo.
 - **Instancia unica**: si `ctl.sock` ya responde, una segunda instancia
-  manual termina con error en lugar de abrir otra salida de audio.
+  manual sale con codigo 0 sin abrir otra salida de audio.
 - **Apagado limpio**: ante `SIGTERM` o `SIGINT` guarda la sesion (ver
   "Persistencia de sesion") y libera la salida de audio antes de salir.
 - **Reinicio ante fallas**: `Restart=on-failure` con un limite de 5 intentos

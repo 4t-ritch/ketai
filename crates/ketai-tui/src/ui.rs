@@ -28,7 +28,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     Tab::NowPlaying => now_playing(f, app, body),
     Tab::Lyrics => lyrics(f, app, body),
     Tab::Library => library(f, app, body),
-    _ => {}
+    Tab::Search => search(f, app, body),
   }
 }
 
@@ -317,6 +317,7 @@ fn lyrics(f: &mut Frame, app: &App, area: Rect) {
 }
 
 const I_LIBRARY: &str = "\u{f02d}";
+const I_SEARCH: &str = "\u{f002}";
 const I_CLOCK: &str = "\u{f017}";
 
 /// Columna de playlists (izquierda en Biblioteca y Buscar).
@@ -475,6 +476,102 @@ fn library(f: &mut Frame, app: &App, area: Rect) {
   }
 }
 
+/// Ruta legible de una URI `file://`.
+fn uri_path(uri: &str) -> String {
+  uri.strip_prefix("file://").unwrap_or(uri).replace("%20", " ").replace("%25", "%")
+}
+
+/// Buscar (maqueta 5-buscar).
+fn search(f: &mut Frame, app: &App, area: Rect) {
+  let t = &app.theme;
+  let body = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(6));
+  let slots = playlists_column(f.buffer_mut(), app, Rect::new(body.x, body.y, 34, body.height));
+  for s in slots {
+    draw_cover_slot(f, t, s);
+  }
+  player_bar(f, app, Rect::new(area.x, area.y + area.height - 4, area.width, 3));
+  let c = Rect::new(body.x + 37, body.y, body.width.saturating_sub(39), body.height);
+  let buf = f.buffer_mut();
+  let mut x = c.x;
+  for (i, name) in crate::app::SEARCH_FILTERS.iter().enumerate() {
+    let style = if i == app.search_filter { Style::new().fg(t.on_accent).bg(t.accent) } else { t.faint() };
+    buf.set_string(x, c.y, format!(" {name} "), style);
+    x += name.chars().count() as u16 + 3;
+  }
+  let q = app.search_query.trim();
+  let mid = c.y + c.height / 3;
+  if q.is_empty() {
+    buf.set_string(c.x, mid, "Escribí para buscar en tu biblioteca", t.title());
+    buf.set_string(c.x, mid + 2, "Se busca en título, artista, álbum y nombre de archivo", t.faint());
+    return;
+  }
+  if !app.search_done {
+    buf.set_string(c.x, mid, "Buscando…", t.faint());
+    return;
+  }
+  let tracks = app.search_tracks();
+  let playlists = app.search_playlists();
+  if tracks.is_empty() && playlists.is_empty() {
+    buf.set_string(c.x, mid, format!("Sin resultados para «{q}»"), t.title());
+    buf.set_string(c.x, mid + 2, "Si tu música no aparece, escaneá la carpeta desde la búsqueda rápida (/)", t.faint());
+    return;
+  }
+  let mut slots = Vec::new();
+  let mut y = c.y + 3;
+  let files_only = app.search_filter == 3;
+  if let (Some(best), false) = (tracks.first(), files_only) {
+    // Mejor resultado a la izquierda, canciones a la derecha.
+    buf.set_string(c.x, y, "MEJOR RESULTADO", t.faint());
+    slots.push(Rect::new(c.x, y + 2, 20, 9));
+    let title = track_title(best);
+    buf.set_stringn(c.x, y + 12, &title, 38, t.title());
+    buf.set_string(c.x, y + 13, "▔".repeat(title.chars().count().min(38)), t.accent());
+    let what = [best["artist"].as_str(), best["album"].as_str()].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+    let kind = if what.is_empty() { "Canción".to_string() } else { format!("Canción · {what}") };
+    buf.set_stringn(c.x, y + 14, kind, 38, t.dim());
+    buf.set_string(c.x, y + 16, format!("  {I_PLAY}  Reproducir  "), Style::new().fg(t.on_accent).bg(t.accent).add_modifier(Modifier::BOLD));
+    let rx = c.x + 44;
+    let rw = c.width.saturating_sub(44);
+    buf.set_string(rx, y, "CANCIONES", t.faint());
+    let rows = 6usize;
+    let first = app.search_cursor.saturating_sub(rows - 1);
+    for (slot, i) in (first..tracks.len()).take(rows).enumerate() {
+      let tr = &tracks[i];
+      let ry = y + 2 + slot as u16 * 3;
+      if !app.search_editing && i == app.search_cursor {
+        buf.set_style(Rect::new(rx, ry, rw, 2), Style::new().bg(t.row));
+        buf.set_string(rx, ry, "▌", t.accent());
+        buf.set_string(rx, ry + 1, "▌", t.accent());
+      }
+      slots.push(Rect::new(rx + 2, ry, 4, 2));
+      buf.set_stringn(rx + 8, ry, track_title(tr), rw.saturating_sub(16) as usize, t.text());
+      buf.set_stringn(rx + 8, ry + 1, tr["artist"].as_str().unwrap_or(""), rw.saturating_sub(16) as usize, t.faint());
+      buf.set_string(rx + rw.saturating_sub(6), ry, tr["duration_ms"].as_u64().map(fmt_ms).unwrap_or_default(), t.faint());
+    }
+    y += 20;
+  }
+  if !playlists.is_empty() {
+    buf.set_string(c.x, y, "PLAYLISTS", t.faint());
+    for (i, p) in playlists.iter().take(3).enumerate() {
+      buf.set_string(c.x, y + 1 + i as u16, format!("{I_LIBRARY}  {}", p["name"].as_str().unwrap_or("")), t.text());
+    }
+    y += 5;
+  }
+  if !tracks.is_empty() && y + 2 < c.y + c.height {
+    buf.set_string(c.x, y, "EN TU BIBLIOTECA LOCAL", t.faint());
+    let room = (c.y + c.height).saturating_sub(y + 2) as usize;
+    for (i, tr) in tracks.iter().take(room).enumerate() {
+      let selected = files_only && !app.search_editing && i == app.search_cursor;
+      let style = if selected { t.accent() } else { t.dim() };
+      let line = Line::from(vec![Span::styled(format!("{I_MUSIC}  "), t.faint()), Span::styled(uri_path(tr["uri"].as_str().unwrap_or("")), style)]);
+      buf.set_line(c.x, y + 2 + i as u16, &line, c.width);
+    }
+  }
+  for s in slots {
+    draw_cover_slot(f, t, s);
+  }
+}
+
 /// Lugar de la caratula. La imagen real la pone la capa de graficos
 /// (protocolo kitty); aca solo se reserva el espacio.
 fn draw_cover_slot(f: &mut Frame, t: &Theme, area: Rect) {
@@ -548,6 +645,23 @@ fn header(f: &mut Frame, app: &App, area: Rect) {
     let style = if tab == app.tab { t.title().add_modifier(Modifier::UNDERLINED) } else { t.faint() };
     buf.set_string(x, area.y + 1, tab.label(), style);
     x += tab.label().chars().count() as u16 + 4;
+  }
+  // Campo de busqueda junto a las pestanas, en Buscar.
+  if app.tab == Tab::Search {
+    let fx = x + 2;
+    let fw = 52u16.min(area.width.saturating_sub(fx + 30));
+    let border = if app.search_editing { t.accent() } else { t.faint() };
+    buf.set_string(fx, area.y, format!("╭{}╮", "─".repeat(fw as usize - 2)), border);
+    buf.set_string(fx, area.y + 1, "│", border);
+    buf.set_string(fx + fw - 1, area.y + 1, "│", border);
+    buf.set_string(fx, area.y + 2, format!("╰{}╯", "─".repeat(fw as usize - 2)), border);
+    let cursor = if app.search_editing { "█" } else { "" };
+    let field = Line::from(vec![
+      Span::styled(format!("{I_SEARCH}  "), t.accent()),
+      Span::styled(app.search_query.clone(), t.title()),
+      Span::styled(cursor, t.text()),
+    ]);
+    buf.set_line(fx + 2, area.y + 1, &field, fw.saturating_sub(4));
   }
   let status = if app.connected {
     Line::from(vec![Span::styled("● ", Style::new().fg(t.ok)), Span::styled("ketaid", Style::new().fg(t.ok))])

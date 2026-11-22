@@ -102,7 +102,25 @@ pub struct App {
   /// Resultado de `playlist.get`.
   pub playlist: Value,
   pub track_cursor: usize,
+  /// Texto de la pestana Buscar.
+  pub search_query: String,
+  /// Se esta escribiendo (las letras son texto, no atajos).
+  pub search_editing: bool,
+  /// Resultados de `library.search` para `search_query`.
+  pub search_results: Vec<Value>,
+  /// Ya llego una respuesta para la consulta actual.
+  pub search_done: bool,
+  pub search_cursor: usize,
+  /// Filtro: 0 Todo, 1 Canciones, 2 Playlists, 3 Archivos locales.
+  pub search_filter: usize,
+  /// Consultas enviadas sin respuesta, en orden (el daemon responde en
+  /// el orden en que llegan las peticiones de un cliente).
+  pub search_inflight: std::collections::VecDeque<String>,
 }
+
+/// Nombres de los filtros de Buscar.
+pub const SEARCH_FILTERS: [&str; 4] = ["Todo", "Canciones", "Playlists", "Archivos locales"];
+const SEARCH_LIMIT: u64 = 50;
 
 /// `m:ss` o `h:mm:ss`.
 pub fn fmt_ms(ms: u64) -> String {
@@ -139,12 +157,28 @@ impl Default for App {
       lib_open: None,
       playlist: Value::Null,
       track_cursor: 0,
+      search_query: String::new(),
+      search_editing: false,
+      search_results: Vec::new(),
+      search_done: false,
+      search_cursor: 0,
+      search_filter: 0,
+      search_inflight: Default::default(),
     }
   }
 }
 
 impl App {
   pub fn on_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+      self.quit = true;
+      return Vec::new();
+    }
+    if self.tab == Tab::Search
+      && let Some(cmds) = self.search_key(key)
+    {
+      return cmds;
+    }
     if self.tab == Tab::Lyrics
       && let Some(cmds) = self.lyrics_key(key)
     {
@@ -273,10 +307,101 @@ impl App {
     }
   }
 
+  fn search(&mut self) -> Vec<Command> {
+    self.search_done = false;
+    self.search_cursor = 0;
+    if self.search_query.trim().is_empty() {
+      self.search_results.clear();
+      return Vec::new();
+    }
+    self.search_inflight.push_back(self.search_query.clone());
+    vec![("library.search".into(), json!({"query": self.search_query, "limit": SEARCH_LIMIT}))]
+  }
+
+  /// Canciones que muestra Buscar con el filtro actual.
+  pub fn search_tracks(&self) -> &[Value] {
+    if self.search_filter == 2 { &[] } else { &self.search_results }
+  }
+
+  /// Playlists cuyo nombre contiene la consulta.
+  pub fn search_playlists(&self) -> Vec<&Value> {
+    let q = self.search_query.to_lowercase();
+    if q.trim().is_empty() || self.search_filter == 1 || self.search_filter == 3 {
+      return Vec::new();
+    }
+    self.playlists.iter().filter(|p| p["name"].as_str().is_some_and(|n| n.to_lowercase().contains(q.trim()))).collect()
+  }
+
+  /// Agrega la pista a la cola y la reproduce.
+  fn play_uri(&self, uri: &str) -> Vec<Command> {
+    let index = self.queue["tracks"].as_array().map(|t| t.len()).unwrap_or(0);
+    vec![("queue.add".into(), json!({"uris": [uri]})), ("queue.jump".into(), json!({"index": index}))]
+  }
+
+  /// Teclas de Buscar. `None` si la tecla no es suya.
+  fn search_key(&mut self, key: KeyEvent) -> Option<Vec<Command>> {
+    if self.search_editing {
+      return match key.code {
+        KeyCode::Char(c) => {
+          self.search_query.push(c);
+          Some(self.search())
+        }
+        KeyCode::Backspace => {
+          self.search_query.pop();
+          Some(self.search())
+        }
+        KeyCode::Esc | KeyCode::Down | KeyCode::Enter => {
+          self.search_editing = false;
+          Some(Vec::new())
+        }
+        // Tab y BackTab cambian de pestana aunque se este escribiendo.
+        _ => None,
+      };
+    }
+    let n = self.search_tracks().len();
+    match key.code {
+      KeyCode::Char('/') => {
+        self.search_editing = true;
+        Some(Vec::new())
+      }
+      KeyCode::Up | KeyCode::Char('k') => {
+        if self.search_cursor == 0 {
+          self.search_editing = true;
+        } else {
+          self.search_cursor -= 1;
+        }
+        Some(Vec::new())
+      }
+      KeyCode::Down | KeyCode::Char('j') => {
+        self.search_cursor = (self.search_cursor + 1).min(n.saturating_sub(1));
+        Some(Vec::new())
+      }
+      KeyCode::Char(c @ ('h' | 'l')) => {
+        let len = SEARCH_FILTERS.len();
+        self.search_filter = if c == 'l' { (self.search_filter + 1) % len } else { (self.search_filter + len - 1) % len };
+        self.search_cursor = 0;
+        Some(Vec::new())
+      }
+      KeyCode::Enter => {
+        let uri = self.search_tracks().get(self.search_cursor)?["uri"].as_str()?.to_string();
+        Some(self.play_uri(&uri))
+      }
+      KeyCode::Char('a') => {
+        let uri = self.search_tracks().get(self.search_cursor)?["uri"].as_str()?.to_string();
+        Some(vec![("queue.add".into(), json!({"uris": [uri]}))])
+      }
+      _ => None,
+    }
+  }
+
   /// Cambia de pestana y pide lo que esa pestana necesita la primera vez.
   fn go_to(&mut self, tab: Tab) -> Vec<Command> {
     self.tab = tab;
-    if tab == Tab::Library && !self.playlists_loaded {
+    if tab == Tab::Search {
+      self.search_editing = true;
+    }
+    // Biblioteca y Buscar muestran la columna de playlists.
+    if matches!(tab, Tab::Library | Tab::Search) && !self.playlists_loaded {
       return vec![("playlist.list".into(), json!({}))];
     }
     Vec::new()
@@ -425,6 +550,10 @@ impl App {
           self.lyrics = Value::Null;
           self.lyrics_loaded = true;
         }
+        // Una busqueda fallida igual consume su lugar en la fila.
+        if method == "library.search" && result.is_err() {
+          self.search_inflight.pop_front();
+        }
         if let Ok(v) = result {
           match method.as_str() {
             "queue.list" => self.queue = v,
@@ -447,6 +576,13 @@ impl App {
             "lyrics.get" => {
               self.lyrics = v;
               self.lyrics_loaded = true;
+            }
+            "library.search" => {
+              let query = self.search_inflight.pop_front().unwrap_or_default();
+              if query == self.search_query {
+                self.search_results = v["tracks"].as_array().cloned().unwrap_or_default();
+                self.search_done = true;
+              }
             }
             "playlist.list" => {
               self.playlists = v["playlists"].as_array().cloned().unwrap_or_default();

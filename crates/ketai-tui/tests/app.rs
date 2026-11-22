@@ -39,7 +39,11 @@ fn tabs_switch_with_numbers_and_tab_keys() {
   assert_eq!(app.tab, Tab::NowPlaying, "Tab wraps around");
   app.on_key(key(KeyCode::BackTab));
   assert_eq!(app.tab, Tab::Search);
+  // En Buscar se escribe: q es texto.
+  app.on_key(key(KeyCode::Char('q')));
   assert!(!app.quit);
+  app.on_key(key(KeyCode::Tab));
+  assert_eq!(app.tab, Tab::NowPlaying);
   app.on_key(key(KeyCode::Char('q')));
   assert!(app.quit);
 }

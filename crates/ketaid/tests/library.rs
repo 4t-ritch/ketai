@@ -336,3 +336,76 @@ fn search_ignores_accents_and_case_in_both_directions() {
   assert_eq!(titles(&s.search("café")), ["cafe%20tacuba.ogg"]);
   assert_eq!(titles(&s.search("de ni")).len(), 1, "partial words anywhere");
 }
+
+#[test]
+fn results_carry_genre_year_numbers_and_album_artist_and_search_them() {
+  let mut s = S::new();
+  s.put("full_tags.ogg", "jp/full.ogg");
+  s.put("vorbis.ogg", "jp/plain.ogg");
+  s.scan(&s.music());
+  let hits = s.search("j-pop 2021");
+  assert_eq!(hits.len(), 1, "{hits:?}");
+  let t = &hits[0];
+  assert_eq!(t["genre"], "J-Pop");
+  assert_eq!(t["year"], 2021);
+  assert_eq!((t["track_number"].clone(), t["disc_number"].clone()), (json!(3), json!(1)));
+  assert_eq!(t["album_artist"], "Varios");
+  assert_eq!(s.search("varios").len(), 1, "album artist is searchable");
+}
+
+#[test]
+fn the_index_lives_in_a_database_and_imports_the_old_index_once() {
+  let mut s = S::new();
+  let song = s.put("vorbis.ogg", "old/song.ogg");
+  let folder = s.music().join("old");
+  // Indice de una version anterior (library.json), sin base todavia.
+  let data = s.dir.join("data/ketai");
+  s.daemon = None;
+  for f in ["library.db", "library.db-wal", "library.db-shm"] {
+    let _ = fs::remove_file(data.join(f));
+  }
+  fs::create_dir_all(&data).unwrap();
+  let old = json!({"version": 1, "folders": [folder], "tracks": [{"path": song, "title": "From JSON", "artist": "Old", "album": null, "duration_ms": 2000, "has_cover": false, "codec": "vorbis", "sample_rate": 44100, "channels": 2}]});
+  fs::write(data.join("library.json"), old.to_string()).unwrap();
+  s.restart();
+  let hits = s.search("json");
+  assert_eq!(titles(&hits), ["song.ogg"]);
+  assert_eq!(hits[0]["title"], "From JSON");
+  assert_eq!(s.ok("library.folders", json!({}))["folders"][0]["path"], json!(folder));
+  assert!(data.join("library.db").is_file());
+  assert!(data.join("library.json").is_file(), "the old index is never deleted");
+  // Se importa una sola vez: lo que cambie despues no se pisa.
+  assert_eq!(s.ok("library.remove_folder", json!({"path": folder})), json!({}));
+  s.restart();
+  assert!(s.search("json").is_empty());
+}
+
+#[test]
+fn two_clients_changing_folders_at_once_both_count() {
+  let s = S::new();
+  let dirs: Vec<PathBuf> = (0..8).map(|i| s.music().join(format!("f{i}"))).collect();
+  for d in &dirs {
+    fs::create_dir_all(d).unwrap();
+  }
+  let handles: Vec<_> = dirs
+    .chunks(4)
+    .map(|chunk| {
+      let mut c = s.daemon.as_ref().unwrap().connect();
+      let chunk = chunk.to_vec();
+      std::thread::spawn(move || {
+        for (i, d) in chunk.iter().enumerate() {
+          let r = c.request(10 + i as u64, "library.add_folder", json!({"path": d}));
+          assert_eq!(r["result"], json!({}), "{r}");
+        }
+      })
+    })
+    .collect();
+  for h in handles {
+    h.join().unwrap();
+  }
+  let mut s = s;
+  let folders = s.ok("library.folders", json!({}));
+  assert_eq!(folders["folders"].as_array().unwrap().len(), 8, "{folders}");
+  s.restart();
+  assert_eq!(s.ok("library.folders", json!({}))["folders"].as_array().unwrap().len(), 8);
+}

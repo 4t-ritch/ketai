@@ -24,7 +24,10 @@ use ketai_core::{
 use ketai_protocol::{ErrorReply, Request, codes};
 use serde_json::{Map, Value, json};
 
-use crate::server::{ClientId, Message};
+use crate::{
+  server::{ClientId, Message},
+  store::Store,
+};
 
 const DEFAULT_LIMIT: u64 = 50;
 /// Limite de la cache que se informa (las descargas llegan en una version
@@ -141,12 +144,8 @@ impl LibraryService {
 }
 
 struct Worker {
-  index: Vec<Entry>,
-  /// Texto plegado de cada pista del indice, en el mismo orden.
-  texts: Vec<String>,
-  /// Carpetas de la biblioteca (`library.add_folder`).
-  folders: Vec<PathBuf>,
-  index_path: Option<PathBuf>,
+  /// Carpetas y pistas (`library.db`). Sin carpeta de datos, en memoria.
+  store: Store,
   tx: Sender<Message>,
   jobs: Sender<Job>,
   next_job: u64,
@@ -154,23 +153,29 @@ struct Worker {
 
 impl Worker {
   fn load(tx: Sender<Message>, jobs: Sender<Job>) -> Self {
-    let index_path = data_dir().map(|d| d.join("library.json"));
-    let (index, folders) = index_path.as_deref().map(load_index).unwrap_or_default();
-    let texts = index.iter().map(library::search_text).collect();
-    Self { index, texts, folders, index_path, tx, jobs, next_job: 0 }
+    let store = data_dir()
+      .and_then(|d| {
+        // El indice de versiones anteriores se importa la primera vez.
+        let legacy = load_index(&d.join("library.json"));
+        Store::open(&d.join("library.db"), Some(legacy)).map_err(|e| eprintln!("ketaid: could not open library.db: {e}")).ok()
+      })
+      .unwrap_or_else(|| Store::open(Path::new(":memory:"), None).expect("in-memory database"));
+    Self { store, tx, jobs, next_job: 0 }
   }
 
   fn run(&mut self, id: u64, method: &str, params: &Map<String, Value>, track: Option<&TrackRef>) -> Result<Value, ErrorReply> {
     let invalid = |msg: &str| ErrorReply::new(Some(id), codes::INVALID_PARAMS, msg.to_string());
+    let db = |e: rusqlite::Error| ErrorReply::new(Some(id), codes::INTERNAL_ERROR, format!("library database: {e}"));
     match method {
       "library.scan" => {
         // Sin path: todas las carpetas de la biblioteca.
         let roots = match params.get("path") {
           None | Some(Value::Null) => {
-            if self.folders.is_empty() {
+            let folders = self.store.folders().map_err(db)?;
+            if folders.is_empty() {
               return Err(invalid("there are no library folders: add one with library.add_folder"));
             }
-            self.folders.clone()
+            folders
           }
           Some(p) => vec![existing_folder(p).ok_or_else(|| invalid("path must be an existing absolute folder"))?],
         };
@@ -180,29 +185,23 @@ impl Worker {
         Ok(json!({"job": job}))
       }
       "library.folders" => {
-        let folders: Vec<Value> = self
-          .folders
-          .iter()
-          .map(|f| json!({"path": f, "tracks": self.index.iter().filter(|e| e.path.starts_with(f)).count()}))
-          .collect();
+        let mut folders = Vec::new();
+        for f in self.store.folders().map_err(db)? {
+          folders.push(json!({"path": f, "tracks": self.store.count_under(&f).map_err(db)?}));
+        }
         Ok(json!({"folders": folders}))
       }
       "library.add_folder" => {
         let folder = params.get("path").and_then(existing_folder).ok_or_else(|| invalid("path must be an existing absolute folder"))?;
-        if !self.folders.contains(&folder) {
-          self.folders.push(folder);
-          self.save();
-        }
+        self.store.add_folder(&folder).map_err(db)?;
         Ok(json!({}))
       }
       "library.remove_folder" => {
-        let folder = params.get("path").and_then(Value::as_str).map(PathBuf::from);
-        let at = folder.as_ref().and_then(|f| self.folders.iter().position(|x| x == f)).ok_or_else(|| invalid("path is not a library folder"))?;
-        let folder = self.folders.remove(at);
+        let folder = params.get("path").and_then(Value::as_str).map(PathBuf::from).ok_or_else(|| invalid("path is not a library folder"))?;
         // Sus canciones dejan de ser parte de la biblioteca.
-        self.index.retain(|e| !e.path.starts_with(&folder));
-        self.texts = self.index.iter().map(library::search_text).collect();
-        self.save();
+        if !self.store.remove_folder(&folder).map_err(db)? {
+          return Err(invalid("path is not a library folder"));
+        }
         Ok(json!({}))
       }
       "library.search" => {
@@ -212,14 +211,7 @@ impl Worker {
           Some(v) => v.as_u64().filter(|&n| n >= 1).ok_or_else(|| invalid("limit must be a positive integer"))?,
         };
         let words = library::words(query);
-        let tracks: Vec<Value> = self
-          .index
-          .iter()
-          .zip(&self.texts)
-          .filter(|(_, text)| library::matches_text(text, &words))
-          .take(limit as usize)
-          .map(|(e, _)| track_json(e))
-          .collect();
+        let tracks: Vec<Value> = self.store.search(&words, limit).map_err(db)?.iter().map(track_json).collect();
         Ok(json!({"tracks": tracks}))
       }
       "track.cover" => {
@@ -279,22 +271,8 @@ impl Worker {
   }
 
   fn replace(&mut self, roots: &[PathBuf], entries: Vec<Entry>) {
-    self.index.retain(|e| !roots.iter().any(|r| e.path.starts_with(r)));
-    self.index.extend(entries);
-    self.index.sort_by(|a, b| a.path.cmp(&b.path));
-    self.index.dedup_by(|a, b| a.path == b.path);
-    self.texts = self.index.iter().map(library::search_text).collect();
-    self.save();
-  }
-
-  /// Guarda indice y carpetas en `library.json`.
-  fn save(&self) {
-    if let Some(path) = &self.index_path {
-      let tracks: Vec<Value> = self.index.iter().map(index_json).collect();
-      let content = json!({"version": INDEX_VERSION, "folders": self.folders, "tracks": tracks}).to_string();
-      if let Err(e) = crate::session::write_atomic(path, content.as_bytes()) {
-        eprintln!("ketaid: could not save library index: {e}");
-      }
+    if let Err(e) = self.store.replace(roots, &entries) {
+      eprintln!("ketaid: could not save library index: {e}");
     }
   }
 }
@@ -329,22 +307,12 @@ fn track_json(e: &Entry) -> Value {
     "codec": i.codec,
     "sample_rate": i.sample_rate,
     "channels": i.channels,
+    "album_artist": i.album_artist,
+    "genre": i.genre,
+    "year": i.year,
+    "track_number": i.track_number,
+    "disc_number": i.disc_number,
     "bitrate_kbps": null,
-  })
-}
-
-fn index_json(e: &Entry) -> Value {
-  let i = &e.info;
-  json!({
-    "path": e.path,
-    "title": i.title,
-    "artist": i.artist,
-    "album": i.album,
-    "duration_ms": i.duration_ms,
-    "has_cover": i.has_cover,
-    "codec": i.codec,
-    "sample_rate": i.sample_rate,
-    "channels": i.channels,
   })
 }
 
@@ -354,9 +322,9 @@ fn existing_folder(v: &Value) -> Option<PathBuf> {
   (p.is_absolute() && p.is_dir()).then_some(p)
 }
 
-/// Indice y carpetas guardados. Si no existe o no se entiende, se arranca
-/// vacio (se reconstruye con un escaneo). Un indice sin `folders` (anterior
-/// a las carpetas) se lee con la lista vacia.
+/// Indice y carpetas de versiones anteriores (`library.json`), para
+/// importarlos a la base la primera vez. Si no existe o no se entiende,
+/// queda vacio. Un indice sin `folders` se lee con la lista vacia.
 fn load_index(path: &Path) -> (Vec<Entry>, Vec<PathBuf>) {
   let Ok(text) = fs::read_to_string(path) else { return Default::default() };
   let Ok(v) = serde_json::from_str::<Value>(&text) else { return Default::default() };
@@ -382,6 +350,7 @@ fn load_index(path: &Path) -> (Vec<Entry>, Vec<PathBuf>) {
               codec: s(t, "codec"),
               sample_rate: t["sample_rate"].as_u64().and_then(|n| u32::try_from(n).ok()),
               channels: t["channels"].as_u64().and_then(|n| u16::try_from(n).ok()),
+              ..Default::default()
             },
           })
         })

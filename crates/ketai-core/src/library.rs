@@ -96,7 +96,8 @@ pub fn search_text(entry: &Entry) -> String {
   let i = &entry.info;
   let name = entry.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
   let mut parts = vec![name];
-  parts.extend([&i.title, &i.artist, &i.album].into_iter().flatten().cloned());
+  parts.extend([&i.title, &i.artist, &i.album, &i.album_artist, &i.genre].into_iter().flatten().cloned());
+  parts.extend(i.year.map(|y| y.to_string()));
   fold(&parts.join("\n"))
 }
 

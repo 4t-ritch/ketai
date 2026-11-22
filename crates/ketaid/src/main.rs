@@ -15,6 +15,7 @@ mod player;
 mod playlists;
 mod server;
 mod session;
+mod store;
 mod systemd;
 mod viz;
 

@@ -76,10 +76,18 @@ son parte del contrato.
   "codec": "vorbis",
   "sample_rate": 44100,
   "channels": 2,
+  "album_artist": "Various",
+  "genre": "J-Pop",
+  "year": 2021,
+  "track_number": 3,
+  "disc_number": 1,
   "bitrate_kbps": 192
 }
 ```
 - `source`: `"local"` | `"remote"`.
+- `album_artist`, `genre`, `year`, `track_number` y `disc_number` vienen de
+  los tags (por ahora solo en resultados de biblioteca). `year` son los
+  primeros cuatro digitos de la fecha; de "3/12" queda `3`.
 - Los campos desconocidos valen `null`. Los clientes deben ignorar claves desconocidas.
 
 **PlayerState**
@@ -383,11 +391,15 @@ Reglas de biblioteca, caratulas y cache (v1, solo archivos locales):
   y al final con `done == total`. El evento final llega cuando el indice ya
   esta actualizado: una busqueda hecha al recibirlo ya ve las pistas.
 - Volver a escanear una carpeta reemplaza todo lo indexado bajo ella (lo
-  borrado desaparece). El indice se guarda en
-  `$XDG_DATA_HOME/ketai/library.json` y sobrevive a reinicios.
+  borrado desaparece). El indice y las carpetas se guardan en una base
+  SQLite, `$XDG_DATA_HOME/ketai/library.db`, y sobreviven a reinicios.
+  Cada cambio es una transaccion y los pedidos de todos los clientes pasan
+  por un solo thread: dos clientes al mismo tiempo nunca se pisan. Si
+  existe un `library.json` de una version anterior, se importa la primera
+  vez que se crea la base (el archivo no se borra).
 - `library.search`: `query` es obligatorio. Cada palabra debe aparecer, en
-  cualquier parte (no solo al principio), en el titulo, artista, album o
-  nombre de archivo. No importan las mayusculas ni las marcas: "cancion"
+  cualquier parte (no solo al principio), en el titulo, artista, album, artista
+  del album, genero, ano o nombre de archivo. No importan las mayusculas ni las marcas: "cancion"
   encuentra el titulo con la o acentuada y "nino" el que tiene enie, y al
   reves (acentos, dieresis, virgulilla, cedilla; ademas U+00DF = ss,
   U+00E6 = ae, U+0153 = oe, U+00F8 = o, U+0142 = l, U+0111 = d). Las marcas de
@@ -524,6 +536,7 @@ Detalles de v1:
 | -32600  | Peticion invalida (forma incorrecta, linea demasiado larga) |
 | -32601  | Metodo no encontrado |
 | -32602  | Params invalidos |
+| -32603  | Error interno (por ejemplo, la base de datos de la biblioteca fallo) |
 | 1000    | Version de protocolo incompatible |
 | 1001    | Nada que reproducir / cola vacia |
 | 1002    | Indice fuera de rango |

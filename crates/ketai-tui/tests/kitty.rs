@@ -47,11 +47,39 @@ fn placements_are_redrawn_only_when_they_change() {
   let b = vec![Placement { image: 1, area: Rect::new(4, 2, 20, 9) }, Placement { image: 3, area: Rect::new(30, 5, 4, 2) }];
   assert_eq!(kitty::update(&a, &a), "", "nothing changed: nothing is sent");
   let out = kitty::update(&a, &b);
-  assert!(out.starts_with("\x1b_Ga=d,d=a,q=2\x1b\\"), "old placements go away first: {out:?}");
+  assert!(out.starts_with("\x1b_Ga=d,d=i,i=1,q=2\x1b\\"), "old placements go away first: {out:?}");
   // Cursor en la celda (fila 3, columna 5) y ubicacion bajo los fondos.
   assert!(out.contains("\x1b[3;5H\x1b_Ga=p,i=1,p=1,c=20,r=9,C=1,z=-1073741825,q=2\x1b\\"), "{out:?}");
-  assert!(out.contains("\x1b[6;31H\x1b_Ga=p,i=3,p=1,c=4,r=2,C=1,z=-1073741825,q=2\x1b\\"), "{out:?}");
-  assert_eq!(kitty::update(&b, &[]), "\x1b_Ga=d,d=a,q=2\x1b\\");
+  assert!(out.contains("\x1b[6;31H\x1b_Ga=p,i=3,p=2,c=4,r=2,C=1,z=-1073741825,q=2\x1b\\"), "{out:?}");
+  assert_eq!(kitty::update(&b, &[]), "\x1b_Ga=d,d=i,i=1,q=2\x1b\\\x1b_Ga=d,d=i,i=3,q=2\x1b\\");
+}
+
+#[test]
+fn the_same_cover_can_be_shown_twice() {
+  // Mejor resultado y fila de Canciones con la misma caratula.
+  let two = vec![Placement { image: 5, area: Rect::new(2, 2, 10, 5) }, Placement { image: 5, area: Rect::new(30, 2, 2, 1) }];
+  let out = kitty::update(&[], &two);
+  assert!(out.contains("i=5,p=1,"), "{out:?}");
+  assert!(out.contains("i=5,p=2,"), "each placement keeps its own id: {out:?}");
+}
+
+#[test]
+fn another_ketai_in_the_same_terminal_keeps_its_images() {
+  // Nunca se borra todo: solo las imagenes y ubicaciones propias.
+  let a = vec![Placement { image: 7, area: Rect::new(0, 0, 4, 2) }];
+  for out in [kitty::update(&a, &[]), kitty::delete_images(&[7, 8])] {
+    assert!(!out.contains("d=a,") && !out.contains("d=A,"), "{out:?}");
+  }
+  assert_eq!(kitty::delete_images(&[7, 8]), "\x1b_Ga=d,d=I,i=7,q=2\x1b\\\x1b_Ga=d,d=I,i=8,q=2\x1b\\");
+  // Cada proceso usa su propio rango de ids.
+  let (mut x, mut y) = (CoverCache::with_base(1 << 20), CoverCache::with_base(2 << 20));
+  for (c, base) in [(&mut x, 1u32 << 20), (&mut y, 2 << 20)] {
+    c.want("u");
+    c.sent(1, "u");
+    let job = c.on_reply(1, Ok(serde_json::json!({"path": "/x.png"}))).unwrap();
+    assert!(job.id > base && job.id < base + (1 << 20), "{}", job.id);
+    assert_eq!(c.ids(), vec![base + 1, base + 2]);
+  }
 }
 
 #[test]

@@ -67,6 +67,33 @@ pub struct CoverCache {
 }
 
 impl CoverCache {
+  /// Cache cuyos ids de imagen arrancan despues de `base`. Cada proceso usa
+  /// su propio rango para no pisar las imagenes de otro ketai en la misma
+  /// terminal.
+  pub fn with_base(base: u32) -> Self {
+    CoverCache { next_image: base, ..Default::default() }
+  }
+
+  /// Rango de ids para este proceso: 2^20 ids a partir de un bloque segun el
+  /// pid (los ids chicos quedan para la pregunta de soporte).
+  pub fn process_base() -> u32 {
+    ((std::process::id() % 4000) + 1) << 20
+  }
+
+  /// Ids de imagen reservados por este cache (para borrarlos al salir).
+  pub fn ids(&self) -> Vec<u32> {
+    let mut ids: Vec<u32> = self
+      .covers
+      .values()
+      .flat_map(|c| match c {
+        CoverState::Preparing { normal, dimmed } | CoverState::Ready { normal, dimmed, .. } => vec![*normal, *dimmed],
+        _ => vec![],
+      })
+      .collect();
+    ids.sort_unstable();
+    ids
+  }
+
   /// Pide la caratula de `uri` si todavia no se pidio.
   pub fn want(&mut self, uri: &str) -> Option<Command> {
     if self.covers.contains_key(uri) {

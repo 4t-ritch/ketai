@@ -155,6 +155,7 @@ fn main() -> io::Result<()> {
   // La pregunta se hace antes de leer teclas: la respuesta llega por stdin.
   let no_images = std::env::var_os("KETAI_NO_IMAGES").is_some_and(|v| v == "1");
   app.images = !no_images && kitty_supported();
+  app.covers = covers::CoverCache::with_base(covers::CoverCache::process_base());
   if !no_images && !app.images {
     ratatui::restore();
     eprintln!("{NEEDS_KITTY}");
@@ -316,7 +317,7 @@ fn main() -> io::Result<()> {
     }
   })();
   if app.images {
-    emit(kitty::DELETE_ALL);
+    emit(&kitty::delete_images(&app.covers.ids()));
   }
   ratatui::restore();
   result

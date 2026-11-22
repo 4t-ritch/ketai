@@ -174,8 +174,10 @@ impl Iterator for AudioSource {
 
 impl Source for AudioSource {
   fn current_span_len(&self) -> Option<usize> {
-    // Los parametros no cambian dentro del track.
-    None
+    // Cada paquete es un tramo. Sin tramos, la cola de rodio nunca vuelve a
+    // leer la frecuencia: una pista de 44,1 kHz despues de una de 48 kHz
+    // sonaba un 8,8 % mas rapido.
+    Some(self.buffer.len() - self.cursor)
   }
 
   fn channels(&self) -> NonZero<u16> {
@@ -255,5 +257,20 @@ mod tests {
     let rate = source.sample_rate().get() as f64 * source.channels().get() as f64;
     let remaining = source.count() as f64 / rate;
     assert!((0.7..1.3).contains(&remaining), "remaining {remaining}s");
+  }
+
+  #[test]
+  fn a_track_with_another_rate_after_the_first_keeps_its_speed() {
+    // Igual que el player: una cola que entra una sola vez al mezclador, que
+    // convierte a la frecuencia del dispositivo. Opus a 48 kHz y despues
+    // vorbis a 44,1 kHz: la segunda tiene que durar lo mismo, no sonar mas
+    // rapido.
+    let (input, output) = rodio::queue::queue(false);
+    input.append(AudioSource::open(&fixture("opus.ogg")).unwrap());
+    input.append(AudioSource::open(&fixture("vorbis.ogg")).unwrap());
+    let device = rodio::source::UniformSourceIterator::new(output, NonZero::new(2).unwrap(), NonZero::new(48_000).unwrap());
+    let played = device.count() as f64 / 2.0 / 48_000.0;
+    let expected = decoded_seconds("opus.ogg") + decoded_seconds("vorbis.ogg");
+    assert!((played - expected).abs() < 0.05, "played {played:.3}s, expected {expected:.3}s");
   }
 }

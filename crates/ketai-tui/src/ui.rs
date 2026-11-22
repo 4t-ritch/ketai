@@ -692,8 +692,8 @@ fn library(f: &mut RFrame, app: &App, area: Rect) {
   put(buf, x, center.y + 4, "▔".repeat(name.chars().count().min(w as usize)), t.accent());
   let total: u64 = tracks.iter().filter_map(|t| t["duration_ms"].as_u64()).sum();
   put(buf, x, center.y + 6, format!("{} canciones · {}", tracks.len(), fmt_total(total)), t.dim());
-  let dir = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| "~/.local/share".into());
-  putn(buf, x, center.y + 7, format!("{dir}/ketai/playlists/{name}.m3u8"), w as usize, t.faint());
+  // La ruta la dice el daemon (la carpeta se configura en config.toml).
+  putn(buf, x, center.y + 7, app.playlist["path"].as_str().unwrap_or(""), w as usize, t.faint());
   let y = center.y + 11;
   put(buf, center.x, y, format!("  {I_PLAY}  "), Style::new().fg(t.on_accent).bg(t.accent).add_modifier(Modifier::BOLD));
   put(buf, center.x + 9, y, "⏎ reproducir · a a la cola · esc volver", t.faint());

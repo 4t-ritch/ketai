@@ -11,8 +11,10 @@ dbus = "0.9"
 dbus-crossroads = "0.5"
 libc = "0.2"
 serde_json.workspace = true
+toml = "0.8"
 
 [dev-dependencies]
 dbus = "0.9"
 libc = "0.2"
 serde_json.workspace = true
+toml = "0.8"

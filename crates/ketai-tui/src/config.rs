@@ -86,6 +86,8 @@ impl Config {
             }
           }
         }
+        // La lee el daemon (carpeta de playlists).
+        "playlists" => {}
         other => config.warnings.push(format!("{other}: sección desconocida, se ignora")),
       }
     }

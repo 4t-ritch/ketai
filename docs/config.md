@@ -7,8 +7,9 @@ Hay un ejemplo comentado en `dist/config.toml`.
 ## Formato
 
 TOML: declarativo, admite comentarios y secciones. Cada funcion
-personalizable tiene su seccion (`[theme]` por ahora); las secciones nuevas
-se agregan sin romper los archivos existentes.
+personalizable tiene su seccion (`[theme]`, `[playlists]`); las secciones
+nuevas se agregan sin romper los archivos existentes. La TUI lee `[theme]` y
+el daemon lee `[playlists]`.
 
 - Una clave o seccion desconocida se avisa en la ultima fila de la pantalla
   y se ignora; el resto se aplica.
@@ -42,3 +43,15 @@ defecto.
 Con `"cover"`, los colores salen de la caratula que suena: el fondo es el
 color promedio oscurecido y el acento es el mismo tono, claro y saturado
 para que se lea. Sin caratula se usan los colores por defecto.
+
+## `[playlists]`
+
+| Clave | Valores | Por defecto |
+|---|---|---|
+| `dir` | ruta absoluta o que empiece con `~` | `XDG_MUSIC_DIR/playlists` |
+
+`XDG_MUSIC_DIR` sale del entorno, de `~/.config/user-dirs.dirs` o, si no
+esta en ninguno, es `~/music`. La carpeta se crea si no existe. El daemon la
+lee en cada operacion de playlists: cambiarla se aplica sin reiniciar. Si el
+archivo tiene un error, el daemon usa la carpeta por defecto y lo registra en
+su log. Las playlists que ya estaban en otra carpeta no se mueven solas.

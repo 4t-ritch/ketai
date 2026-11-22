@@ -46,6 +46,8 @@ fn unknown_keys_are_warned_about_but_do_not_stop_the_rest() {
   let c = Config::parse("[theme]\naccent = \"#ff0000\"\naccnet = \"#00ff00\"\n[future]\nx = 1\n").unwrap();
   assert_eq!(c.theme.accent, Cfg::Fixed(rgb(0xff0000)));
   assert_eq!(c.warnings.len(), 2, "{:?}", c.warnings);
+  // [playlists] es del daemon: la TUI no la avisa como desconocida.
+  assert!(Config::parse("[playlists]\ndir = \"~/x\"\n").unwrap().warnings.is_empty());
   assert!(c.warnings.iter().any(|w| w.contains("theme.accnet")));
 }
 

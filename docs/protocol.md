@@ -253,7 +253,7 @@ Reglas del reproductor:
 | Metodo            | Params                                  | Resultado |
 |-------------------|-----------------------------------------|-----------|
 | `playlist.list`   | -                                       | `{"playlists": [{"name": "chill", "count": 12}]}` |
-| `playlist.get`    | `{"name": "chill"}`                     | `{"name": "chill", "tracks": [Track]}` |
+| `playlist.get`    | `{"name": "chill"}`                     | `{"name": "chill", "path": "/home/u/music/playlists/chill.m3u8", "tracks": [Track]}` |
 | `playlist.save`   | `{"name": "chill", "from_queue": true}` | `{}` |
 | `playlist.delete` | `{"name": "chill"}`                     | `{}` |
 | `playlist.load`   | `{"name": "chill", "replace": true}`    | `{}` |
@@ -263,9 +263,13 @@ Reglas del reproductor:
 | `playlist.move`   | `{"name": "chill", "from": 3, "to": 0}` | `{}` |
 | `playlist.transfer` | `{"from_name": "rock", "indexes": [2, 5, 7], "to_name": "metal", "position": null, "mode": "move"}` | `{"transferred": 3}` |
 
-- Cada playlist es un archivo `.m3u8` en `$XDG_DATA_HOME/ketai/playlists/`
-  (por defecto `~/.local/share/ketai/playlists/`), compatible con otros
-  reproductores. Las pistas locales se guardan como rutas absolutas. Un
+- Cada playlist es un archivo `.m3u8` en la carpeta de playlists,
+  compatible con otros reproductores. La carpeta es `[playlists] dir` de
+  `config.toml` (ver `docs/config.md`) o, si no esta, `XDG_MUSIC_DIR/playlists`
+  (`XDG_MUSIC_DIR` del entorno, de `~/.config/user-dirs.dirs` o `~/music`).
+  Se resuelve en cada operacion, asi un cambio en `config.toml` se aplica sin
+  reiniciar, y se crea si no existe. `playlist.get` devuelve en `path` la
+  ruta del archivo. Las pistas locales se guardan como rutas absolutas. Un
   `.m3u8` copiado a esa carpeta aparece como playlist; al leerlo se aceptan
   rutas absolutas, rutas relativas a la carpeta y URIs.
 - Al modificar una playlist se reescribe el archivo solo con las rutas: se

@@ -16,3 +16,8 @@ accent = "cover"
 # ok = "#7ee787"
 # error = "#ff7b8a"
 # spectrum_top = "#ff7ab6"
+
+[playlists]
+# Carpeta de las playlists (.m3u8). Por defecto XDG_MUSIC_DIR/playlists
+# (~/music/playlists). Se crea si no existe.
+# dir = "~/music/playlists"

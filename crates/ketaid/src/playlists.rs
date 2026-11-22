@@ -1,6 +1,6 @@
 //! Metodos `playlist.*` y el evento `playlist.changed`.
 //!
-//! Las playlists son archivos `.m3u8` en `$XDG_DATA_HOME/ketai/playlists/`
+//! Las playlists son archivos `.m3u8` en la carpeta de playlists (ver `dir`)
 //! (por defecto `~/.local/share/ketai/playlists/`). Todo el I/O lo hace un
 //! unico thread, que procesa las operaciones en el orden en que llegan; el
 //! loop central solo recibe el resultado.
@@ -28,13 +28,81 @@ const PLAYLIST_NOT_FOUND: i64 = 1005;
 const PLAYLIST_EXISTS: i64 = 1008;
 const INDEX_OUT_OF_RANGE: i64 = 1002;
 
-/// Carpeta de playlists.
+/// Carpeta de playlists: `[playlists] dir` de config.toml o, si no esta,
+/// `XDG_MUSIC_DIR/playlists`. Se resuelve en cada operacion, asi un cambio en
+/// config.toml se aplica sin reiniciar el daemon.
 pub fn dir() -> Option<PathBuf> {
-  let base = std::env::var_os("XDG_DATA_HOME")
+  configured().or_else(|| music_dir().map(|m| m.join("playlists")))
+}
+
+fn home() -> Option<PathBuf> {
+  std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)
+}
+
+/// `~` al principio es la carpeta del usuario.
+fn expand(path: &str) -> Option<PathBuf> {
+  match path.strip_prefix('~') {
+    Some(rest) => Some(home()?.join(rest.trim_start_matches('/'))),
+    None => Some(PathBuf::from(path)),
+  }
+}
+
+fn config_dir() -> Option<PathBuf> {
+  std::env::var_os("XDG_CONFIG_HOME")
     .map(PathBuf::from)
     .filter(|p| p.is_absolute())
-    .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
-  Some(base.join("ketai").join("playlists"))
+    .or_else(|| home().map(|h| h.join(".config")))
+}
+
+/// Ultimo problema con config.toml que se registro (para no repetirlo en
+/// cada operacion).
+static CONFIG_PROBLEM: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn report(problem: Option<String>) {
+  let mut last = CONFIG_PROBLEM.lock().unwrap_or_else(|e| e.into_inner());
+  if *last != problem {
+    if let Some(p) = &problem {
+      eprintln!("ketaid: config.toml: {p}; playlists use the default folder");
+    }
+    *last = problem;
+  }
+}
+
+/// Carpeta de `[playlists] dir`, si config.toml la define y es valida.
+fn configured() -> Option<PathBuf> {
+  let path = config_dir()?.join("ketai").join("config.toml");
+  let text = std::fs::read_to_string(path).ok()?;
+  let table: toml::Table = match text.parse() {
+    Ok(t) => t,
+    Err(e) => {
+      report(Some(e.to_string().lines().next().unwrap_or("invalid toml").to_string()));
+      return None;
+    }
+  };
+  let Some(value) = table.get("playlists").and_then(|p| p.get("dir")) else {
+    report(None);
+    return None;
+  };
+  let dir = value.as_str().and_then(expand).filter(|p| p.is_absolute());
+  report(if dir.is_none() { Some("playlists.dir must be an absolute path or start with ~".into()) } else { None });
+  dir
+}
+
+/// `XDG_MUSIC_DIR` del entorno, de `user-dirs.dirs` o `~/music`.
+fn music_dir() -> Option<PathBuf> {
+  if let Some(m) = std::env::var_os("XDG_MUSIC_DIR").map(PathBuf::from).filter(|p| p.is_absolute()) {
+    return Some(m);
+  }
+  let from_user_dirs = config_dir().and_then(|c| std::fs::read_to_string(c.join("user-dirs.dirs")).ok()).and_then(|text| {
+    let line = text.lines().find(|l| l.trim_start().starts_with("XDG_MUSIC_DIR="))?;
+    let value = line.split_once('=')?.1.trim().trim_matches('"');
+    let value = match value.strip_prefix("$HOME") {
+      Some(rest) => home()?.join(rest.trim_start_matches('/')),
+      None => PathBuf::from(value),
+    };
+    value.is_absolute().then_some(value)
+  });
+  from_user_dirs.or_else(|| home().map(|h| h.join("music")))
 }
 
 struct Job {
@@ -66,11 +134,10 @@ pub struct PlaylistService {
 impl PlaylistService {
   pub fn new(tx: Sender<Message>, ids: TrackIds) -> Self {
     let (jobs, rx) = mpsc::channel::<Job>();
-    let dir = dir();
     thread::Builder::new()
       .name("ketai-playlists".into())
       .spawn(move || {
-        let worker = Worker { dir, ids };
+        let worker = Worker { ids };
         for job in rx {
           let done = worker.run(job);
           if tx.send(Message::Playlist(done)).is_err() {
@@ -107,7 +174,6 @@ impl PlaylistService {
 }
 
 struct Worker {
-  dir: Option<PathBuf>,
   ids: TrackIds,
 }
 
@@ -122,7 +188,10 @@ impl Worker {
     let mut partial = Vec::new();
     let mut load = None;
     let result = (|| -> OpResult<Value> {
-      let dir = self.dir.as_deref().ok_or_else(|| other(id, "no XDG_DATA_HOME or HOME"))?;
+      let dir = dir().ok_or_else(|| other(id, "no playlists folder: set HOME or [playlists] dir"))?;
+      // La carpeta se crea si no existe.
+      std::fs::create_dir_all(&dir).map_err(|e| other(id, format!("{}: {e}", dir.display())))?;
+      let dir = dir.as_path();
       let p = Params { id, map: &job.params };
       match job.method.as_str() {
         "playlist.list" => self.list(id, dir),
@@ -130,7 +199,7 @@ impl Worker {
           let name = p.name("name")?;
           let uris = self.read(id, dir, &name)?;
           let tracks = self.lenient(&uris);
-          Ok(json!({"name": name, "tracks": tracks.iter().map(player::track_json).collect::<Vec<_>>()}))
+          Ok(json!({"name": name, "path": file(dir, &name), "tracks": tracks.iter().map(player::track_json).collect::<Vec<_>>()}))
         }
         "playlist.save" => {
           let name = p.name("name")?;

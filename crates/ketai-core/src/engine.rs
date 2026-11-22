@@ -5,6 +5,11 @@
 //!
 //! Cada carga lleva un numero de generacion. Los eventos que llegan con una
 //! generacion vieja son de una pista anterior y el receptor los descarta.
+//!
+//! El seek nunca usa `Player::try_seek` de rodio: espera una confirmacion del
+//! thread de audio que no llega si la pista termina justo durante el seek, y
+//! el motor quedaba trabado para siempre. En su lugar se reabre la pista y se
+//! la posiciona antes de entregarla al player, sin esperar a nadie.
 
 use std::{
   path::PathBuf,
@@ -86,6 +91,13 @@ struct Engine {
   _sink: Option<MixerDeviceSink>,
   player: Option<Player>,
   generation: u64,
+  /// Pista cargada, para reabrirla en cada seek.
+  path: Option<PathBuf>,
+  /// Generacion de la ultima carga que ya informo Loaded.
+  loaded_generation: u64,
+  /// Posicion desde la que arranco la fuente actual. El player cuenta desde
+  /// 0 cada fuente nueva, asi que la posicion real es `base_ms + get_pos`.
+  base_ms: u64,
   loaded: bool,
   playing: bool,
   volume: f32,
@@ -100,6 +112,9 @@ impl Engine {
       _sink: None,
       player: None,
       generation: 0,
+      path: None,
+      loaded_generation: 0,
+      base_ms: 0,
       loaded: false,
       playing: false,
       volume: 1.0,
@@ -148,8 +163,20 @@ impl Engine {
         self.playing = false;
       }
       Command::Seek(ms) => {
-        if let (true, Some(p)) = (self.loaded, &self.player) {
-          let _ = p.try_seek(Duration::from_millis(ms));
+        if let (true, Some(path)) = (self.loaded, self.path.clone()) {
+          let play = self.playing;
+          if self.load(path, ms, play).is_err() {
+            // La pista ya se abrio bien al cargarla: si ahora no se puede
+            // posicionar (por ejemplo, mas alla del final), se da por
+            // terminada y la cola sigue.
+            if let Some(p) = &self.player {
+              p.clear();
+            }
+            self.loaded = false;
+            self.playing = false;
+            self.emit(Event::Ended { generation: self.generation });
+            return;
+          }
           self.report_position();
         }
       }
@@ -169,6 +196,8 @@ impl Engine {
       source.try_seek(Duration::from_millis(start_ms)).map_err(|e| e.to_string())?;
     }
     self.ensure_player()?;
+    self.path = Some(path);
+    self.base_ms = start_ms;
     let player = self.player.as_ref().expect("player ready");
     // clear() deja el player en pausa; se reanuda abajo si corresponde.
     player.clear();
@@ -177,9 +206,15 @@ impl Engine {
     if play {
       player.play();
     }
+    let first = !self.loaded || self.loaded_generation != self.generation;
     self.loaded = true;
+    self.loaded_generation = self.generation;
     self.playing = play;
-    self.emit(Event::Loaded { generation: self.generation, duration_ms });
+    // Un seek reabre la pista, pero para el receptor sigue siendo la misma
+    // carga: Loaded se informa una sola vez por generacion.
+    if first {
+      self.emit(Event::Loaded { generation: self.generation, duration_ms });
+    }
     Ok(())
   }
 
@@ -221,7 +256,7 @@ impl Engine {
 
   fn report_position(&mut self) {
     if let Some(p) = &self.player {
-      let position_ms = p.get_pos().as_millis() as u64;
+      let position_ms = self.base_ms + p.get_pos().as_millis() as u64;
       self.last_position = Instant::now();
       self.emit(Event::Position { generation: self.generation, position_ms });
     }

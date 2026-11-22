@@ -323,3 +323,24 @@ fn seek_while_paused_survives_a_crash() {
   b.kill();
   let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn playing_a_restored_session_continues_from_the_saved_position() {
+  let dir = temp_runtime_dir();
+  let mut a = Run::start(&dir, &[]);
+  a.call("queue.add", json!({"uris": uris(&["vorbis.ogg"])}));
+  a.call("player.play", json!({}));
+  a.call("player.pause", json!({}));
+  a.call("player.seek", json!({"position_ms": 1200}));
+  a.shutdown();
+
+  let mut b = Run::start(&dir, &[]);
+  b.wait_queue_len(1);
+  b.call("player.play", json!({}));
+  thread::sleep(Duration::from_millis(500));
+  let pos = b.state()["position_ms"].as_u64().unwrap();
+  // Sigue desde 1200: nunca vuelve a contar desde 0.
+  assert!((1400..2000).contains(&pos), "position after restore and play: {pos}");
+  b.shutdown();
+  let _ = fs::remove_dir_all(&dir);
+}

@@ -402,3 +402,22 @@ fn request_after_pipelined_add_sees_the_added_tracks() {
   assert!(replies[1].get("error").is_none(), "play after add must not fail: {}", replies[1]);
   assert_eq!(s.state()["status"], "playing");
 }
+
+#[test]
+fn seeking_at_the_very_end_never_stalls_the_engine() {
+  // Un seek que coincide con el final de la pista no debe trabar el motor:
+  // despues, la reproduccion sigue respondiendo.
+  let mut s = Session::new();
+  s.add(&["vorbis.ogg"]);
+  ok(s.call("player.play", json!({})));
+  for _ in 0..30 {
+    let _ = s.call("player.seek", json!({"position_ms": 1995}));
+    thread::sleep(Duration::from_millis(3));
+  }
+  let _ = s.call("queue.jump", json!({"index": 0}));
+  let _ = s.call("player.play", json!({}));
+  let state = s.wait_state(Duration::from_secs(3), |st| {
+    st["status"] == "playing" && (300..1500).contains(&st["position_ms"].as_u64().unwrap())
+  });
+  assert_eq!(state["track"]["uri"], fixture_uri("vorbis.ogg"));
+}

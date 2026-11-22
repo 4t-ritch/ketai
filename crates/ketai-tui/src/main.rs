@@ -35,6 +35,8 @@ enum Input {
   Viz(Vec<f32>),
   /// Caratula decodificada (o `None` si no se pudo leer).
   Cover(String, Option<image::RgbImage>),
+  /// config.toml cambio en disco.
+  Config(Result<Config, String>),
 }
 
 /// Pregunta a la terminal si soporta el protocolo de graficos de kitty. La
@@ -143,6 +145,8 @@ fn main() -> io::Result<()> {
       Ok(c) => app.config = c,
       Err(e) => app.config_error = Some(e),
     }
+    // Al guardar el archivo, la UI cambia sin reiniciar.
+    ketai_tui::watch::spawn(path, tx.clone(), Input::Config);
   }
   app.refresh_theme();
   let mut terminal = ratatui::init();
@@ -246,6 +250,17 @@ fn main() -> io::Result<()> {
               let _ = tx.send(Input::Cover(uri, covers::decode(&path)));
             });
           }
+        }
+        Some(Input::Config(result)) => {
+          match result {
+            Ok(c) => {
+              app.config = c;
+              app.config_error = None;
+            }
+            // Con error se mantiene la configuracion anterior.
+            Err(e) => app.config_error = Some(e),
+          }
+          app.refresh_theme();
         }
         Some(Input::Cover(uri, img)) => {
           emit(&app.covers.decoded(&uri, img));

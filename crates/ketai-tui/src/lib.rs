@@ -10,3 +10,4 @@ pub mod service;
 pub mod theme;
 pub mod ui;
 pub mod viz;
+pub mod watch;

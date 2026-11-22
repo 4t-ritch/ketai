@@ -32,7 +32,7 @@ Tests: `cargo test -p ketai-tui` (vistas con `ratatui::backend::TestBackend`, cl
 | T10 | S7         | inline | hecho     | Daemon: carpetas de la biblioteca y escaneo de todas. RED -> GREEN 10/10 |
 | T11 | S7         | inline | hecho     | TUI: pantalla de carpetas. RED -> GREEN 6/6 + prueba real contra ketaid |
 | T12 | S8, S2     | inline | hecho     | TUI: config.toml con colores y acento de la caratula. RED -> GREEN 6/6 |
-| T13 | S9         | inline | pendiente | TUI: recarga en vivo de la configuracion |
+| T13 | S9         | inline | hecho     | TUI: recarga en vivo de la configuracion. RED -> GREEN (3/3 corridas) |
 | T9  | S3         | inline | hecho     | Caratulas con protocolo kitty (f86b653 daemon + commit TUI). RED -> GREEN 8/8 + deteccion probada en pty |
 
 ## Log
@@ -58,4 +58,5 @@ Tests: `cargo test -p ketai-tui` (vistas con `ratatui::backend::TestBackend`, cl
 - L18 (2026-11-22) T11 hecho: popup de carpetas (`f` o la paleta): lista con cantidad de canciones, agregar escribiendo la ruta (`~` = HOME; las letras son texto), quitar con confirmacion, `s` escanear una, `S` todas, progreso en vivo, errores del daemon en la pantalla; `library.changed` refresca. Cambio de regla deliberado en la paleta: "Escanear ~/Music" paso a "Escanear toda la biblioteca" (`library.scan {}`) y se agrego "Carpetas de la biblioteca…"; su test se actualizo. El test de tamanos encontro una falla real (clamp con min > max en terminales bajas), corregida. Prueba real: agregar dos carpetas, ruta invalida con su error, escanear todas: cantidades 1 y 2.
 - L19 (2026-11-22) T12 hecho: `config.rs` (TOML con `toml`; `[theme]` con background/accent "cover" o "#rrggbb" y 9 colores fijos; errores con clave o linea; claves desconocidas como aviso). Colores de caratula (`covers.rs`): fondo = promedio x0.35, elevado = x0.6, acento = mismo tono en HSL con L 0.72 y S >= 0.55 (gris queda casi blanco). `App::refresh_theme` al cambiar config, pista o caratula. Error o aviso en la ultima fila. Docs: docs/config.md, ejemplo dist/config.toml. `main` lee la config al arrancar.
 - L20 (2026-11-22) Pedido nuevo (durante T12): "tambien debes agregar un sistema que permita poder guardar las playlist en una ruta en especifico o si no se configura nada se debe de usar la ruta default, que debe estar en la carpeta ~/music si no esta la creas." Hallazgo: en este sistema XDG_MUSIC_DIR="$HOME/music" (~/music existe; ~/Music no). Pendiente: confirmar con el usuario si las playlists van directo en ~/music o en una subcarpeta.
-- Siguiente paso: T13 (recarga en vivo).
+- L21 (2026-11-22) T13 hecho: `watch.rs` revisa config.toml cada 500 ms (fecha con nanosegundos, tamano e inodo: detecta escritura y reemplazo por rename); manda la config nueva o el error; con error se mantiene la anterior; borrar el archivo vuelve a los valores por defecto. El test encontro una carrera real (la huella inicial se tomaba dentro del thread y un cambio inmediato se perdia); corregida tomandola antes de lanzarlo.
+- Siguiente paso: playlists en ruta configurable (L20), esperando la respuesta sobre la carpeta.

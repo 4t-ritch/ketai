@@ -130,3 +130,36 @@ fn a_client_that_never_reads_does_not_slow_anyone() {
   c.request(9, "player.state", json!({}));
   assert!(t.elapsed() < Duration::from_millis(200));
 }
+
+fn open_fds(d: &Daemon) -> usize {
+  std::fs::read_dir(format!("/proc/{}/fd", d.child.id())).unwrap().count()
+}
+
+fn threads(d: &Daemon) -> usize {
+  std::fs::read_dir(format!("/proc/{}/task", d.child.id())).unwrap().count()
+}
+
+#[test]
+fn clients_that_leave_while_nothing_plays_are_released() {
+  // Un cliente que se reconecta en bucle con el daemon detenido no debe
+  // dejar threads ni sockets abiertos.
+  let d = Daemon::start();
+  let mut first = connect(&d);
+  header(&mut first);
+  drop(first);
+  thread::sleep(Duration::from_millis(1500));
+  let (fds, tasks) = (open_fds(&d), threads(&d));
+  for _ in 0..40 {
+    let mut s = connect(&d);
+    header(&mut s);
+  }
+  let deadline = Instant::now() + Duration::from_secs(4);
+  loop {
+    let (f, t) = (open_fds(&d), threads(&d));
+    if f <= fds + 1 && t <= tasks + 1 {
+      break;
+    }
+    assert!(Instant::now() < deadline, "leaked: fds {fds} -> {f}, threads {tasks} -> {t}");
+    thread::sleep(Duration::from_millis(100));
+  }
+}

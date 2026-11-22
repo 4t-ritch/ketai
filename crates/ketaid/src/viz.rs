@@ -9,11 +9,14 @@
 
 use std::{
   io::Write,
-  os::unix::net::{UnixListener, UnixStream},
+  os::{
+    fd::AsRawFd,
+    unix::net::{UnixListener, UnixStream},
+  },
   sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
-    mpsc::{self, SyncSender, TrySendError},
+    mpsc::{self, RecvTimeoutError, SyncSender, TrySendError},
   },
   thread,
   time::{Duration, Instant},
@@ -25,8 +28,18 @@ pub const BINS: usize = 64;
 pub const FPS: u32 = 60;
 /// Frames que pueden esperar por cliente antes de empezar a perderse.
 const CLIENT_QUEUE: usize = 2;
+/// Sin frames (nada suena), cada cuanto el escritor revisa si el cliente se
+/// fue. Sin esto, un cliente que se va en pausa dejaria su thread y su
+/// socket abiertos hasta la proxima reproduccion.
+const IDLE_CHECK: Duration = Duration::from_millis(500);
 
-type Clients = Arc<Mutex<Vec<SyncSender<Arc<[u8]>>>>>;
+struct Client {
+  frames: SyncSender<Arc<[u8]>>,
+  /// Lo pone en false el escritor al terminar.
+  alive: Arc<AtomicBool>,
+}
+
+type Clients = Arc<Mutex<Vec<Client>>>;
 
 pub struct VizService {
   ring: SharedRing,
@@ -77,8 +90,16 @@ fn accept_loop(listener: UnixListener, clients: Clients) {
   for stream in listener.incoming() {
     let Ok(stream) = stream else { continue };
     let (tx, rx) = mpsc::sync_channel::<Arc<[u8]>>(CLIENT_QUEUE);
-    thread::spawn(move || writer_loop(stream, rx));
-    clients.lock().unwrap_or_else(|e| e.into_inner()).push(tx);
+    let alive = Arc::new(AtomicBool::new(true));
+    let writer_alive = alive.clone();
+    thread::spawn(move || {
+      writer_loop(stream, rx);
+      writer_alive.store(false, Ordering::Relaxed);
+    });
+    let mut list = clients.lock().unwrap_or_else(|e| e.into_inner());
+    // Aprovecha para soltar los clientes que ya se fueron.
+    list.retain(|c| c.alive.load(Ordering::Relaxed));
+    list.push(Client { frames: tx, alive });
   }
 }
 
@@ -89,11 +110,32 @@ fn writer_loop(mut stream: UnixStream, rx: mpsc::Receiver<Arc<[u8]>>) {
   if stream.write_all(&header()).is_err() {
     return;
   }
-  for frame in rx {
-    if stream.write_all(&frame).is_err() {
-      return;
+  loop {
+    match rx.recv_timeout(IDLE_CHECK) {
+      Ok(frame) => {
+        if stream.write_all(&frame).is_err() {
+          return;
+        }
+      }
+      Err(RecvTimeoutError::Timeout) => {
+        if peer_closed(&stream) {
+          return;
+        }
+      }
+      Err(RecvTimeoutError::Disconnected) => return,
     }
   }
+}
+
+/// El cliente cerro la conexion. Mira sin consumir ni esperar: los clientes
+/// del visualizador nunca escriben, asi que leer 0 bytes es que se fue.
+fn peer_closed(stream: &UnixStream) -> bool {
+  let mut byte = 0u8;
+  // SAFETY: recv sobre un fd valido con un buffer de 1 byte propio.
+  let n = unsafe {
+    libc::recv(stream.as_raw_fd(), (&raw mut byte).cast(), 1, libc::MSG_PEEK | libc::MSG_DONTWAIT)
+  };
+  n == 0
 }
 
 fn analyzer_loop(ring: SharedRing, playing: Arc<AtomicBool>, clients: Clients) {
@@ -113,13 +155,16 @@ fn analyzer_loop(ring: SharedRing, playing: Arc<AtomicBool>, clients: Clients) {
     if !playing.load(Ordering::Relaxed) {
       continue;
     }
-    let mut clients = clients.lock().unwrap_or_else(|e| e.into_inner());
-    if clients.is_empty() {
+    if clients.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
       continue;
     }
+    // La FFT se calcula sin tener el lock de clientes.
     analyzer.frame_from(&ring, &mut values);
     let frame: Arc<[u8]> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
     // Se quitan los clientes que se fueron; los llenos pierden este frame.
-    clients.retain(|c| !matches!(c.try_send(frame.clone()), Err(TrySendError::Disconnected(_))));
+    clients
+      .lock()
+      .unwrap_or_else(|e| e.into_inner())
+      .retain(|c| !matches!(c.frames.try_send(frame.clone()), Err(TrySendError::Disconnected(_))));
   }
 }

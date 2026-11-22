@@ -344,3 +344,52 @@ fn playing_a_restored_session_continues_from_the_saved_position() {
   b.shutdown();
   let _ = fs::remove_dir_all(&dir);
 }
+
+/// Sesion valida con una pista, escrita por un daemon real.
+fn saved_session(dir: &Path) {
+  let mut a = Run::start(dir, &[]);
+  a.call("queue.add", json!({"uris": uris(&["vorbis.ogg"])}));
+  a.shutdown();
+}
+
+#[test]
+fn a_briefly_unreadable_session_is_retried_and_restored() {
+  use std::os::unix::fs::PermissionsExt;
+  let dir = temp_runtime_dir();
+  saved_session(&dir);
+  let file = dir.join("state/ketai/session.json");
+  fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+  let restore = file.clone();
+  let fixer = thread::spawn(move || {
+    thread::sleep(Duration::from_millis(150));
+    fs::set_permissions(&restore, fs::Permissions::from_mode(0o600)).unwrap();
+  });
+
+  let mut b = Run::start(&dir, &[]);
+  fixer.join().unwrap();
+  b.wait_queue_len(1);
+  assert!(!dir.join("state/ketai/session.json.bad").exists(), "a read error is not corruption");
+  b.kill();
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_session_that_stays_unreadable_is_kept_not_marked_corrupt() {
+  use std::os::unix::fs::PermissionsExt;
+  let dir = temp_runtime_dir();
+  saved_session(&dir);
+  let state_dir = dir.join("state/ketai");
+  let original = fs::read(state_dir.join("session.json")).unwrap();
+  fs::set_permissions(state_dir.join("session.json"), fs::Permissions::from_mode(0o000)).unwrap();
+
+  let mut b = Run::start(&dir, &[]);
+  assert!(b.call("queue.list", json!({}))["tracks"].as_array().unwrap().is_empty());
+  assert!(!state_dir.join("session.json.bad").exists(), "a read error is not corruption");
+  // Se aparta sin tocar su contenido, para que un guardado nuevo no la pise.
+  let kept = state_dir.join("session.json.unreadable");
+  assert!(kept.exists(), "unreadable session must be kept aside");
+  fs::set_permissions(&kept, fs::Permissions::from_mode(0o600)).unwrap();
+  assert_eq!(fs::read(&kept).unwrap(), original);
+  b.kill();
+  let _ = fs::remove_dir_all(&dir);
+}

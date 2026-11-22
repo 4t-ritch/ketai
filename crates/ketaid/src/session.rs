@@ -41,22 +41,39 @@ pub struct Saved {
   pub output: Option<String>,
 }
 
-/// Lee la sesion. Si no existe devuelve None. Si existe pero no se puede
-/// usar, la renombra a `.bad`, lo registra y devuelve None.
+/// Lee la sesion. Si no existe devuelve None.
+///
+/// Un error de lectura no es corrupcion: se reintenta un par de veces por si
+/// fue pasajero. Si sigue sin poder leerse se aparta como `.unreadable` sin
+/// tocar su contenido (un guardado nuevo la pisaria). Solo un contenido
+/// invalido se aparta como `.bad`. En los dos casos el daemon arranca vacio.
 pub fn load(path: &Path) -> Option<Saved> {
-  let text = match fs::read_to_string(path) {
-    Ok(t) => t,
-    Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
-    Err(e) => return discard(path, &format!("unreadable: {e}")),
+  let mut tries = 0;
+  let text = loop {
+    match fs::read_to_string(path) {
+      Ok(t) => break t,
+      Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
+      Err(e) => {
+        tries += 1;
+        if tries >= READ_TRIES {
+          return set_aside(path, "json.unreadable", &format!("unreadable: {e}"));
+        }
+        std::thread::sleep(READ_RETRY);
+      }
+    }
   };
   match parse(&text) {
     Some(saved) => Some(saved),
-    None => discard(path, "invalid content"),
+    None => set_aside(path, "json.bad", "invalid content"),
   }
 }
 
-fn discard(path: &Path, reason: &str) -> Option<Saved> {
-  let bad = path.with_extension("json.bad");
+/// Intentos de lectura antes de dar la sesion por ilegible.
+const READ_TRIES: u32 = 5;
+const READ_RETRY: std::time::Duration = std::time::Duration::from_millis(100);
+
+fn set_aside(path: &Path, extension: &str, reason: &str) -> Option<Saved> {
+  let bad = path.with_extension(extension);
   eprintln!("ketaid: session file {} is {reason}; moved to {}", path.display(), bad.display());
   let _ = fs::rename(path, bad);
   None

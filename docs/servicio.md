@@ -100,8 +100,16 @@ Para que un corte a mitad de escritura no deje el archivo roto:
 2. `fsync` del archivo temporal.
 3. `rename` atomico a `session.json`.
 
-Si al arrancar `session.json` no se puede leer, se renombra a
-`session.json.bad`, se registra el error y se arranca con una sesion vacia.
+Si al arrancar `session.json` no se puede usar, se registra el error y se
+arranca con una sesion vacia. Se distinguen dos casos:
+
+- **Error de lectura** (permisos, disco): se reintenta hasta 5 veces, cada
+  100 ms, por si fue pasajero. Si sigue fallando se renombra a
+  `session.json.unreadable` sin tocar su contenido, para que el proximo
+  guardado no la pise y se pueda recuperar.
+- **Contenido invalido** (JSON roto, version desconocida): se renombra a
+  `session.json.bad`. Como el guardado es atomico, esto solo pasa si alguien
+  edito o dano el archivo.
 
 ### Restauracion
 

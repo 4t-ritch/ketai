@@ -1,10 +1,20 @@
 //! Binario `ketai`: prepara la terminal y corre el loop de eventos.
+//!
+//! Un unico canal recibe todo: teclas, mensajes del daemon y resultados de
+//! las tareas en segundo plano (buscar el servicio, levantarlo). El loop
+//! principal nunca espera a la red ni a systemd.
 
-use std::{io, sync::mpsc, thread, time::Duration};
+use std::{
+  io,
+  sync::mpsc::{self, Sender},
+  thread,
+  time::{Duration, Instant},
+};
 
 use ketai_tui::{
-  app::App,
+  app::{App, Screen},
   client::{self, Client, DaemonMsg},
+  service::{self, Action, Observed},
   ui,
 };
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
@@ -15,16 +25,52 @@ enum Input {
   Key(event::KeyEvent),
   Resize,
   Daemon(DaemonMsg),
+  /// Resultado de buscar el servicio.
+  Observed(Observed),
+  /// Termino una accion sobre el servicio.
+  ActionDone(Result<(), String>),
+}
+
+/// Cada cuanto se reintenta conectar desde la pantalla de servicio.
+const RETRY: Duration = Duration::from_secs(2);
+
+fn connect(tx: &Sender<Input>) -> Option<Client> {
+  let mut c = Client::connect(&client::socket_path()?, tx.clone(), Input::Daemon).ok()?;
+  c.request("daemon.hello", json!({"protocol": ketai_protocol::PROTOCOL_VERSION, "client": "ketai-tui"})).ok()?;
+  c.request("events.subscribe", json!({"topics": ["player", "queue", "output", "lyrics", "playlist", "library"]})).ok()?;
+  c.request("player.state", json!({})).ok()?;
+  Some(c)
+}
+
+/// Busca el servicio en segundo plano (systemd puede tardar).
+fn spawn_observe(tx: &Sender<Input>) {
+  let tx = tx.clone();
+  thread::spawn(move || {
+    let _ = tx.send(Input::Observed(service::observe(false)));
+  });
+}
+
+fn spawn_action(tx: &Sender<Input>, action: Action, observed: Observed) {
+  let tx = tx.clone();
+  thread::spawn(move || {
+    let _ = tx.send(Input::ActionDone(service::execute(action, &observed)));
+  });
+}
+
+fn show_service(app: &mut App, tx: &Sender<Input>) {
+  app.connected = false;
+  app.screen = Screen::Service { state: service::State::Starting, observed: Observed::default(), message: None, busy: true };
+  spawn_observe(tx);
 }
 
 fn main() -> io::Result<()> {
   let (tx, rx) = mpsc::channel::<Input>();
   let mut app = App::default();
-  let mut client = client::socket_path().and_then(|p| Client::connect(&p, tx.clone(), Input::Daemon).ok());
-  if let Some(c) = client.as_mut() {
+  let mut client = connect(&tx);
+  if client.is_some() {
     app.connected = true;
-    let _ = c.request("daemon.hello", json!({"protocol": ketai_protocol::PROTOCOL_VERSION, "client": "ketai-tui"}));
-    let _ = c.request("events.subscribe", json!({"topics": ["player", "queue", "output", "lyrics", "playlist", "library"]}));
+  } else {
+    show_service(&mut app, &tx);
   }
 
   let keys = tx.clone();
@@ -43,20 +89,73 @@ fn main() -> io::Result<()> {
   })?;
 
   let mut terminal = ratatui::init();
+  let mut last_retry = Instant::now();
   let result = (|| -> io::Result<()> {
     loop {
       terminal.draw(|f| ui::draw(f, &app))?;
-      let Ok(input) = rx.recv_timeout(Duration::from_millis(250)) else { continue };
+      let input = rx.recv_timeout(Duration::from_millis(250)).ok();
+
+      // Desde la pantalla de servicio se reintenta conectar cada tanto.
+      if matches!(app.screen, Screen::Service { busy: false, .. }) && last_retry.elapsed() >= RETRY {
+        last_retry = Instant::now();
+        if let Some(c) = connect(&tx) {
+          client = Some(c);
+          app.connected = true;
+          app.screen = Screen::Main;
+        }
+      }
+
       match input {
-        Input::Key(k) => {
-          for (method, params) in app.on_key(k) {
-            if let Some(c) = client.as_mut() {
-              let _ = c.request(&method, params);
+        None | Some(Input::Resize) => {}
+        Some(Input::Key(k)) => {
+          if let Screen::Service { observed, .. } = &app.screen {
+            let observed = observed.clone();
+            match app.service_action(k) {
+              Some(Action::Retry) => {
+                if let Screen::Service { busy, message, .. } = &mut app.screen {
+                  *busy = true;
+                  *message = None;
+                }
+                spawn_observe(&tx);
+              }
+              Some(action) => {
+                if let Screen::Service { busy, message, .. } = &mut app.screen {
+                  *busy = true;
+                  *message = None;
+                }
+                spawn_action(&tx, action, observed);
+              }
+              None => {}
+            }
+          } else {
+            for (method, params) in app.on_key(k) {
+              if let Some(c) = client.as_mut() {
+                let _ = c.request(&method, params);
+              }
             }
           }
         }
-        Input::Resize => {}
-        Input::Daemon(msg) => app.on_daemon(msg),
+        Some(Input::Daemon(DaemonMsg::Closed)) => {
+          client = None;
+          show_service(&mut app, &tx);
+        }
+        Some(Input::Daemon(msg)) => app.on_daemon(msg),
+        Some(Input::Observed(o)) => {
+          let state = service::diagnose(&o);
+          if let Screen::Service { state: s, observed, busy, .. } = &mut app.screen {
+            *s = state;
+            *observed = o;
+            *busy = false;
+          }
+          // Lo encontrado puede ser que ya responde: probar enseguida.
+          last_retry = Instant::now() - RETRY;
+        }
+        Some(Input::ActionDone(result)) => {
+          if let Screen::Service { message, .. } = &mut app.screen {
+            *message = result.err();
+          }
+          spawn_observe(&tx);
+        }
       }
       if app.quit {
         return Ok(());

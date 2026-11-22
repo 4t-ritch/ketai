@@ -4,7 +4,11 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{Value, json};
 
-use crate::{client::DaemonMsg, theme::Theme};
+use crate::{
+  client::DaemonMsg,
+  service::{Action, Observed, State},
+  theme::Theme,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -31,10 +35,27 @@ impl Tab {
   }
 }
 
+/// Pantalla principal o la de servicio (cuando no hay daemon).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Screen {
+  Main,
+  Service {
+    state: State,
+    observed: Observed,
+    /// Error de la ultima accion, si fallo.
+    message: Option<String>,
+    /// Hay una accion en curso.
+    busy: bool,
+  },
+}
+
 /// Peticion para el daemon: (metodo, params).
 pub type Command = (String, Value);
 
 pub struct App {
+  pub screen: Screen,
+  /// Se pidio reiniciar un proceso colgado y falta confirmar.
+  pub confirm_restart: bool,
   pub tab: Tab,
   pub theme: Theme,
   /// Ultimo `PlayerState` conocido (docs/protocol.md, seccion 4).
@@ -45,7 +66,7 @@ pub struct App {
 
 impl Default for App {
   fn default() -> Self {
-    Self { tab: Tab::NowPlaying, theme: Theme::default(), player: Value::Null, connected: false, quit: false }
+    Self { screen: Screen::Main, confirm_restart: false, tab: Tab::NowPlaying, theme: Theme::default(), player: Value::Null, connected: false, quit: false }
   }
 }
 
@@ -64,6 +85,46 @@ impl App {
       _ => {}
     }
     Vec::new()
+  }
+
+  /// Tecla en la pantalla de servicio: la accion a ejecutar, si hay.
+  pub fn service_action(&mut self, key: KeyEvent) -> Option<Action> {
+    let Screen::Service { state, busy, .. } = &self.screen else { return None };
+    let (state, busy) = (*state, *busy);
+    match key.code {
+      KeyCode::Char('q') => {
+        self.quit = true;
+        return None;
+      }
+      KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+        self.quit = true;
+        return None;
+      }
+      KeyCode::Esc => {
+        self.confirm_restart = false;
+        return None;
+      }
+      _ => {}
+    }
+    if busy {
+      return None;
+    }
+    match (key.code, state) {
+      (KeyCode::Char('r'), _) => Some(Action::Retry),
+      (KeyCode::Enter | KeyCode::Char('s'), State::Stopped { .. }) => Some(Action::Start { enable: false }),
+      (KeyCode::Char('e'), State::Stopped { .. }) => Some(Action::Start { enable: true }),
+      (KeyCode::Enter, State::NotInstalled) => Some(Action::Install),
+      (KeyCode::Enter, State::NoSystemd) => Some(Action::StartManual),
+      (KeyCode::Enter, State::Unresponsive { .. }) => {
+        self.confirm_restart = true;
+        None
+      }
+      (KeyCode::Char('y'), State::Unresponsive { pid }) if self.confirm_restart => {
+        self.confirm_restart = false;
+        Some(Action::Restart { pid })
+      }
+      _ => None,
+    }
   }
 
   pub fn on_daemon(&mut self, msg: DaemonMsg) {

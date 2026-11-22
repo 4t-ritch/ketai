@@ -560,7 +560,9 @@ dependencies = [
 name = "ketai-tui"
 version = "0.1.0"
 dependencies = [
+ "dbus",
  "ketai-protocol",
+ "libc",
  "ratatui",
  "serde_json",
 ]

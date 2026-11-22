@@ -18,7 +18,7 @@ Tests: `cargo test -p ketai-tui` (vistas con `ratatui::backend::TestBackend`, cl
 | ID  | Specs      | Ruta   | Estado    | Evidencia |
 |-----|------------|--------|-----------|-----------|
 | T1  | S2, S4     | inline | hecho     | Base: terminal, tema, pestanas, teclado, cliente IPC con eventos. RED (no compila) -> GREEN 6/6 |
-| T2  | S6         | inline | pendiente | Pantalla de servicio, deteccion y arranque por systemd |
+| T2  | S6         | inline | hecho     | Pantalla de servicio, deteccion y arranque por systemd. RED -> GREEN 3/3 |
 | T3  | S1, S2     | inline | pendiente | Reproduciendo (inicio), barra de reproduccion, visualizador (viz.sock) |
 | T4  | S1         | inline | pendiente | Letras (capas, sincronia, palabra, offset) |
 | T5  | S1         | inline | pendiente | Biblioteca/playlist |
@@ -34,4 +34,5 @@ Tests: `cargo test -p ketai-tui` (vistas con `ratatui::backend::TestBackend`, cl
 - L3 Estilo e imagenes: ver S2 y S3. Aprobacion: ver S1.
 - L4 Decisiones: el `view.rs` anterior del usuario (audio directo con rodio) se reemplaza; queda en la historia de git. Las maquetas y su generador se guardan en `samples/tui-maquetas/` (ignorado por git). Hueco detectado: `docs/servicio.md` menciona `ketaid --daemonize` para el modo manual, que el daemon no implementa; se resuelve en T2.
 - L5 (2026-11-22) T1 hecho: lib `ketai_tui` (client, app, theme, ui) + binario `ketai`. Threads y canales: lector del daemon y lector de teclado alimentan un canal; `App` no hace I/O y devuelve las peticiones. Tests: cliente contra servidor falso (id, eventos, errores, cierre) y app/pestanas con TestBackend. Suite 211/211.
-- Siguiente paso: T2 (pantalla de servicio).
+- L6 (2026-11-22) T2 hecho: `service.rs` (diagnose puro; observe/execute con systemd de usuario por D-Bus: LoadUnit, StartUnit, EnableUnitFiles, Reload, RestartUnit; proceso por /proc; binario en ~/.local/bin o PATH). Instalar copia las unidades de dist/systemd (incluidas en el binario). Modo manual: `setsid -f ketaid` (docs/servicio.md actualizado; reemplaza el `--daemonize` que no existia). Reiniciar pide confirmacion (Enter, despues y). Loop: reintento de conexion cada 2 s; si el daemon se cae se vuelve a la pantalla de servicio. Prueba real de solo lectura contra el systemd del usuario: NotInstalled (correcto: sin unidades ni binario). StartUnit/Install no se probaron en real: tocarian el systemd del usuario.
+- Siguiente paso: T3 (reproduciendo).

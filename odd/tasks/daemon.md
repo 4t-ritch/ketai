@@ -186,4 +186,17 @@ de contexto, asi que no aplica el trigger de writer.
   conexiones es de systemd: no se toca, esa conexion lo activa y la manual
   sale con 0. Test manual_start_yields_to_a_live_systemd_socket (RED ->
   GREEN); prueba real con systemd-socket-activate ok. Suite 169/169.
+- L28 (2026-11-22) Usuario: "de esta lista arregla el 1, 2 y 5 / para el 1
+  como dices que es un problema de la libreria realiza una proteccion para
+  esos casos para evitar problemas durante el uso del deamon" + "cuando
+  termines avanza con el siguiente T, pero solo si todo esta en orden".
+  1 (8cd3ff1): el seek reabre la pista y la posiciona antes de entregarla;
+  nunca se llama Player::try_seek. Bug encontrado y corregido: tras
+  restaurar, la posicion contaba desde 0 (base_ms). 2 (13f04f5): hasta 64
+  peticiones sin respuesta por cliente; contrapresion (el daemon deja de
+  leer). 5 (0930fd3): lectura fallida se reintenta 5x; luego
+  `.unreadable` intacto; `.bad` solo para contenido invalido. Verificador
+  independiente: PASS x3, sin bloqueantes. Nota: rodio clear() espera al
+  thread de audio; solo colgaria si la salida deja de pedir muestras.
+  Suite 10/10 (174 tests), clippy limpio.
 - Siguiente paso: T11 (MPRIS 2 por D-Bus).

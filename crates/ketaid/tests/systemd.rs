@@ -114,10 +114,18 @@ fn serves_on_the_inherited_ctl_socket() {
   let r = hello(&ctl_path);
   assert!(r.get("result").is_some(), "{r}");
 
+  // viz.sock tambien es el heredado (fd 4): manda el header del canal.
+  let mut viz = std::os::unix::net::UnixStream::connect(ctl_path.with_file_name("viz.sock")).unwrap();
+  viz.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+  let mut h = [0u8; 4];
+  std::io::Read::read_exact(&mut viz, &mut h).unwrap();
+  assert_eq!(&h, b"KTV1");
+
   // Al salir no borra el socket: es de systemd, que lo reutiliza.
   let _ = Command::new("kill").arg("-TERM").arg(d.child.id().to_string()).status();
   assert!(wait_exit(&mut d.child, Duration::from_secs(5)));
   assert!(ctl_path.exists(), "inherited socket must survive the daemon");
+  assert!(ctl_path.with_file_name("viz.sock").exists(), "inherited viz socket must survive the daemon");
 }
 
 #[test]

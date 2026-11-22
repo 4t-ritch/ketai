@@ -112,9 +112,9 @@ struct Published {
 }
 
 impl PlayerService {
-  pub fn new(tx: Sender<Message>) -> Self {
+  pub fn new(tx: Sender<Message>, ring: ketai_core::viz::SharedRing) -> Self {
     let (events_tx, events_rx) = std::sync::mpsc::channel();
-    let engine = engine::spawn(Backend::from_env(), events_tx);
+    let engine = engine::spawn(Backend::from_env(), events_tx, ring);
     // Reenvia los eventos del motor al loop central.
     let forward = tx.clone();
     thread::spawn(move || {

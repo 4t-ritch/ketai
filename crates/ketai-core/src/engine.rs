@@ -20,7 +20,10 @@ use std::{
 
 use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 
-use crate::decoder::AudioSource;
+use crate::{
+  decoder::AudioSource,
+  viz::{SharedRing, Tap},
+};
 
 /// Cada cuanto se informa la posicion mientras suena.
 const POSITION_INTERVAL: Duration = Duration::from_millis(250);
@@ -74,12 +77,13 @@ impl EngineHandle {
   }
 }
 
-/// Lanza el thread del motor. Los eventos salen por `events`.
-pub fn spawn(backend: Backend, events: Sender<Event>) -> EngineHandle {
+/// Lanza el thread del motor. Los eventos salen por `events`; una copia
+/// mono de lo que suena va a `ring` (para el visualizador).
+pub fn spawn(backend: Backend, events: Sender<Event>, ring: SharedRing) -> EngineHandle {
   let (tx, rx) = mpsc::channel();
   thread::Builder::new()
     .name("ketai-engine".into())
-    .spawn(move || Engine::new(backend, events).run(rx))
+    .spawn(move || Engine::new(backend, events, ring).run(rx))
     .expect("spawn engine thread");
   EngineHandle { tx }
 }
@@ -87,6 +91,7 @@ pub fn spawn(backend: Backend, events: Sender<Event>) -> EngineHandle {
 struct Engine {
   backend: Backend,
   events: Sender<Event>,
+  ring: SharedRing,
   // El sink del sistema debe vivir mientras se usa el player.
   _sink: Option<MixerDeviceSink>,
   player: Option<Player>,
@@ -105,10 +110,11 @@ struct Engine {
 }
 
 impl Engine {
-  fn new(backend: Backend, events: Sender<Event>) -> Self {
+  fn new(backend: Backend, events: Sender<Event>, ring: SharedRing) -> Self {
     Self {
       backend,
       events,
+      ring,
       _sink: None,
       player: None,
       generation: 0,
@@ -202,7 +208,9 @@ impl Engine {
     // clear() deja el player en pausa; se reanuda abajo si corresponde.
     player.clear();
     player.set_volume(self.volume);
-    player.append(source);
+    // Lo que quedaba de la pista anterior no debe aparecer en el espectro.
+    self.ring.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    player.append(Tap::new(source, self.ring.clone()));
     if play {
       player.play();
     }

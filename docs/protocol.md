@@ -444,6 +444,23 @@ normalizados `0.0`-`1.0`. Solo se envian frames mientras `status == "playing"`.
 Los clientes lentos pierden frames; el daemon nunca se bloquea por un cliente
 del visualizador.
 
+Detalles de v1:
+
+- Socket: `$XDG_RUNTIME_DIR/ketai/viz.sock`, permisos `0600`. Con socket
+  activation es el segundo socket que pasa systemd.
+- `bins` = 64 y `fps` = 60. Los clientes deben leerlos del header y no
+  asumirlos.
+- Cada frame es el espectro de las ultimas 2048 muestras que sonaron,
+  mezcladas a mono, con ventana de Hann.
+- Las bandas son logaritmicas entre 30 Hz y 16 kHz (o la mitad de la
+  frecuencia de muestreo si es menor): la banda 0 es la mas grave.
+- El valor es el pico de la banda en dB: -60 dB o menos es `0.0` y 0 dB
+  (un seno a escala completa) es `1.0`. No hay suavizado entre frames: si
+  el cliente lo quiere, lo aplica el.
+- Cada cliente tiene una cola de 2 frames. Si no lee a tiempo, los frames
+  siguientes se descartan para el, nunca a medias: un frame se escribe
+  completo o no se escribe.
+
 ## 8. Errores
 
 | Codigo  | Significado |

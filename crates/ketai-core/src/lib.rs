@@ -8,3 +8,4 @@ pub mod output;
 pub mod playlist;
 pub mod queue;
 pub mod uri;
+pub mod viz;

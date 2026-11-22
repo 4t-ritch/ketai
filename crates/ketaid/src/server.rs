@@ -28,6 +28,7 @@ use crate::{
   instance,
   lyrics::{LyricsService, TrackRef},
   mpris::MprisService,
+  viz::VizService,
   outputs::OutputService,
   playlists::PlaylistService,
   player::{PlayerService, Resolved, Restored},
@@ -103,13 +104,9 @@ pub fn run() -> io::Result<()> {
     instance::Claim::AlreadyRunning => return Ok(()),
   };
   // Con socket activation el socket es de systemd: no se crea ni se borra.
-  let (listener, own_socket) = match inherited {
-    Some(sockets) => {
-      // viz.sock se atiende en T12; hasta entonces se cierra la copia
-      // propia (systemd conserva la suya).
-      drop(sockets.viz);
-      (sockets.ctl, false)
-    }
+  let viz_path = dir.join("viz.sock");
+  let (listener, own_socket, inherited_viz) = match inherited {
+    Some(sockets) => (sockets.ctl, false, sockets.viz),
     None => {
       // Tenemos el bloqueo, asi que ningun ketaid atiende ctl.sock. Si
       // igual acepta conexiones, es el socket de systemd (ketaid.socket):
@@ -120,8 +117,13 @@ pub fn run() -> io::Result<()> {
         drop(lock);
         return Ok(());
       }
-      (bind_socket(&socket_path)?, true)
+      (bind_socket(&socket_path)?, true, None)
     }
+  };
+  // viz.sock: el de systemd si lo paso; si no, uno propio.
+  let (viz_listener, own_viz) = match inherited_viz {
+    Some(l) => (l, false),
+    None => (bind_socket(&viz_path)?, true),
   };
   instance::mark_ready(&lock)?;
   systemd::notify("READY=1");
@@ -138,7 +140,8 @@ pub fn run() -> io::Result<()> {
     }
   });
 
-  let mut player = PlayerService::new(tx.clone());
+  let viz = VizService::new(viz_listener);
+  let mut player = PlayerService::new(tx.clone(), viz.ring());
   let mut outputs = OutputService::new(tx.clone());
   let playlists = PlaylistService::new(tx.clone(), player.track_ids());
   let lyrics = LyricsService::new(tx.clone());
@@ -156,10 +159,13 @@ pub fn run() -> io::Result<()> {
       None
     }
   };
-  let result = central_loop(rx, Services { player, outputs, playlists, lyrics, mpris }, persist);
+  let result = central_loop(rx, Services { player, outputs, playlists, lyrics, mpris, viz }, persist);
   systemd::notify("STOPPING=1");
   // El socket propio se borra al salir para que los clientes no vean uno
   // muerto.
+  if own_viz {
+    let _ = fs::remove_file(&viz_path);
+  }
   if own_socket {
     let _ = fs::remove_file(&socket_path);
   }
@@ -444,6 +450,7 @@ struct Services {
   playlists: PlaylistService,
   lyrics: LyricsService,
   mpris: MprisService,
+  viz: VizService,
 }
 
 fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Option<Persist>) -> io::Result<()> {
@@ -687,6 +694,7 @@ fn is_seek(method: &str) -> bool {
 }
 
 fn publish(clients: &HashMap<ClientId, ClientState>, services: &mut Services) {
+  services.viz.set_playing(services.player.is_playing());
   let (len, current) = services.player.queue_position();
   services.mpris.update(&services.player.state_event().1, len, current);
   for track_id in services.lyrics.take_changed() {

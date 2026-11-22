@@ -15,6 +15,7 @@ mod playlists;
 mod server;
 mod session;
 mod systemd;
+mod viz;
 
 use std::process::ExitCode;
 

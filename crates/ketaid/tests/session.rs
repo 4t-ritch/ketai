@@ -281,7 +281,7 @@ fn default_location_is_under_home_local_state() {
   let dir = temp_runtime_dir();
   let home = dir.join("home");
   fs::create_dir_all(&home).unwrap();
-  let mut child = Command::new(env!("CARGO_BIN_EXE_ketaid"))
+  let mut child = common::ketaid_command()
     .env("XDG_RUNTIME_DIR", &dir)
     .env_remove("XDG_STATE_HOME")
     .env("HOME", &home)

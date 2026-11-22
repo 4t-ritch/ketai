@@ -14,7 +14,7 @@ use common::{Daemon, temp_runtime_dir};
 use serde_json::json;
 
 fn spawn_in(runtime_dir: &Path) -> std::process::Child {
-  Command::new(env!("CARGO_BIN_EXE_ketaid"))
+  common::ketaid_command()
     .env("KETAI_AUDIO_BACKEND", "null")
     .env("XDG_STATE_HOME", runtime_dir.join("state"))
     .env("XDG_DATA_HOME", runtime_dir.join("data"))
@@ -51,7 +51,7 @@ fn signal(pid: u32, sig: &str) {
 #[test]
 fn second_instance_exits_when_owner_is_healthy() {
   let daemon = Daemon::start();
-  let status = Command::new(env!("CARGO_BIN_EXE_ketaid"))
+  let status = common::ketaid_command()
     .env("KETAI_AUDIO_BACKEND", "null")
     .env("XDG_STATE_HOME", daemon.runtime_dir.join("state"))
     .env("XDG_DATA_HOME", daemon.runtime_dir.join("data"))
@@ -87,7 +87,7 @@ fn owner_still_starting_is_never_killed() {
   let dir = starting.runtime_dir.join("ketai");
   fs::write(dir.join("ketaid.lock"), format!("{pid}\n")).unwrap();
 
-  let status = Command::new(env!("CARGO_BIN_EXE_ketaid"))
+  let status = common::ketaid_command()
     .env("KETAI_AUDIO_BACKEND", "null")
     .env("XDG_STATE_HOME", starting.runtime_dir.join("state"))
     .env("XDG_DATA_HOME", starting.runtime_dir.join("data"))

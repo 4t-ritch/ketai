@@ -2,7 +2,7 @@
 
 mod common;
 
-use std::{io::Write, os::unix::fs::PermissionsExt, process::Command, thread, time::Duration};
+use std::{io::Write, os::unix::fs::PermissionsExt, thread, time::Duration};
 
 use common::Daemon;
 use serde_json::{Value, json};
@@ -142,7 +142,7 @@ fn shutdown_replies_exits_and_removes_socket() {
 
 #[test]
 fn refuses_to_start_without_xdg_runtime_dir() {
-  let status = Command::new(env!("CARGO_BIN_EXE_ketaid"))
+  let status = common::ketaid_command()
     .env("KETAI_AUDIO_BACKEND", "null")
     .env("XDG_STATE_HOME", std::env::temp_dir().join("ketaid-test-state-never-used"))
     .env_remove("XDG_RUNTIME_DIR")
@@ -188,5 +188,25 @@ fn a_client_that_never_reads_is_slowed_down_not_buffered() {
   for _ in 0..sent {
     let m = client.read_message().expect("reply");
     assert_eq!(m["result"]["protocol"], 1);
+  }
+}
+
+#[test]
+fn every_test_spawns_ketaid_through_the_isolated_command() {
+  // Guardian: un daemon lanzado sin `ketaid_command` heredaria el bus de
+  // sesion real y apareceria en el playerctl o waybar del usuario.
+  let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+  let direct = concat!("Command::new(env!(\"CARGO_BIN_", "EXE_ketaid\"))");
+  for entry in std::fs::read_dir(&dir).unwrap() {
+    let path = entry.unwrap().path();
+    if path.extension().is_none_or(|e| e != "rs") {
+      continue;
+    }
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(!text.contains(direct), "{} spawns ketaid directly; use common::ketaid_command()", path.display());
+    // Los que lanzan via `sh` deben fijar el bus a mano.
+    if text.contains("arg(env!(\"CARGO_BIN_EXE_ketaid\"))") {
+      assert!(text.contains("DBUS_SESSION_BUS_ADDRESS"), "{} spawns ketaid via a shell without isolating D-Bus", path.display());
+    }
   }
 }

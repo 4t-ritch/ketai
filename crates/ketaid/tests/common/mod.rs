@@ -28,6 +28,20 @@ pub fn temp_runtime_dir() -> PathBuf {
   dir
 }
 
+/// Bus D-Bus que no existe: con esto el daemon arranca sin MPRIS.
+pub const NO_BUS: &str = "unix:path=/dev/null/ketai-no-bus";
+
+/// Comando para lanzar ketaid desde un test. Es la unica forma permitida
+/// (lo comprueba `every_test_spawns_ketaid_through_the_isolated_command`):
+/// nunca usa el bus de sesion del usuario, asi un daemon de test no aparece
+/// en su playerctl o waybar. Los tests de MPRIS pasan un bus propio con
+/// `.env("DBUS_SESSION_BUS_ADDRESS", ...)`, que reemplaza a este.
+pub fn ketaid_command() -> Command {
+  let mut cmd = Command::new(env!("CARGO_BIN_EXE_ketaid"));
+  cmd.env("DBUS_SESSION_BUS_ADDRESS", NO_BUS);
+  cmd
+}
+
 pub struct Daemon {
   pub child: Child,
   pub runtime_dir: PathBuf,
@@ -47,16 +61,12 @@ impl Daemon {
   /// Lanza el daemon sobre un directorio existente, sin borrarlo al final.
   /// El estado de sesion va a `<dir>/state`, nunca al del usuario.
   pub fn start_in(runtime_dir: PathBuf, envs: &[(&str, &str)]) -> Self {
-    let child = Command::new(env!("CARGO_BIN_EXE_ketaid"))
+    let child = ketaid_command()
       .env("XDG_RUNTIME_DIR", &runtime_dir)
       .env("XDG_STATE_HOME", runtime_dir.join("state"))
       .env("XDG_DATA_HOME", runtime_dir.join("data"))
       // Los tests nunca suenan por los parlantes.
       .env("KETAI_AUDIO_BACKEND", "null")
-      // Nunca el bus de sesion del usuario: un daemon de test no debe
-      // aparecer en su playerctl o waybar. Los tests de MPRIS pasan uno
-      // propio por `envs`.
-      .env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={}", runtime_dir.join("no-bus").display()))
       .envs(envs.iter().copied())
       .stdout(Stdio::null())
       .stderr(Stdio::null())

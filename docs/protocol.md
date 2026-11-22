@@ -253,7 +253,7 @@ Reglas del reproductor:
 | Metodo            | Params                                  | Resultado |
 |-------------------|-----------------------------------------|-----------|
 | `playlist.list`   | -                                       | `{"playlists": [{"name": "chill", "count": 12}]}` |
-| `playlist.get`    | `{"name": "chill"}`                     | `{"name": "chill", "tracks": [Track]}` |
+| `playlist.get`    | `{"name": "chill"}`                     | `{"name": "chill", "path": "/home/u/music/playlists/chill.m3u8", "tracks": [Track]}` |
 | `playlist.save`   | `{"name": "chill", "from_queue": true}` | `{}` |
 | `playlist.delete` | `{"name": "chill"}`                     | `{}` |
 | `playlist.load`   | `{"name": "chill", "replace": true}`    | `{}` |
@@ -263,9 +263,13 @@ Reglas del reproductor:
 | `playlist.move`   | `{"name": "chill", "from": 3, "to": 0}` | `{}` |
 | `playlist.transfer` | `{"from_name": "rock", "indexes": [2, 5, 7], "to_name": "metal", "position": null, "mode": "move"}` | `{"transferred": 3}` |
 
-- Cada playlist es un archivo `.m3u8` en `$XDG_DATA_HOME/ketai/playlists/`
-  (por defecto `~/.local/share/ketai/playlists/`), compatible con otros
-  reproductores. Las pistas locales se guardan como rutas absolutas. Un
+- Cada playlist es un archivo `.m3u8` en la carpeta de playlists,
+  compatible con otros reproductores. La carpeta es `[playlists] dir` de
+  `config.toml` (ver `docs/config.md`) o, si no esta, `XDG_MUSIC_DIR/playlists`
+  (`XDG_MUSIC_DIR` del entorno, de `~/.config/user-dirs.dirs` o `~/music`).
+  Se resuelve en cada operacion, asi un cambio en `config.toml` se aplica sin
+  reiniciar, y se crea si no existe. `playlist.get` devuelve en `path` la
+  ruta del archivo. Las pistas locales se guardan como rutas absolutas. Un
   `.m3u8` copiado a esa carpeta aparece como playlist; al leerlo se aceptan
   rutas absolutas, rutas relativas a la carpeta y URIs.
 - Al modificar una playlist se reescribe el archivo solo con las rutas: se
@@ -340,7 +344,10 @@ Ver la seccion 4 para los tipos y la seccion 11 para las reglas.
 ### Biblioteca / origenes
 | Metodo           | Params                            | Resultado |
 |------------------|-----------------------------------|-----------|
-| `library.scan`   | `{"path": "/home/u/Music"}`       | `{"job": "j_1"}` (progreso via eventos) |
+| `library.scan`   | `{"path": "/home/u/Music"}` o `{}` (todas las carpetas) | `{"job": "j_1"}` (progreso via eventos) |
+| `library.folders` | -                                | `{"folders": [{"path": "/home/u/Music", "tracks": 1204}]}` |
+| `library.add_folder` | `{"path": "/home/u/Music"}`   | `{}` |
+| `library.remove_folder` | `{"path": "/home/u/Music"}` | `{}` |
 | `library.search` | `{"query": "illit", "limit": 50}` | `{"tracks": [Track]}` |
 
 ### Cache
@@ -353,13 +360,21 @@ Ver la seccion 4 para los tipos y la seccion 11 para las reglas.
 | Metodo        | Params                   | Resultado |
 |---------------|--------------------------|-----------|
 | `track.cover` | `{"track_id": "t_9f2c"}` | `{"path": "/run/user/1000/ketai/covers/t_9f2c.jpg", "mime": "image/jpeg"}` |
+| `track.cover` | `{"uri": "file:///music/song.flac"}` | igual; el archivo se llama `u_<hash>` |
 
 Las caratulas se escriben en disco y se devuelve la ruta; nunca se envian
 embebidas en base64.
 
 Reglas de biblioteca, caratulas y cache (v1, solo archivos locales):
 
-- `library.scan` recibe una carpeta absoluta existente; si no, `-32602`.
+- Las carpetas de la biblioteca se guardan junto al indice. `add_folder`
+  recibe una carpeta absoluta existente (`-32602` si no); agregarla dos veces
+  no hace nada. `remove_folder` de una carpeta que no esta devuelve
+  `-32602` y, si esta, saca del indice sus canciones. Los dos emiten
+  `library.changed` (topico `library`).
+- `library.scan` con `path` recibe una carpeta absoluta existente; si no,
+  `-32602`. Sin `path` escanea todas las carpetas de la biblioteca en un
+  solo trabajo (`-32602` si no hay ninguna).
   Responde enseguida con el `job` y escanea en segundo plano, recursivo,
   sin seguir carpetas enlazadas. Los candidatos son los archivos con
   extension de audio (`flac`, `mp3`, `m4a`, `mp4`, `aac`, `ogg`, `oga`,
@@ -375,7 +390,11 @@ Reglas de biblioteca, caratulas y cache (v1, solo archivos locales):
   `""` devuelve todo. `limit` (por defecto 50) debe ser un entero positivo.
   Los resultados van ordenados por ruta y su `id` es `null`: no son pistas
   de la cola (se agregan con `queue.add` usando su `uri`).
-- `track.cover` recibe un `track_id` de la cola (`-32602` si no existe).
+- `track.cover` recibe un `track_id` de la cola (`-32602` si no existe) o,
+  para pistas que no estan en la cola (playlists, resultados de busqueda),
+  una `uri` local. Si vienen los dos, se usa `track_id`. Con `uri`, el
+  archivo se llama `u_<hash de la uri>` y es siempre el mismo para la misma
+  URI; una URI remota o un archivo inexistente devuelven `null`.
   Usa la imagen embebida (preferentemente la de tapa) y si no hay, una
   imagen de la carpeta: `cover`, `folder`, `front` o `album`, con
   extension `jpg`, `jpeg`, `png` o `webp`, sin distinguir mayusculas. Se
@@ -431,6 +450,7 @@ Reglas:
 | `playlist` | `playlist.changed`  | `{"name": "chill"}` |
 | `output`   | `output.changed`    | `{"devices": [Device], "active": "id o null"}` |
 | `library`  | `library.progress`  | `{"job": "j_1", "done": 120, "total": 400}` |
+| `library`  | `library.changed`   | `{}` (cambiaron las carpetas; el cliente vuelve a pedir `library.folders`) |
 | `lyrics`   | `lyrics.changed`    | `{"track_id": "t_9f2c"}` (cambio de offset; el cliente vuelve a pedir `lyrics.get`) |
 | `cache`    | `download.progress` | `{"track_id": "t_1", "bytes": 1000, "total": 5000}` |
 

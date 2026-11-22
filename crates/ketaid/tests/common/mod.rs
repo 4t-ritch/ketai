@@ -49,7 +49,8 @@ pub fn ketaid_command() -> Command {
     .env_remove("XDG_STATE_HOME")
     .env_remove("XDG_DATA_HOME")
     .env_remove("XDG_CACHE_HOME")
-    .env_remove("XDG_CONFIG_HOME");
+    .env_remove("XDG_CONFIG_HOME")
+    .env_remove("XDG_MUSIC_DIR");
   cmd
 }
 
@@ -77,6 +78,9 @@ impl Daemon {
       .env("XDG_STATE_HOME", runtime_dir.join("state"))
       .env("XDG_DATA_HOME", runtime_dir.join("data"))
       .env("XDG_CACHE_HOME", runtime_dir.join("cache"))
+      .env("XDG_CONFIG_HOME", runtime_dir.join("config"))
+      // Las playlists van por defecto en XDG_MUSIC_DIR/playlists.
+      .env("XDG_MUSIC_DIR", runtime_dir.join("music"))
       // Los tests nunca suenan por los parlantes.
       .env("KETAI_AUDIO_BACKEND", "null")
       .envs(envs.iter().copied())

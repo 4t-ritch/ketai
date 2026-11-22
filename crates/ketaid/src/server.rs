@@ -516,14 +516,19 @@ fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Opti
           None => Flow::Continue,
         }
       }
-      Message::Library(done) => match clients.get_mut(&done.client) {
-        Some(state) => {
-          send_reply(&state.out, done.request_id, done.result);
-          state.blocked = false;
-          drain(&mut clients, &mut services, done.client)
+      Message::Library(done) => {
+        if done.changed {
+          services.library.note_changed();
         }
-        None => Flow::Continue,
-      },
+        match clients.get_mut(&done.client) {
+          Some(state) => {
+            send_reply(&state.out, done.request_id, done.result);
+            state.blocked = false;
+            drain(&mut clients, &mut services, done.client)
+          }
+          None => Flow::Continue,
+        }
+      }
       Message::LibraryProgress(p) => {
         services.library.note_progress(p);
         Flow::Continue
@@ -661,7 +666,11 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, services: &mut Services, 
       return Flow::Continue;
     }
     if LibraryService::handles(&req.method) {
-      let track = if LibraryService::needs_track(&req.method) {
+      let by_uri = req.params.get("track_id").is_none().then(|| req.params.get("uri").and_then(Value::as_str)).flatten();
+      let track = if let (true, Some(uri)) = (LibraryService::needs_track(&req.method), by_uri) {
+        // Pista fuera de la cola (playlist, busqueda): se identifica por URI.
+        Some(LibTrack { id: crate::library::uri_cover_id(uri), path: ketai_core::uri::file_uri_to_path(uri) })
+      } else if LibraryService::needs_track(&req.method) {
         let found = LyricsService::track_id(&req).and_then(|tid| {
           services.player.find_track(&tid).map(|(_, path)| LibTrack { id: tid.clone(), path }).ok_or_else(|| {
             ErrorReply::new(Some(req.id), codes::INVALID_PARAMS, format!("unknown track_id: {tid}"))
@@ -768,6 +777,12 @@ fn publish(clients: &HashMap<ClientId, ClientState>, services: &mut Services) {
   for track_id in services.lyrics.take_changed() {
     let line = encode_event("lyrics.changed", json!({"track_id": track_id}));
     for state in clients.values().filter(|c| c.topics.contains("lyrics")) {
+      state.out.event(line.clone());
+    }
+  }
+  if services.library.take_changed() {
+    let line = encode_event("library.changed", json!({}));
+    for state in clients.values().filter(|c| c.topics.contains("library")) {
       state.out.event(line.clone());
     }
   }

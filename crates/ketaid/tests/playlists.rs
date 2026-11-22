@@ -253,13 +253,13 @@ fn playlists_are_m3u8_files_that_survive_restarts() {
     c.request(1, "playlist.save", json!({"name": "mix", "from_queue": false}));
     c.request(2, "playlist.add", json!({"name": "mix", "uris": [u("vorbis.ogg")]}));
   }
-  let file = dir.join("data/ketai/playlists/mix.m3u8");
+  let file = dir.join("music/playlists/mix.m3u8");
   let text = fs::read_to_string(&file).expect("m3u8 file");
   assert!(text.starts_with("#EXTM3U"), "{text}");
   assert!(text.contains(u("vorbis.ogg").trim_start_matches("file://")), "plain path for interop: {text}");
 
   // Una playlist copiada a mano tambien aparece.
-  fs::write(dir.join("data/ketai/playlists/hand made.m3u8"), format!("#EXTM3U\n{}\n", u("opus.ogg").trim_start_matches("file://"))).unwrap();
+  fs::write(dir.join("music/playlists/hand made.m3u8"), format!("#EXTM3U\n{}\n", u("opus.ogg").trim_start_matches("file://"))).unwrap();
   let d = Daemon::start_in(dir.clone(), &[]);
   let mut c = d.connect();
   let list = c.request(1, "playlist.list", json!({}));
@@ -275,7 +275,7 @@ fn playlists_are_m3u8_files_that_survive_restarts() {
 fn get_shows_missing_files_without_failing() {
   let dir = temp_runtime_dir();
   let d = Daemon::start_in(dir.clone(), &[]);
-  let pl = dir.join("data/ketai/playlists");
+  let pl = dir.join("music/playlists");
   fs::create_dir_all(&pl).unwrap();
   fs::write(pl.join("old.m3u8"), format!("#EXTM3U\n/no/such/file.ogg\n{}\n", u("opus.ogg").trim_start_matches("file://"))).unwrap();
   let mut c = d.connect();
@@ -327,11 +327,87 @@ fn temp_files_are_not_left_in_the_playlists_folder() {
   let d = Daemon::start_in(dir.clone(), &[]);
   let mut c = d.connect();
   c.request(1, "playlist.save", json!({"name": "x", "from_queue": false}));
-  let names: Vec<String> = fs::read_dir(dir.join("data/ketai/playlists"))
+  let names: Vec<String> = fs::read_dir(dir.join("music/playlists"))
     .unwrap()
     .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
     .collect();
   assert_eq!(names, ["x.m3u8"]);
+  drop(c);
+  drop(d);
+  let _ = fs::remove_dir_all(&dir);
+}
+
+/// Daemon con HOME propio y sin XDG_MUSIC_DIR, para probar de donde sale la
+/// carpeta de playlists.
+fn daemon_with_home(dir: &std::path::Path) -> Daemon {
+  fs::create_dir_all(dir.join("home")).unwrap();
+  let home = dir.join("home").display().to_string();
+  let config = dir.join("config").display().to_string();
+  Daemon::start_in(dir.to_path_buf(), &[("HOME", &home), ("XDG_MUSIC_DIR", ""), ("XDG_CONFIG_HOME", &config)])
+}
+
+#[test]
+fn playlists_go_to_the_music_folder_and_it_is_created() {
+  let dir = temp_runtime_dir();
+  {
+    let d = Daemon::start_in(dir.clone(), &[]);
+    let mut c = d.connect();
+    assert!(!dir.join("music/playlists").exists());
+    c.request(1, "playlist.save", json!({"name": "mix", "from_queue": false}));
+  }
+  assert!(dir.join("music/playlists/mix.m3u8").is_file(), "default: XDG_MUSIC_DIR/playlists, created on demand");
+  {
+    let d = Daemon::start_in(dir.clone(), &[]);
+    let mut c = d.connect();
+    let got = c.request(1, "playlist.get", json!({"name": "mix"}));
+    assert_eq!(got["result"]["path"], json!(dir.join("music/playlists/mix.m3u8")), "playlist.get says where the file is");
+  }
+  let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_music_folder_comes_from_user_dirs_when_the_variable_is_missing() {
+  let dir = temp_runtime_dir();
+  fs::create_dir_all(dir.join("config")).unwrap();
+  fs::write(dir.join("config/user-dirs.dirs"), "# xdg\nXDG_DESKTOP_DIR=\"$HOME/desk\"\nXDG_MUSIC_DIR=\"$HOME/musica\"\n").unwrap();
+  {
+    let d = daemon_with_home(&dir);
+    let mut c = d.connect();
+    c.request(1, "playlist.save", json!({"name": "mix", "from_queue": false}));
+  }
+  assert!(dir.join("home/musica/playlists/mix.m3u8").is_file());
+  // Sin user-dirs.dirs: ~/music.
+  let dir2 = temp_runtime_dir();
+  {
+    let d = daemon_with_home(&dir2);
+    let mut c = d.connect();
+    c.request(1, "playlist.save", json!({"name": "mix", "from_queue": false}));
+  }
+  assert!(dir2.join("home/music/playlists/mix.m3u8").is_file());
+  let _ = fs::remove_dir_all(&dir);
+  let _ = fs::remove_dir_all(&dir2);
+}
+
+#[test]
+fn config_toml_picks_the_folder_and_changes_apply_without_restart() {
+  let dir = temp_runtime_dir();
+  fs::create_dir_all(dir.join("config/ketai")).unwrap();
+  let cfg = dir.join("config/ketai/config.toml");
+  fs::write(&cfg, "[theme]\naccent = \"cover\"\n[playlists]\ndir = \"~/listas\"\n").unwrap();
+  let d = daemon_with_home(&dir);
+  let mut c = d.connect();
+  c.request(1, "playlist.save", json!({"name": "a", "from_queue": false}));
+  assert!(dir.join("home/listas/a.m3u8").is_file());
+  // Otra carpeta: se usa desde la proxima operacion.
+  fs::write(&cfg, format!("[playlists]\ndir = \"{}\"\n", dir.join("otra").display())).unwrap();
+  c.request(2, "playlist.save", json!({"name": "b", "from_queue": false}));
+  assert!(dir.join("otra/b.m3u8").is_file());
+  let list = c.request(3, "playlist.list", json!({}));
+  assert_eq!(list["result"]["playlists"], json!([{"name": "b", "count": 0}]));
+  // Un archivo roto: se usa la carpeta por defecto.
+  fs::write(&cfg, "[playlists\ndir = 3\n").unwrap();
+  c.request(4, "playlist.save", json!({"name": "c", "from_queue": false}));
+  assert!(dir.join("home/music/playlists/c.m3u8").is_file());
   drop(c);
   drop(d);
   let _ = fs::remove_dir_all(&dir);

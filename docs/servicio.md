@@ -172,9 +172,9 @@ proceso hijo propio. Asi no aparecen instancias fuera de control.
 - **Reiniciar**: `RestartUnit("ketaid.service")`. Si el proceso colgado no
   esta bajo systemd, se le envia `SIGTERM` y, si no termina en 5 segundos,
   `SIGKILL`; despues se inicia normalmente.
-- **Modo manual** (sin systemd): el cliente lanza `ketaid --daemonize`
-  desacoplado de la terminal. El daemon sigue protegido por el bloqueo de
-  instancia unica.
+- **Modo manual** (sin systemd): el cliente lanza `setsid -f ketaid`, asi
+  el daemon queda desacoplado de la terminal y no es hijo del cliente. El
+  daemon sigue protegido por el bloqueo de instancia unica.
 
 Despues de cualquier accion, el cliente vuelve a ejecutar la busqueda y
 muestra el resultado. Si falla, muestra el error de systemd o del daemon.

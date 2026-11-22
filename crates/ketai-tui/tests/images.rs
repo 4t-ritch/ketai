@@ -50,16 +50,22 @@ fn ready_covers_are_placed_over_cells_with_the_default_background() {
 }
 
 #[test]
-fn covers_behind_a_popup_use_the_dimmed_image() {
+fn covers_behind_a_popup_use_the_dimmed_image_once_it_is_ready() {
   let mut app = playing();
   app.covers.want("file:///m/a.ogg");
   app.covers.sent(1, "file:///m/a.ogg");
   app.covers.on_reply(1, Ok(json!({"path": "/x.png"})));
   app.covers.decoded("file:///m/a.ogg", Some(image::RgbImage::new(4, 4)));
-  let dimmed = app.covers.image_for("file:///m/a.ogg", true).unwrap();
   app.on_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+  // Primero se pide la version atenuada; mientras tanto no se ubica.
   let (_, frame) = draw(&app);
-  assert!(frame.placements.iter().all(|p| p.image == dimmed), "{:?}", frame.placements);
+  assert_eq!(frame.wanted_dimmed, vec!["file:///m/a.ogg".to_string()]);
+  assert!(frame.placements.is_empty());
+  let (_, id) = app.covers.want_dimmed("file:///m/a.ogg").unwrap();
+  app.covers.dimmed_ready("file:///m/a.ogg");
+  let (_, frame) = draw(&app);
+  assert!(!frame.placements.is_empty());
+  assert!(frame.placements.iter().all(|p| p.image == id), "{:?}", frame.placements);
 }
 
 #[test]

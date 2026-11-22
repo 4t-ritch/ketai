@@ -67,22 +67,45 @@ fn the_cache_asks_once_per_uri_and_tracks_replies() {
   assert_eq!(cache.want("file:///a.ogg"), Some(("track.cover".to_string(), json!({"uri": "file:///a.ogg"}))));
   assert_eq!(cache.want("file:///a.ogg"), None, "already requested");
   cache.sent(10, "file:///a.ogg");
-  assert_eq!(cache.on_reply(10, Ok(json!({"path": "/run/c/u_1.png", "mime": "image/png"}))), Some(("file:///a.ogg".to_string(), "/run/c/u_1.png".into())));
-  assert_eq!(cache.state("file:///a.ogg"), Some(&CoverState::Decoding));
-  assert_eq!(cache.on_reply(99, Ok(json!(null))), None, "unknown id");
+  // La respuesta reserva los ids y devuelve el trabajo para otro thread.
+  let job = cache.on_reply(10, Ok(json!({"path": "/run/c/u_1.png", "mime": "image/png"}))).unwrap();
+  assert_eq!((job.uri.as_str(), job.path.to_str().unwrap()), ("file:///a.ogg", "/run/c/u_1.png"));
+  assert!(matches!(cache.state("file:///a.ogg"), Some(CoverState::Preparing { .. })));
+  assert!(cache.on_reply(99, Ok(json!(null))).is_none(), "unknown id");
 
   cache.want("file:///b.ogg");
   cache.sent(11, "file:///b.ogg");
-  assert_eq!(cache.on_reply(11, Ok(json!(null))), None);
+  assert!(cache.on_reply(11, Ok(json!(null))).is_none());
   assert_eq!(cache.state("file:///b.ogg"), Some(&CoverState::Missing));
 
-  // Imagen decodificada: dos ids (normal y atenuada) y sus transmisiones.
+  // Lo preparado llega armado: el loop solo lo escribe.
   let img = image::RgbImage::from_pixel(8, 8, image::Rgb([200, 100, 50]));
   let out = cache.decoded("file:///a.ogg", Some(img));
-  let CoverState::Ready { normal, dimmed } = *cache.state("file:///a.ogg").unwrap() else { panic!() };
-  assert_ne!(normal, dimmed);
-  assert!(out.contains(&format!("i={normal},")) && out.contains(&format!("i={dimmed},")));
+  let Some(CoverState::Ready { normal, dimmed, .. }) = cache.state("file:///a.ogg").cloned() else { panic!() };
+  assert_eq!(normal, job.id);
+  assert!(out.contains(&format!("i={normal},")));
+  assert!(!out.contains(&format!("i={dimmed},")), "the dimmed copy is not sent until a popup needs it");
   assert_eq!(cache.image_for("file:///a.ogg", false), Some(normal));
+  assert_eq!(cache.image_for("file:///a.ogg", true), None);
+
+  // La atenuada se pide una sola vez y se usa cuando ya se transmitio.
+  let (small, id) = cache.want_dimmed("file:///a.ogg").expect("first time");
+  assert_eq!(id, dimmed);
+  assert!(cache.want_dimmed("file:///a.ogg").is_none(), "only once");
+  let seq = ketai_tui::covers::dimmed_transmit(&small, id);
+  assert!(seq.contains(&format!("i={dimmed},")));
+  cache.dimmed_ready("file:///a.ogg");
   assert_eq!(cache.image_for("file:///a.ogg", true), Some(dimmed));
   assert_eq!(cache.image_for("file:///b.ogg", false), None);
+}
+
+#[test]
+fn covers_are_sent_small() {
+  let dir = std::env::temp_dir().join(format!("ketai-cover-{}", std::process::id()));
+  std::fs::create_dir_all(&dir).unwrap();
+  let path = dir.join("big.png");
+  image::RgbImage::from_pixel(1280, 720, image::Rgb([10, 20, 30])).save(&path).unwrap();
+  let p = ketai_tui::covers::prepare(&path, 1).unwrap();
+  assert_eq!((p.image.width(), p.image.height()), (ketai_tui::covers::MAX_SIDE, ketai_tui::covers::MAX_SIDE), "square crop, at most MAX_SIDE");
+  let _ = std::fs::remove_dir_all(dir);
 }

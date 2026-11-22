@@ -847,17 +847,25 @@ thread_local! {
 pub struct Frame {
   pub placements: Vec<kitty::Placement>,
   pub wanted: Vec<String>,
+  /// Caratulas detras de un popup que todavia no tienen version atenuada.
+  pub wanted_dimmed: Vec<String>,
 }
 
 /// Ubicaciones y pedidos del ultimo `draw`.
 pub fn take_frame(app: &App) -> Frame {
   let slots = SLOTS.with(|s| std::mem::take(&mut *s.borrow_mut()));
   let wanted = WANTED.with(|w| std::mem::take(&mut *w.borrow_mut()));
-  let placements = slots
-    .into_iter()
-    .filter_map(|(area, uri, dimmed)| app.covers.image_for(&uri, dimmed).map(|image| kitty::Placement { image, area }))
-    .collect();
-  Frame { placements, wanted }
+  let mut wanted_dimmed: Vec<String> = Vec::new();
+  let mut placements = Vec::new();
+  for (area, uri, dimmed) in slots {
+    match app.covers.image_for(&uri, dimmed) {
+      Some(image) => placements.push(kitty::Placement { image, area }),
+      // Mientras se prepara la atenuada, esa caratula no se muestra.
+      None if dimmed && !wanted_dimmed.contains(&uri) => wanted_dimmed.push(uri),
+      None => {}
+    }
+  }
+  Frame { placements, wanted, wanted_dimmed }
 }
 
 /// Lo que ya se dibujo queda detras de un popup: sus caratulas pasan a la

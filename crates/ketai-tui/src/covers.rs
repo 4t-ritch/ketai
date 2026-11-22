@@ -1,6 +1,14 @@
-//! Cache de caratulas: pedido al daemon (`track.cover` por URI), decodificado
-//! y transmision a la terminal. Cada caratula tiene dos imagenes: la normal
-//! y una atenuada para cuando hay un popup encima.
+//! Cache de caratulas: pedido al daemon (`track.cover` por URI), preparacion
+//! y transmision a la terminal.
+//!
+//! Todo lo pesado (decodificar, achicar, codificar PNG, base64) corre en un
+//! thread aparte: el loop de la UI solo escribe lo que ya esta listo. Asi
+//! escribir en Buscar no congela la pantalla aunque aparezcan muchas
+//! caratulas nuevas.
+//!
+//! Cada caratula tiene dos imagenes en la terminal: la normal y una atenuada
+//! para cuando hay un popup encima. La atenuada se prepara recien cuando
+//! hace falta (la mayoria nunca la necesita).
 
 use std::{collections::HashMap, io::Cursor, path::PathBuf};
 
@@ -9,17 +17,42 @@ use serde_json::{Value, json};
 
 use crate::{app::Command, config::CoverPalette, kitty, theme::rgb};
 
-/// Lado maximo con el que se transmite una caratula.
-const MAX_SIDE: u32 = 400;
+/// Lado maximo con el que se transmite una caratula: alcanza para la grande
+/// de Reproduciendo y mantiene chico lo que se manda a la terminal.
+pub const MAX_SIDE: u32 = 320;
 /// Brillo de la version atenuada.
 const DIM: f32 = 0.4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoverState {
   Requested,
-  Decoding,
-  Ready { normal: u32, dimmed: u32 },
+  /// Preparandose en otro thread, con sus ids ya reservados.
+  Preparing { normal: u32, dimmed: u32 },
+  Ready { normal: u32, dimmed: u32, dim: DimState },
   Missing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DimState {
+  NotSent,
+  Preparing,
+  Sent,
+}
+
+/// Caratula lista para la terminal, armada fuera del loop de la UI.
+pub struct Prepared {
+  pub image: RgbImage,
+  pub palette: CoverPalette,
+  /// Secuencias del protocolo kitty para transmitir la version normal.
+  pub transmit: String,
+}
+
+/// Trabajo de preparacion para otro thread.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Job {
+  pub uri: String,
+  pub path: PathBuf,
+  pub id: u32,
 }
 
 #[derive(Default)]
@@ -27,7 +60,8 @@ pub struct CoverCache {
   covers: HashMap<String, CoverState>,
   /// `track.cover` en vuelo: id -> uri.
   pending: HashMap<u64, String>,
-  /// Colores derivados de cada caratula.
+  /// Imagen chica de cada caratula lista (para armar la atenuada).
+  images: HashMap<String, RgbImage>,
   palettes: HashMap<String, CoverPalette>,
   next_image: u32,
 }
@@ -46,13 +80,20 @@ impl CoverCache {
     self.pending.insert(id, uri.to_string());
   }
 
-  /// Respuesta a un `track.cover`. Devuelve (uri, archivo) a decodificar.
-  pub fn on_reply(&mut self, id: u64, result: Result<Value, Value>) -> Option<(String, PathBuf)> {
+  pub fn owns(&self, id: u64) -> bool {
+    self.pending.contains_key(&id)
+  }
+
+  /// Respuesta a un `track.cover`. Devuelve el trabajo de preparacion, con
+  /// el id de imagen ya reservado.
+  pub fn on_reply(&mut self, id: u64, result: Result<Value, Value>) -> Option<Job> {
     let uri = self.pending.remove(&id)?;
     match result.ok().and_then(|v| v["path"].as_str().map(PathBuf::from)) {
       Some(path) => {
-        self.covers.insert(uri.clone(), CoverState::Decoding);
-        Some((uri, path))
+        let (normal, dimmed) = (self.next_image + 1, self.next_image + 2);
+        self.next_image += 2;
+        self.covers.insert(uri.clone(), CoverState::Preparing { normal, dimmed });
+        Some(Job { uri, path, id: normal })
       }
       None => {
         self.covers.insert(uri, CoverState::Missing);
@@ -61,58 +102,101 @@ impl CoverCache {
     }
   }
 
-  pub fn owns(&self, id: u64) -> bool {
-    self.pending.contains_key(&id)
-  }
-
   pub fn state(&self, uri: &str) -> Option<&CoverState> {
     self.covers.get(uri)
   }
 
-  /// Imagen ya decodificada (o `None` si fallo). Devuelve lo que hay que
-  /// escribir en la terminal para transmitirla.
-  pub fn decoded(&mut self, uri: &str, img: Option<RgbImage>) -> String {
-    let Some(img) = img else {
+  /// Llego la preparacion (o fallo). Devuelve lo que hay que escribir en la
+  /// terminal; es barato: ya viene armado.
+  pub fn ready(&mut self, uri: &str, prepared: Option<Prepared>) -> String {
+    let (Some(p), Some(CoverState::Preparing { normal, dimmed })) = (prepared, self.covers.get(uri).cloned()) else {
       self.covers.insert(uri.to_string(), CoverState::Missing);
       return String::new();
     };
-    self.palettes.insert(uri.to_string(), palette(&img));
-    let normal = self.next_image + 1;
-    let dimmed = self.next_image + 2;
-    self.next_image += 2;
-    let mut dark = img.clone();
-    for p in dark.pixels_mut() {
-      for c in p.0.iter_mut() {
-        *c = (*c as f32 * DIM) as u8;
-      }
-    }
-    let mut out = String::new();
-    for (id, im) in [(normal, &img), (dimmed, &dark)] {
-      let mut png = Vec::new();
-      if image::DynamicImage::ImageRgb8(im.clone()).write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png).is_ok() {
-        out.push_str(&kitty::transmit(id, &png));
-      }
-    }
-    self.covers.insert(uri.to_string(), CoverState::Ready { normal, dimmed });
-    out
+    self.palettes.insert(uri.to_string(), p.palette);
+    self.images.insert(uri.to_string(), p.image);
+    self.covers.insert(uri.to_string(), CoverState::Ready { normal, dimmed, dim: DimState::NotSent });
+    p.transmit
   }
 
-  /// Colores de la caratula de `uri`, si ya se decodifico.
+  /// Prepara una caratula en el mismo thread (para tests y herramientas).
+  pub fn decoded(&mut self, uri: &str, img: Option<RgbImage>) -> String {
+    let id = match self.covers.get(uri) {
+      Some(CoverState::Preparing { normal, .. }) => *normal,
+      _ => {
+        let (normal, dimmed) = (self.next_image + 1, self.next_image + 2);
+        self.next_image += 2;
+        self.covers.insert(uri.to_string(), CoverState::Preparing { normal, dimmed });
+        normal
+      }
+    };
+    let prepared = img.map(|img| prepare_image(img, id));
+    self.ready(uri, prepared)
+  }
+
+  /// Hace falta la version atenuada (hay un popup encima). Devuelve la
+  /// imagen y el id para prepararla en otro thread, una sola vez.
+  pub fn want_dimmed(&mut self, uri: &str) -> Option<(RgbImage, u32)> {
+    let Some(CoverState::Ready { dimmed, dim, .. }) = self.covers.get_mut(uri) else { return None };
+    if *dim != DimState::NotSent {
+      return None;
+    }
+    *dim = DimState::Preparing;
+    Some((self.images.get(uri)?.clone(), *dimmed))
+  }
+
+  /// La version atenuada ya se transmitio.
+  pub fn dimmed_ready(&mut self, uri: &str) {
+    if let Some(CoverState::Ready { dim, .. }) = self.covers.get_mut(uri) {
+      *dim = DimState::Sent;
+    }
+  }
+
+  /// Colores de la caratula de `uri`, si ya se preparo.
   pub fn palette(&self, uri: &str) -> Option<CoverPalette> {
     self.palettes.get(uri).copied()
   }
 
-  /// Id de la imagen a ubicar para `uri`, si esta lista.
+  /// Id de la imagen a ubicar para `uri`, si esta lista. La atenuada solo
+  /// cuando ya se transmitio.
   pub fn image_for(&self, uri: &str, dimmed: bool) -> Option<u32> {
     match self.covers.get(uri) {
-      Some(CoverState::Ready { normal, dimmed: d }) => Some(if dimmed { *d } else { *normal }),
+      Some(CoverState::Ready { normal, .. }) if !dimmed => Some(*normal),
+      Some(CoverState::Ready { dimmed: d, dim: DimState::Sent, .. }) => Some(*d),
       _ => None,
     }
   }
 }
 
-/// Lee y prepara una caratula: recorte cuadrado al centro y tamano maximo.
-/// Corre fuera del thread de la UI (decodificar puede tardar).
+/// Lee una caratula y la deja lista para la terminal. Corre en otro thread.
+pub fn prepare(path: &std::path::Path, id: u32) -> Option<Prepared> {
+  decode(path).map(|img| prepare_image(img, id))
+}
+
+fn png(img: &RgbImage) -> Vec<u8> {
+  let mut out = Vec::new();
+  let _ = image::DynamicImage::ImageRgb8(img.clone()).write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png);
+  out
+}
+
+fn prepare_image(image: RgbImage, id: u32) -> Prepared {
+  let palette = palette(&image);
+  let transmit = kitty::transmit(id, &png(&image));
+  Prepared { image, palette, transmit }
+}
+
+/// Version atenuada lista para la terminal. Corre en otro thread.
+pub fn dimmed_transmit(img: &RgbImage, id: u32) -> String {
+  let mut dark = img.clone();
+  for p in dark.pixels_mut() {
+    for c in p.0.iter_mut() {
+      *c = (*c as f32 * DIM) as u8;
+    }
+  }
+  kitty::transmit(id, &png(&dark))
+}
+
+/// Lee y recorta una caratula: cuadrado al centro y tamano maximo.
 pub fn decode(path: &std::path::Path) -> Option<RgbImage> {
   let img = image::open(path).ok()?.to_rgb8();
   let side = img.width().min(img.height());

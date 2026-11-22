@@ -1,6 +1,8 @@
 //! Buscar (maqueta 5-buscar): consulta, respuestas viejas descartadas,
 //! navegacion y reproduccion.
 
+use std::time::{Duration, Instant};
+
 use ketai_tui::{
   app::{App, Tab},
   client::DaemonMsg,
@@ -38,24 +40,47 @@ fn searching() -> App {
   app
 }
 
-#[test]
-fn typing_searches_and_only_the_latest_reply_counts() {
-  let mut app = searching();
+fn later() -> Instant {
+  Instant::now() + Duration::from_millis(200)
+}
+
+/// Escribe y deja pasar la espera: devuelve lo que se mando.
+fn type_text(app: &mut App, text: &str) -> Vec<(String, Value)> {
   let mut sent = Vec::new();
-  for c in "ill".chars() {
+  for c in text.chars() {
     sent.extend(app.on_key(key(KeyCode::Char(c))));
   }
+  assert!(sent.is_empty(), "no search per keystroke: {sent:?}");
+  app.tick(later())
+}
+
+#[test]
+fn typing_searches_once_after_a_short_pause() {
+  let mut app = searching();
+  // Antes de la espera no sale nada.
+  app.on_key(key(KeyCode::Char('i')));
+  assert!(app.tick(Instant::now()).is_empty());
+  let sent = type_text(&mut app, "ll");
   assert_eq!(app.search_query, "ill");
-  assert_eq!(sent.len(), 3);
-  assert_eq!(sent[2], ("library.search".to_string(), json!({"query": "ill", "limit": 50})));
-  // Las respuestas llegan en orden: las de "i" e "il" ya no sirven.
-  reply(&mut app, "library.search", json!({"tracks": [{"title": "old"}]}));
+  assert_eq!(sent, vec![("library.search".to_string(), json!({"query": "ill", "limit": 50}))]);
+  assert!(app.tick(later()).is_empty(), "only once");
+  reply(&mut app, "library.search", hits());
+  assert_eq!(app.search_results.len(), 2);
+  // Borrar tambien busca, despues de la espera.
+  assert!(app.on_key(key(KeyCode::Backspace)).is_empty());
+  assert_eq!(app.tick(later()), vec![("library.search".to_string(), json!({"query": "il", "limit": 50}))]);
+}
+
+#[test]
+fn a_stale_reply_never_replaces_newer_results() {
+  let mut app = searching();
+  type_text(&mut app, "i");
+  type_text(&mut app, "l");
+  // Llega la respuesta de "i" cuando ya se escribe "il": se descarta.
   reply(&mut app, "library.search", json!({"tracks": [{"title": "old"}]}));
   assert!(app.search_results.is_empty());
   reply(&mut app, "library.search", hits());
   assert_eq!(app.search_results.len(), 2);
-  // Borrar tambien busca.
-  assert_eq!(app.on_key(key(KeyCode::Backspace)), vec![("library.search".to_string(), json!({"query": "il", "limit": 50}))]);
 }
 
 #[test]
@@ -72,12 +97,7 @@ fn while_typing_letters_are_text_not_shortcuts() {
 #[test]
 fn results_play_or_queue_the_selected_track() {
   let mut app = searching();
-  for c in "ill".chars() {
-    app.on_key(key(KeyCode::Char(c)));
-  }
-  for _ in 0..2 {
-    reply(&mut app, "library.search", json!({"tracks": []}));
-  }
+  type_text(&mut app, "ill");
   reply(&mut app, "library.search", hits());
   reply(&mut app, "queue.list", json!({"current": 0, "tracks": [{"title": "a"}, {"title": "b"}, {"title": "c"}]}));
   app.on_key(key(KeyCode::Esc));
@@ -104,12 +124,7 @@ fn text(app: &App) -> String {
 #[test]
 fn shows_best_result_songs_and_local_files() {
   let mut app = searching();
-  for c in "illit".chars() {
-    app.on_key(key(KeyCode::Char(c)));
-  }
-  for _ in 0..4 {
-    reply(&mut app, "library.search", json!({"tracks": []}));
-  }
+  type_text(&mut app, "illit");
   reply(&mut app, "library.search", hits());
   let t = text(&app);
   for want in ["illit", "Todo", "Canciones", "Archivos locales", "MEJOR RESULTADO", "Magnetic", "CANCIONES", "My World", "2:31", "EN TU BIBLIOTECA LOCAL", "/m/k/02 My World.flac"] {
@@ -122,7 +137,7 @@ fn empty_states_explain_what_to_do() {
   let app = searching();
   assert!(text(&app).contains("Escribí para buscar en tu biblioteca"));
   let mut app = searching();
-  app.on_key(key(KeyCode::Char('z')));
+  type_text(&mut app, "z");
   reply(&mut app, "library.search", json!({"tracks": []}));
   assert!(text(&app).contains("Sin resultados para «z»"));
 }

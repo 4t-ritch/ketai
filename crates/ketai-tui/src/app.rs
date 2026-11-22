@@ -149,7 +149,14 @@ pub struct App {
   pub config: crate::config::Config,
   /// Error del ultimo intento de leer config.toml (se mantiene la anterior).
   pub config_error: Option<String>,
+  /// Busqueda pendiente: se manda cuando pasa la espera sin teclas nuevas.
+  pub search_due: Option<Instant>,
+  pub palette_due: Option<Instant>,
 }
+
+/// Espera despues de la ultima tecla antes de buscar: no se busca (ni se
+/// piden caratulas) por cada letra intermedia.
+pub const SEARCH_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// Acciones de la busqueda rapida.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,6 +255,8 @@ impl Default for App {
       scan: None,
       config: Default::default(),
       config_error: None,
+      search_due: None,
+      palette_due: None,
     }
   }
 }
@@ -415,15 +424,38 @@ impl App {
     }
   }
 
+  /// Cambio el texto de Buscar: la busqueda sale despues de la espera.
   fn search(&mut self) -> Vec<Command> {
     self.search_done = false;
     self.search_cursor = 0;
     if self.search_query.trim().is_empty() {
       self.search_results.clear();
+      self.search_due = None;
       return Vec::new();
     }
-    self.search_inflight.push_back((false, self.search_query.clone()));
-    vec![("library.search".into(), json!({"query": self.search_query, "limit": SEARCH_LIMIT}))]
+    self.search_due = Some(Instant::now() + SEARCH_DELAY);
+    Vec::new()
+  }
+
+  /// Busquedas cuya espera ya paso. El loop principal lo llama seguido.
+  pub fn tick(&mut self, now: Instant) -> Vec<Command> {
+    let mut cmds = Vec::new();
+    if self.search_due.is_some_and(|d| now >= d) {
+      self.search_due = None;
+      self.search_inflight.push_back((false, self.search_query.clone()));
+      cmds.push(("library.search".into(), json!({"query": self.search_query, "limit": SEARCH_LIMIT})));
+    }
+    if self.palette_due.is_some_and(|d| now >= d) {
+      self.palette_due = None;
+      self.search_inflight.push_back((true, self.palette_query.clone()));
+      cmds.push(("library.search".into(), json!({"query": self.palette_query, "limit": PALETTE_LIMIT})));
+    }
+    cmds
+  }
+
+  /// Hay una busqueda esperando (el loop despierta antes).
+  pub fn search_pending(&self) -> bool {
+    self.search_due.is_some() || self.palette_due.is_some()
   }
 
   /// Canciones que muestra Buscar con el filtro actual.
@@ -667,11 +699,8 @@ impl App {
         }
         self.palette_cursor = 0;
         self.palette_results.clear();
-        if self.palette_query.trim().is_empty() {
-          return Vec::new();
-        }
-        self.search_inflight.push_back((true, self.palette_query.clone()));
-        return vec![("library.search".into(), json!({"query": self.palette_query, "limit": PALETTE_LIMIT}))];
+        self.palette_due = if self.palette_query.trim().is_empty() { None } else { Some(Instant::now() + SEARCH_DELAY) };
+        return Vec::new();
       }
       KeyCode::Tab => {
         if let Some(PaletteItem::Song(t)) = selected

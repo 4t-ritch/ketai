@@ -33,8 +33,10 @@ enum Input {
   ActionDone(Result<(), String>),
   /// Frame de `viz.sock`.
   Viz(Vec<f32>),
-  /// Caratula decodificada (o `None` si no se pudo leer).
-  Cover(String, Option<image::RgbImage>),
+  /// Caratula preparada en otro thread (o `None` si no se pudo leer).
+  Cover(String, Option<covers::Prepared>),
+  /// Version atenuada de una caratula, lista para transmitir.
+  CoverDim(String, String),
   /// config.toml cambio en disco.
   Config(Result<Config, String>),
 }
@@ -195,10 +197,24 @@ fn main() -> io::Result<()> {
             app.covers.sent(id, &uri);
           }
         }
+        for uri in frame.wanted_dimmed {
+          if let Some((img, id)) = app.covers.want_dimmed(&uri) {
+            let tx = tx.clone();
+            thread::spawn(move || {
+              let _ = tx.send(Input::CoverDim(uri, covers::dimmed_transmit(&img, id)));
+            });
+          }
+        }
         emit(&kitty::update(&placed, &frame.placements));
         placed = frame.placements;
       }
-      let input = rx.recv_timeout(Duration::from_millis(250)).ok();
+      // Con una busqueda esperando, se despierta seguido para mandarla a
+      // tiempo.
+      let wait = if app.search_pending() { 30 } else { 250 };
+      let input = rx.recv_timeout(Duration::from_millis(wait)).ok();
+      for (method, params) in app.tick(Instant::now()) {
+        send(&mut client, &mut app, &method, params);
+      }
 
       // Desde la pantalla de servicio se reintenta conectar cada tanto.
       if matches!(app.screen, Screen::Service { busy: false, .. }) && last_retry.elapsed() >= RETRY {
@@ -244,10 +260,10 @@ fn main() -> io::Result<()> {
           show_service(&mut app, &tx);
         }
         Some(Input::Daemon(DaemonMsg::Reply { id, result })) if app.covers.owns(id) => {
-          if let Some((uri, path)) = app.covers.on_reply(id, result) {
+          if let Some(job) = app.covers.on_reply(id, result) {
             let tx = tx.clone();
             thread::spawn(move || {
-              let _ = tx.send(Input::Cover(uri, covers::decode(&path)));
+              let _ = tx.send(Input::Cover(job.uri, covers::prepare(&job.path, job.id)));
             });
           }
         }
@@ -262,8 +278,12 @@ fn main() -> io::Result<()> {
           }
           app.refresh_theme();
         }
-        Some(Input::Cover(uri, img)) => {
-          emit(&app.covers.decoded(&uri, img));
+        Some(Input::CoverDim(uri, seq)) => {
+          emit(&seq);
+          app.covers.dimmed_ready(&uri);
+        }
+        Some(Input::Cover(uri, prepared)) => {
+          emit(&app.covers.ready(&uri, prepared));
           // Si es la caratula que suena, el tema toma sus colores.
           app.refresh_theme();
         }

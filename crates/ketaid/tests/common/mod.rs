@@ -30,15 +30,26 @@ pub fn temp_runtime_dir() -> PathBuf {
 
 /// Bus D-Bus que no existe: con esto el daemon arranca sin MPRIS.
 pub const NO_BUS: &str = "unix:path=/dev/null/ketai-no-bus";
+/// HOME que no existe: nada derivado de el se puede crear.
+pub const NO_HOME: &str = "/dev/null/ketai-no-home";
 
 /// Comando para lanzar ketaid desde un test. Es la unica forma permitida
 /// (lo comprueba `every_test_spawns_ketaid_through_the_isolated_command`):
 /// nunca usa el bus de sesion del usuario, asi un daemon de test no aparece
 /// en su playerctl o waybar. Los tests de MPRIS pasan un bus propio con
 /// `.env("DBUS_SESSION_BUS_ADDRESS", ...)`, que reemplaza a este.
+///
+/// Tampoco hereda los directorios del usuario: borra las `XDG_*_HOME` y
+/// apunta `HOME` a una ruta inexistente. Cada test fija los que usa.
 pub fn ketaid_command() -> Command {
   let mut cmd = Command::new(env!("CARGO_BIN_EXE_ketaid"));
-  cmd.env("DBUS_SESSION_BUS_ADDRESS", NO_BUS);
+  cmd
+    .env("DBUS_SESSION_BUS_ADDRESS", NO_BUS)
+    .env("HOME", NO_HOME)
+    .env_remove("XDG_STATE_HOME")
+    .env_remove("XDG_DATA_HOME")
+    .env_remove("XDG_CACHE_HOME")
+    .env_remove("XDG_CONFIG_HOME");
   cmd
 }
 
@@ -65,6 +76,7 @@ impl Daemon {
       .env("XDG_RUNTIME_DIR", &runtime_dir)
       .env("XDG_STATE_HOME", runtime_dir.join("state"))
       .env("XDG_DATA_HOME", runtime_dir.join("data"))
+      .env("XDG_CACHE_HOME", runtime_dir.join("cache"))
       // Los tests nunca suenan por los parlantes.
       .env("KETAI_AUDIO_BACKEND", "null")
       .envs(envs.iter().copied())

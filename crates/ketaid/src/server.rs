@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use crate::{
   systemd,
   instance,
+  library::{LibraryService, TrackRef as LibTrack},
   lyrics::{LyricsService, TrackRef},
   mpris::MprisService,
   viz::VizService,
@@ -61,6 +62,10 @@ pub enum Message {
   Lyrics(crate::lyrics::Done),
   /// Resultado de una operacion de playlists.
   Playlist(crate::playlists::Done),
+  /// Respuesta diferida de `library.*`, `track.cover` o `cache.*`.
+  Library(crate::library::Done),
+  /// Progreso de un escaneo de biblioteca.
+  LibraryProgress(crate::library::Progress),
   /// Evento del control de salidas.
   Output(ketai_core::output::Event),
   /// Llego SIGTERM o SIGINT.
@@ -145,6 +150,7 @@ pub fn run() -> io::Result<()> {
   let mut outputs = OutputService::new(tx.clone());
   let playlists = PlaylistService::new(tx.clone(), player.track_ids());
   let lyrics = LyricsService::new(tx.clone());
+  let library = LibraryService::new(tx.clone());
   let mpris = MprisService::new(tx.clone());
   let persist = match session::path() {
     Some(path) => {
@@ -159,7 +165,7 @@ pub fn run() -> io::Result<()> {
       None
     }
   };
-  let result = central_loop(rx, Services { player, outputs, playlists, lyrics, mpris, viz }, persist);
+  let result = central_loop(rx, Services { player, outputs, playlists, lyrics, library, mpris, viz }, persist);
   systemd::notify("STOPPING=1");
   // El socket propio se borra al salir para que los clientes no vean uno
   // muerto.
@@ -449,6 +455,7 @@ struct Services {
   outputs: OutputService,
   playlists: PlaylistService,
   lyrics: LyricsService,
+  library: LibraryService,
   mpris: MprisService,
   viz: VizService,
 }
@@ -482,6 +489,18 @@ fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Opti
           }
           None => Flow::Continue,
         }
+      }
+      Message::Library(done) => match clients.get_mut(&done.client) {
+        Some(state) => {
+          send_reply(&state.out, done.request_id, done.result);
+          state.blocked = false;
+          drain(&mut clients, &mut services, done.client)
+        }
+        None => Flow::Continue,
+      },
+      Message::LibraryProgress(p) => {
+        services.library.note_progress(p);
+        Flow::Continue
       }
       Message::Playlist(done) => {
         if let Some((tracks, replace)) = done.load {
@@ -607,10 +626,33 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, services: &mut Services, 
     }
     let gated = PlayerService::handles(&req.method)
       || PlaylistService::handles(&req.method)
-      || LyricsService::handles(&req.method);
+      || LyricsService::handles(&req.method)
+      || LibraryService::needs_track(&req.method);
     if services.player.restoring() && gated {
       // Hasta que termine la restauracion, para que vea la cola restaurada.
       state.pending.push_front(Incoming::Request(req));
+      state.blocked = true;
+      return Flow::Continue;
+    }
+    if LibraryService::handles(&req.method) {
+      let track = if LibraryService::needs_track(&req.method) {
+        let found = LyricsService::track_id(&req).and_then(|tid| {
+          services.player.find_track(&tid).map(|(_, path)| LibTrack { id: tid.clone(), path }).ok_or_else(|| {
+            ErrorReply::new(Some(req.id), codes::INVALID_PARAMS, format!("unknown track_id: {tid}"))
+          })
+        });
+        match found {
+          Ok(t) => Some(t),
+          Err(err) => {
+            send_reply(&state.out, req.id, Err(err));
+            continue;
+          }
+        }
+      } else {
+        None
+      };
+      // La respuesta llega despues como Message::Library.
+      services.library.submit(id, &req, track);
       state.blocked = true;
       return Flow::Continue;
     }
@@ -700,6 +742,12 @@ fn publish(clients: &HashMap<ClientId, ClientState>, services: &mut Services) {
   for track_id in services.lyrics.take_changed() {
     let line = encode_event("lyrics.changed", json!({"track_id": track_id}));
     for state in clients.values().filter(|c| c.topics.contains("lyrics")) {
+      state.out.event(line.clone());
+    }
+  }
+  for p in services.library.take_progress() {
+    let line = encode_event("library.progress", json!({"job": p.job, "done": p.done, "total": p.total}));
+    for state in clients.values().filter(|c| c.topics.contains("library")) {
       state.out.event(line.clone());
     }
   }

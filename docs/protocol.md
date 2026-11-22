@@ -357,6 +357,35 @@ Ver la seccion 4 para los tipos y la seccion 11 para las reglas.
 Las caratulas se escriben en disco y se devuelve la ruta; nunca se envian
 embebidas en base64.
 
+Reglas de biblioteca, caratulas y cache (v1, solo archivos locales):
+
+- `library.scan` recibe una carpeta absoluta existente; si no, `-32602`.
+  Responde enseguida con el `job` y escanea en segundo plano, recursivo,
+  sin seguir carpetas enlazadas. Los candidatos son los archivos con
+  extension de audio (`flac`, `mp3`, `m4a`, `mp4`, `aac`, `ogg`, `oga`,
+  `opus`, `wav`); los que no se pueden reproducir no entran al indice.
+- `library.progress` llega al empezar (`done: 0`), como maximo cada 200 ms
+  y al final con `done == total`. El evento final llega cuando el indice ya
+  esta actualizado: una busqueda hecha al recibirlo ya ve las pistas.
+- Volver a escanear una carpeta reemplaza todo lo indexado bajo ella (lo
+  borrado desaparece). El indice se guarda en
+  `$XDG_DATA_HOME/ketai/library.json` y sobrevive a reinicios.
+- `library.search`: `query` es obligatorio. Cada palabra debe aparecer, sin
+  distinguir mayusculas, en el titulo, artista, album o nombre de archivo.
+  `""` devuelve todo. `limit` (por defecto 50) debe ser un entero positivo.
+  Los resultados van ordenados por ruta y su `id` es `null`: no son pistas
+  de la cola (se agregan con `queue.add` usando su `uri`).
+- `track.cover` recibe un `track_id` de la cola (`-32602` si no existe).
+  Usa la imagen embebida (preferentemente la de tapa) y si no hay, una
+  imagen de la carpeta: `cover`, `folder`, `front` o `album`, con
+  extension `jpg`, `jpeg`, `png` o `webp`, sin distinguir mayusculas. Se
+  escribe en `$XDG_RUNTIME_DIR/ketai/covers/` (archivo `0600`). Sin
+  caratula devuelve `null`. `has_cover` considera las dos fuentes.
+- La cache vive en `$XDG_CACHE_HOME/ketai/`. En v1 no se descarga nada, asi
+  que normalmente esta vacia. `cache.clear` borra su contenido, no la
+  carpeta. Las fuentes remotas y `download.progress` llegan en una version
+  futura (ver `docs/roadmap.md`).
+
 ### Dispositivos de salida
 | Metodo        | Params                                        | Resultado |
 |---------------|-----------------------------------------------|-----------|
@@ -424,8 +453,8 @@ Reglas:
   paso a `null` (por ejemplo tras `queue.clear`).
 - `queue.changed` se emite cuando cambia el contenido o el orden de la cola,
   no cuando solo cambia la pista seleccionada.
-- Los topicos `playlist`, `output`, `library`, `lyrics` y `cache` ya se
-  aceptan, pero sus eventos llegan con las funciones correspondientes.
+- El topico `cache` ya se acepta, pero `download.progress` llega con las
+  fuentes remotas (version futura, ver `docs/roadmap.md`).
 
 ## 7. Canal del visualizador
 

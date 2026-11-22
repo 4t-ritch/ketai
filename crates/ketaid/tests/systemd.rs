@@ -45,6 +45,9 @@ fn base_command(dir: &Path) -> Command {
     .env("XDG_DATA_HOME", dir.join("data"))
     .env("KETAI_AUDIO_BACKEND", "null")
     .env("DBUS_SESSION_BUS_ADDRESS", common::NO_BUS)
+    .env("XDG_CACHE_HOME", dir.join("cache"))
+    .env("HOME", common::NO_HOME)
+    .env_remove("XDG_CONFIG_HOME")
     .stdout(Stdio::null())
     .stderr(Stdio::null());
   cmd

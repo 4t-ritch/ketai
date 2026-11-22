@@ -31,9 +31,13 @@ Runner de tests: `cargo test --workspace`.
   `sd_notify` `READY=1`.
 - S11: MPRIS 2 por D-Bus.
 - S12: Canal del visualizador segun la seccion 7.
-- S13: Biblioteca, cache y caratulas: `library.*`, `cache.*`, `track.cover`
-  y los eventos `library.progress` (topico `library`) y `download.progress`
-  (topico `cache`).
+- S13: Biblioteca, cache y caratulas, version local: `library.*`,
+  `cache.*`, `track.cover` y el evento `library.progress` (topico
+  `library`). Las fuentes remotas, la descarga a cache y
+  `download.progress` quedan para una major update futura (L32):
+  "me gustaria que T14 quedara a futuro, ahorita me gustaria completar la
+  version local para despues en una major update incorporar el sistema de
+  descarga para remote".
 
 ## Tasks
 
@@ -51,7 +55,7 @@ Runner de tests: `cargo test --workspace`.
 | T10 | S10   | inline | hecho | 25dd63e RED 2/3 -> GREEN 3/3 |
 | T11 | S11   | inline | hecho | 3777ed9 + fix 9c72637; verificador: (c) FAIL -> PASS en recheck |
 | T12 | S12   | inline | hecho | f5f736a + fix af767d2; verificador: (b) fuga -> corregida |
-| T13 | S13   | inline | pendiente | |
+| T13 | S13   | inline | en verificacion | (ver L33) |
 
 Ruta inline en todas: no hay unidades paralelas lanzadas juntas ni backstop
 de contexto, asi que no aplica el trigger de writer.
@@ -230,4 +234,19 @@ de contexto, asi que no aplica el trigger de writer.
   dejaba thread + socket hasta volver a sonar. Fix af767d2: el escritor
   revisa cada 500 ms con recv MSG_PEEK si el cliente cerro; test RED (40
   reconexiones: fds 7->47) -> GREEN. Suite 3/3 (194 tests).
-- Siguiente paso: T13 (biblioteca, cache, caratulas y eventos library/download).
+- L32 (2026-11-22) Usuario, sobre partir T13 (local) y T14 (remoto): "si,
+  solo que me gustaria que T14 quedara a futuro, ahorita me gustaria
+  completar la version local para despues en una major update incorporar el
+  sistema de descarga para remote". S13 reescrito sin download.progress; las
+  fuentes remotas van a docs/roadmap.md. No se crea T14 en este documento.
+- L33 (2026-11-22) T13 implementado: core library.rs (candidatos,
+  busqueda por palabras), metadata::cover (embebida o imagen de carpeta) y
+  clean_tag (BOM y espacios, visto en archivos reales). ketaid/library.rs:
+  worker unico dueno del indice (library.json en XDG_DATA_HOME), escaneo
+  en thread aparte, progreso final tras indexar; track.cover a
+  XDG_RUNTIME_DIR/ketai/covers 0600; cache.info/clear sobre
+  XDG_CACHE_HOME/ketai. Aislamiento de tests reforzado: ketaid_command
+  borra XDG_*_HOME y usa HOME inexistente. Tests: 5 de conformidad (RED ->
+  GREEN), unitarios de core. Prueba real: samples/ (3 ogg) escaneo,
+  busqueda y caratulas ok.
+- Siguiente paso: verificacion de T13 y cierre del daemon.

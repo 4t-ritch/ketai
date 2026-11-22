@@ -438,7 +438,7 @@ fn controls(app: &App, compact: bool, repeat_count: bool) -> Line<'static> {
   Line::from(vec![
     Span::styled(format!("{I_SHUFFLE}{gap}"), on(shuffle)),
     Span::styled(format!("{I_PREV}{gap}"), t.text()),
-    Span::styled(format!(" {play}  "), Style::new().fg(t.on_accent).bg(t.fg)),
+    Span::styled(format!("  {play}  "), Style::new().fg(t.on_accent).bg(t.fg)),
     Span::styled(format!("{gap}{I_NEXT}{gap}"), t.text()),
     Span::styled(format!("{I_REPEAT}{one}"), on(repeat != "off")),
   ])

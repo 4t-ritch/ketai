@@ -161,10 +161,17 @@ fn orphan_of_same_session_is_closed() {
     !alive(orphan_pid)
   });
   let owner_alive = alive(owner.id());
+  // Al apagarse, el huerfano no debe borrar los sockets del dueno nuevo,
+  // que ocupan las mismas rutas.
+  thread::sleep(Duration::from_millis(300));
+  let ctl_ok = std::os::unix::net::UnixStream::connect(dir.join("ctl.sock")).is_ok();
+  let viz_ok = std::os::unix::net::UnixStream::connect(dir.join("viz.sock")).is_ok();
   let _ = owner.kill();
   let _ = owner.wait();
   assert!(closed, "orphan must be closed by the new owner");
   assert!(owner_alive, "the owner must keep running");
+  assert!(ctl_ok, "the owner's ctl.sock must survive the orphan's exit");
+  assert!(viz_ok, "the owner's viz.sock must survive the orphan's exit");
 }
 
 #[test]

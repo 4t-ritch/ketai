@@ -111,7 +111,7 @@ pub fn run() -> io::Result<()> {
   // Con socket activation el socket es de systemd: no se crea ni se borra.
   let viz_path = dir.join("viz.sock");
   let (listener, own_socket, inherited_viz) = match inherited {
-    Some(sockets) => (sockets.ctl, false, sockets.viz),
+    Some(sockets) => (sockets.ctl, None, sockets.viz),
     None => {
       // Tenemos el bloqueo, asi que ningun ketaid atiende ctl.sock. Si
       // igual acepta conexiones, es el socket de systemd (ketaid.socket):
@@ -122,13 +122,17 @@ pub fn run() -> io::Result<()> {
         drop(lock);
         return Ok(());
       }
-      (bind_socket(&socket_path)?, true, None)
+      let l = bind_socket(&socket_path)?;
+      (l, OwnPath::of(&socket_path), None)
     }
   };
   // viz.sock: el de systemd si lo paso; si no, uno propio.
   let (viz_listener, own_viz) = match inherited_viz {
-    Some(l) => (l, false),
-    None => (bind_socket(&viz_path)?, true),
+    Some(l) => (l, None),
+    None => {
+      let l = bind_socket(&viz_path)?;
+      (l, OwnPath::of(&viz_path))
+    }
   };
   instance::mark_ready(&lock)?;
   systemd::notify("READY=1");
@@ -167,15 +171,37 @@ pub fn run() -> io::Result<()> {
   };
   let result = central_loop(rx, Services { player, outputs, playlists, lyrics, library, mpris, viz }, persist);
   systemd::notify("STOPPING=1");
-  // El socket propio se borra al salir para que los clientes no vean uno
-  // muerto.
-  if own_viz {
-    let _ = fs::remove_file(&viz_path);
-  }
-  if own_socket {
-    let _ = fs::remove_file(&socket_path);
+  // Los sockets propios se borran al salir para que los clientes no vean
+  // uno muerto, pero solo si siguen siendo los nuestros.
+  for own in [own_viz, own_socket].into_iter().flatten() {
+    own.remove();
   }
   result
+}
+
+/// Socket creado por este proceso, identificado por dispositivo e inodo.
+///
+/// Si otra instancia lo reemplazo (por ejemplo, un dueno nuevo que cerro a
+/// esta como huerfana), la ruta ya es de ella y no se borra.
+struct OwnPath {
+  path: PathBuf,
+  dev: u64,
+  ino: u64,
+}
+
+impl OwnPath {
+  fn of(path: &Path) -> Option<Self> {
+    use std::os::unix::fs::MetadataExt;
+    let m = fs::symlink_metadata(path).ok()?;
+    Some(Self { path: path.to_path_buf(), dev: m.dev(), ino: m.ino() })
+  }
+
+  fn remove(self) {
+    use std::os::unix::fs::MetadataExt;
+    if fs::symlink_metadata(&self.path).is_ok_and(|m| m.dev() == self.dev && m.ino() == self.ino) {
+      let _ = fs::remove_file(&self.path);
+    }
+  }
 }
 
 /// Crea el directorio con permisos 0700 (o los corrige si ya existia).

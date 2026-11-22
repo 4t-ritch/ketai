@@ -132,24 +132,39 @@ pub struct App {
   /// Eleccion del usuario; `None` sigue el default del sistema.
   pub output_active: Option<String>,
   pub devices_cursor: usize,
+  /// Pantalla de carpetas de la biblioteca abierta.
+  pub folders_open: bool,
+  /// `library.folders`: `{path, tracks}`.
+  pub folders: Vec<Value>,
+  pub folders_cursor: usize,
+  /// Ruta que se esta escribiendo para agregar (`None` si no se escribe).
+  pub folder_input: Option<String>,
+  /// Se pidio quitar la carpeta bajo el cursor y falta confirmar.
+  pub folder_confirm_remove: bool,
+  /// Ultimo error del daemon en esta pantalla.
+  pub folders_error: Option<String>,
+  /// Escaneo en curso: (job, hecho, total).
+  pub scan: Option<(String, u64, u64)>,
 }
 
 /// Acciones de la busqueda rapida.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaletteAction {
   Devices,
-  ScanMusic,
+  ScanAll,
   Lyrics,
+  Folders,
 }
 
 impl PaletteAction {
-  pub const ALL: [PaletteAction; 3] = [PaletteAction::Devices, PaletteAction::ScanMusic, PaletteAction::Lyrics];
+  pub const ALL: [PaletteAction; 4] = [PaletteAction::Devices, PaletteAction::ScanAll, PaletteAction::Lyrics, PaletteAction::Folders];
 
   pub fn label(self) -> &'static str {
     match self {
       PaletteAction::Devices => "Cambiar salida de audio…",
-      PaletteAction::ScanMusic => "Escanear ~/Music",
+      PaletteAction::ScanAll => "Escanear toda la biblioteca",
       PaletteAction::Lyrics => "Letras: elegir capas…",
+      PaletteAction::Folders => "Carpetas de la biblioteca…",
     }
   }
 }
@@ -220,6 +235,13 @@ impl Default for App {
       outputs_loaded: false,
       output_active: None,
       devices_cursor: 0,
+      folders_open: false,
+      folders: Vec::new(),
+      folders_cursor: 0,
+      folder_input: None,
+      folder_confirm_remove: false,
+      folders_error: None,
+      scan: None,
     }
   }
 }
@@ -230,6 +252,9 @@ impl App {
       self.quit = true;
       return Vec::new();
     }
+    if self.folders_open {
+      return self.folders_key(key);
+    }
     if self.devices_open {
       return self.devices_key(key);
     }
@@ -239,6 +264,9 @@ impl App {
     let typing = self.tab == Tab::Search && self.search_editing;
     if key.code == KeyCode::Char('d') && !typing {
       return self.open_devices();
+    }
+    if key.code == KeyCode::Char('f') && !typing {
+      return self.open_folders();
     }
     let ctrl_k = key.code == KeyCode::Char('k') && key.modifiers.contains(KeyModifiers::CONTROL);
     if ctrl_k || (key.code == KeyCode::Char('/') && self.tab != Tab::Search) {
@@ -501,6 +529,77 @@ impl App {
     found.and_then(|d| d["name"].as_str()).map(str::to_string).or_else(|| self.output_active.clone())
   }
 
+  fn open_folders(&mut self) -> Vec<Command> {
+    self.folders_open = true;
+    self.palette_open = false;
+    self.devices_open = false;
+    self.folder_input = None;
+    self.folder_confirm_remove = false;
+    self.folders_error = None;
+    vec![("library.folders".into(), json!({}))]
+  }
+
+  fn selected_folder(&self) -> Option<String> {
+    self.folders.get(self.folders_cursor).and_then(|f| f["path"].as_str()).map(str::to_string)
+  }
+
+  fn folders_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    // Escribiendo una ruta: las letras son texto.
+    if let Some(input) = self.folder_input.as_mut() {
+      match key.code {
+        KeyCode::Char(c) => input.push(c),
+        KeyCode::Backspace => {
+          input.pop();
+        }
+        KeyCode::Esc => self.folder_input = None,
+        KeyCode::Enter => {
+          let typed = self.folder_input.take().unwrap_or_default();
+          let typed = typed.trim();
+          if typed.is_empty() {
+            return Vec::new();
+          }
+          // `~` es la carpeta del usuario.
+          let path = match typed.strip_prefix('~') {
+            Some(rest) => format!("{}{rest}", std::env::var("HOME").unwrap_or_default()),
+            None => typed.to_string(),
+          };
+          self.folders_error = None;
+          return vec![("library.add_folder".into(), json!({"path": path}))];
+        }
+        _ => {}
+      }
+      return Vec::new();
+    }
+    if self.folder_confirm_remove {
+      self.folder_confirm_remove = false;
+      if key.code == KeyCode::Char('y')
+        && let Some(path) = self.selected_folder()
+      {
+        return vec![("library.remove_folder".into(), json!({"path": path}))];
+      }
+      return Vec::new();
+    }
+    match key.code {
+      KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('f') => self.folders_open = false,
+      KeyCode::Up | KeyCode::Char('k') => self.folders_cursor = self.folders_cursor.saturating_sub(1),
+      KeyCode::Down | KeyCode::Char('j') => self.folders_cursor = (self.folders_cursor + 1).min(self.folders.len().saturating_sub(1)),
+      KeyCode::Char('a') => self.folder_input = Some(String::new()),
+      KeyCode::Char('x') | KeyCode::Delete if !self.folders.is_empty() => self.folder_confirm_remove = true,
+      KeyCode::Char('S') => {
+        self.folders_error = None;
+        return vec![("library.scan".into(), json!({}))];
+      }
+      KeyCode::Char('s') => {
+        if let Some(path) = self.selected_folder() {
+          self.folders_error = None;
+          return vec![("library.scan".into(), json!({"path": path}))];
+        }
+      }
+      _ => {}
+    }
+    Vec::new()
+  }
+
   fn open_devices(&mut self) -> Vec<Command> {
     self.devices_open = true;
     self.palette_open = false;
@@ -588,10 +687,8 @@ impl App {
           }
           Some(PaletteItem::Action(PaletteAction::Devices)) => return self.open_devices(),
           Some(PaletteItem::Action(PaletteAction::Lyrics)) => self.tab = Tab::Lyrics,
-          Some(PaletteItem::Action(PaletteAction::ScanMusic)) => {
-            let home = std::env::var("HOME").unwrap_or_default();
-            return vec![("library.scan".into(), json!({"path": format!("{home}/Music")}))];
-          }
+          Some(PaletteItem::Action(PaletteAction::ScanAll)) => return vec![("library.scan".into(), json!({}))],
+          Some(PaletteItem::Action(PaletteAction::Folders)) => return self.open_folders(),
           None => self.palette_open = true,
         }
       }
@@ -732,6 +829,20 @@ impl App {
           self.pos_at = Instant::now();
         }
         "queue.changed" | "track.changed" => return vec![("queue.list".into(), json!({}))],
+        "library.changed" => return vec![("library.folders".into(), json!({}))],
+        "library.progress" => {
+          if let Some((job, done, total)) = self.scan.as_mut()
+            && data["job"] == job.as_str()
+          {
+            *done = data["done"].as_u64().unwrap_or(0);
+            *total = data["total"].as_u64().unwrap_or(0);
+            if *done >= *total {
+              // Termino: las cantidades de canciones cambiaron.
+              self.scan = None;
+              return vec![("library.folders".into(), json!({}))];
+            }
+          }
+        }
         "output.changed" => {
           self.outputs = data["devices"].as_array().cloned().unwrap_or_default();
           self.output_active = data["active"].as_str().map(str::to_string);
@@ -762,6 +873,10 @@ impl App {
           self.lyrics = Value::Null;
           self.lyrics_loaded = true;
         }
+        // Errores de la pantalla de carpetas: se muestran en ella.
+        if let (Err(e), "library.add_folder" | "library.remove_folder" | "library.scan") = (&result, method.as_str()) {
+          self.folders_error = Some(e["message"].as_str().unwrap_or("error").to_string());
+        }
         // Una busqueda fallida igual consume su lugar en la fila.
         if method == "library.search" && result.is_err() {
           self.search_inflight.pop_front();
@@ -788,6 +903,15 @@ impl App {
             "lyrics.get" => {
               self.lyrics = v;
               self.lyrics_loaded = true;
+            }
+            "library.folders" => {
+              self.folders = v["folders"].as_array().cloned().unwrap_or_default();
+              self.folders_cursor = self.folders_cursor.min(self.folders.len().saturating_sub(1));
+            }
+            "library.scan" => {
+              if let Some(job) = v["job"].as_str() {
+                self.scan = Some((job.to_string(), 0, 0));
+              }
             }
             "output.list" => {
               self.outputs = v["devices"].as_array().cloned().unwrap_or_default();

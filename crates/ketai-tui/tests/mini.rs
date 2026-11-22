@@ -54,7 +54,7 @@ fn every_screen_survives_any_size() {
   base.outputs = vec![json!({"id": "bluez_output.x", "name": "Auriculares", "is_default": true})];
   for (w, h) in [(72, 15), (73, 16), (80, 20), (90, 18), (100, 25), (120, 24), (140, 35), (160, 44), (250, 70)] {
     for tab in Tab::ALL {
-      for overlay in 0..3 {
+      for overlay in 0..4 {
         let mut a = App { tab, ..app() };
         a.queue = base.queue.clone();
         a.playlists = base.playlists.clone();
@@ -71,6 +71,11 @@ fn every_screen_survives_any_size() {
             a.tab = tab;
           }
           2 => a.devices_open = true,
+          3 => {
+            a.folders_open = true;
+            a.folders = vec![json!({"path": "/home/u/Music", "tracks": 3}), json!({"path": "/mnt/x", "tracks": 1})];
+            a.scan = Some(("j_1".into(), 1, 2));
+          }
           _ => {}
         }
         let _ = text(&a, w, h);

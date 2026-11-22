@@ -72,10 +72,17 @@ fn tab_queues_and_escape_closes() {
 #[test]
 fn actions_run_from_the_palette() {
   let mut app = open_with("");
-  // Sin texto se listan las acciones: escanear ~/Music es la segunda.
+  // Sin texto se listan las acciones: escanear toda la biblioteca es la
+  // segunda; la cuarta abre las carpetas.
   app.on_key(key(KeyCode::Down));
-  let home = std::env::var("HOME").unwrap();
-  assert_eq!(app.on_key(key(KeyCode::Enter)), vec![("library.scan".to_string(), json!({"path": format!("{home}/Music")}))]);
+  assert_eq!(app.on_key(key(KeyCode::Enter)), vec![("library.scan".to_string(), json!({}))]);
+
+  let mut app = open_with("");
+  for _ in 0..3 {
+    app.on_key(key(KeyCode::Down));
+  }
+  assert_eq!(app.on_key(key(KeyCode::Enter)), vec![("library.folders".to_string(), json!({}))]);
+  assert!(app.folders_open);
 
   let mut app = open_with("");
   app.on_key(key(KeyCode::Down));
@@ -99,7 +106,7 @@ fn the_palette_floats_over_a_dimmed_screen() {
   let app = open_with("burn");
   let buf = render(&app);
   let text: String = (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect();
-  for want in ["burn", "CANCIONES", "LET THE WORLD BURN", "ACCIONES", "Cambiar salida de audio", "Escanear ~/Music"] {
+  for want in ["burn", "CANCIONES", "LET THE WORLD BURN", "ACCIONES", "Cambiar salida de audio", "Escanear toda la biblioteca", "Carpetas de la biblioteca"] {
     assert!(text.contains(want), "missing {want:?}\n{text}");
   }
   // La pestana activa de atras quedo atenuada.

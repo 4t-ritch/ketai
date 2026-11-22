@@ -45,6 +45,7 @@ En cualquier pestana (salvo mientras se escribe en Buscar):
 | `s` | aleatorio |
 | `r` | repeticion: ninguna, pista, cola |
 | `d` | elegir la salida de audio |
+| `f` | carpetas de la biblioteca |
 | `/` o `Ctrl+K` | busqueda rapida sobre la pantalla actual |
 | `q` | salir (`Ctrl+C` sale siempre) |
 
@@ -71,8 +72,15 @@ Buscar: al entrar se escribe directo. `Esc` o la flecha abajo pasan a los result
 cola, `h` / `l` cambian el filtro (Todo, Canciones, Playlists, Archivos
 locales).
 
+Carpetas de la biblioteca (`f`): la lista de carpetas que ketai indexa, con
+cuantas canciones tiene cada una. `a` agrega una (se escribe la ruta; `~` es
+tu carpeta personal), `x` la quita (con confirmacion; sus canciones salen
+del indice), `s` escanea la carpeta elegida y `S` todas. Mientras escanea se
+ve el progreso. Las carpetas las guarda el daemon: cualquier cliente ve las
+mismas.
+
 Busqueda rapida: escribir busca canciones y playlists; abajo estan las
-acciones (salida de audio, escanear `~/Music`, letras). `Enter` reproduce o
+acciones (salida de audio, escanear toda la biblioteca, letras, carpetas). `Enter` reproduce o
 ejecuta, `Tab` agrega a la cola, `Esc` cierra.
 
 ## Modo mini

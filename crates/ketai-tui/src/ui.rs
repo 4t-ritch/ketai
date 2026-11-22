@@ -50,6 +50,11 @@ pub fn draw(f: &mut RFrame, app: &App) {
     begin_overlay();
     devices(f, app);
   }
+  if app.folders_open {
+    dim(f, t);
+    begin_overlay();
+    folders(f, app);
+  }
 }
 
 /// Atenua todo lo dibujado (fondo de un popup modal).
@@ -133,6 +138,64 @@ fn devices(f: &mut RFrame, app: &App) {
     put(buf, x, y, if app.outputs_loaded { "No hay servidor de sonido disponible" } else { "Cargando…" }, t.faint());
   }
   put(buf, x, pop.y + pop.height - 2, "⏎ conectar · ↑↓ elegir · esc cerrar", t.faint());
+}
+
+/// Carpetas de la biblioteca: agregar, quitar y escanear.
+fn folders(f: &mut RFrame, app: &App) {
+  let t = &app.theme;
+  let area = f.area();
+  let w = 84.min(area.width.saturating_sub(4));
+  // En terminales bajas el maximo puede quedar por debajo de 16: manda el
+  // maximo (clamp fallaria con min > max).
+  let h = (app.folders.len() as u16 * 3 + 14).max(16).min(area.height.saturating_sub(4).max(1));
+  let pop = Rect::new(area.x + (area.width.saturating_sub(w)) / 2, area.y + (area.height.saturating_sub(h)) / 3, w, h);
+  popup_frame(f, t, pop);
+  let buf = f.buffer_mut();
+  let x = pop.x + 3;
+  let inner = pop.width.saturating_sub(6);
+  put(buf, x, pop.y + 1, "Carpetas de la biblioteca", t.title());
+  put(buf, pop.x + pop.width.saturating_sub(9), pop.y + 1, "esc ✕", t.faint());
+  let mut y = pop.y + 3;
+  if app.folders.is_empty() {
+    put(buf, x, y, "Todavía no hay carpetas. Agregá una con a.", t.dim());
+    y += 2;
+  }
+  for (i, folder) in app.folders.iter().enumerate() {
+    if y + 2 > pop.y + pop.height.saturating_sub(6) {
+      break;
+    }
+    let sel = i == app.folders_cursor;
+    if sel {
+      buf.set_style(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), 2).intersection(buf.area), Style::new().bg(t.row));
+      put(buf, pop.x + 1, y, "▌", t.accent());
+      put(buf, pop.x + 1, y + 1, "▌", t.accent());
+    }
+    let path = folder["path"].as_str().unwrap_or("");
+    putn(buf, x, y, format!("{I_FOLDER}  {path}"), inner as usize, if sel { t.accent().add_modifier(Modifier::BOLD) } else { t.text() });
+    putn(buf, x + 5, y + 1, format!("{} canciones", folder["tracks"].as_u64().unwrap_or(0)), inner as usize, t.faint());
+    y += 3;
+  }
+  // Agregar, confirmacion, progreso y errores, abajo.
+  let bottom = pop.y + pop.height.saturating_sub(5);
+  if let Some(input) = &app.folder_input {
+    let line = Line::from(vec![Span::styled("Agregar: ", t.faint()), Span::styled(input.clone(), t.title()), Span::styled("█", t.text())]);
+    put_line(buf, x, bottom, &line, inner);
+  } else if app.folder_confirm_remove {
+    let path = app.folders.get(app.folders_cursor).and_then(|f| f["path"].as_str()).unwrap_or("");
+    putn(buf, x, bottom, format!("¿Quitar {path} y sus canciones del índice?  y confirmar · esc cancelar"), inner as usize, Style::new().fg(t.error));
+  } else if let Some((_, done, total)) = app.scan {
+    let label = format!("Escaneando… {done} / {total}");
+    put(buf, x, bottom, &label, t.dim());
+    let bar_w = inner.saturating_sub(label.chars().count() as u16 + 2);
+    let filled = (bar_w as u64 * done.min(total)).checked_div(total).unwrap_or(0) as u16;
+    let bx = x + label.chars().count() as u16 + 2;
+    put(buf, bx, bottom, "━".repeat(filled as usize), t.accent());
+    put(buf, bx + filled, bottom, "━".repeat(bar_w.saturating_sub(filled) as usize), Style::new().fg(t.raised));
+  } else if let Some(err) = &app.folders_error {
+    putn(buf, x, bottom, err, inner as usize, Style::new().fg(t.error));
+  }
+  let hints = if app.folder_input.is_some() { "⏎ agregar · esc cancelar · ~ es tu carpeta personal" } else { "a agregar · x quitar · s escanear esta · S escanear todas · esc cerrar" };
+  putn(buf, x, pop.y + pop.height.saturating_sub(2), hints, inner as usize, t.faint());
 }
 
 /// Busqueda rapida (maqueta 3-busqueda-rapida).
@@ -486,6 +549,7 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
 }
 
 const I_LIBRARY: &str = "\u{f02d}";
+const I_FOLDER: &str = "\u{f07b}";
 const I_HEADPHONES: &str = "\u{f025}";
 const I_DEVICE: &str = "\u{f108}";
 const I_SEARCH: &str = "\u{f002}";

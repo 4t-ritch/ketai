@@ -48,7 +48,7 @@ Runner de tests: `cargo test --workspace`.
 | T7  | S7    | inline | hecho     | 7e42a6f + 9263b20 (PID); RED: 6/6 fallan; GREEN: 6/6; suite 101/101 x2; smoke real: bluetooth -> parlantes -> default |
 | T8  | S8    | inline | hecho     | c3da656 + fix (verificador: B1 FAIL); RED: 15/15 fallan; GREEN: 15/15 + 7 unit (uri, m3u8); suite 120/120 x3 |
 | T9  | S9    | inline | hecho     | f2b8844 parsers, c8e3e31 capas/armado, slice 3 daemon; RED 9/9 -> GREEN 9/9 + 33 unit; suite 164/164 x3 |
-| T10 | S10   | inline | hecho | (ver commit feat(daemon): systemd) RED 2/3 -> GREEN 3/3 |
+| T10 | S10   | inline | hecho | 25dd63e RED 2/3 -> GREEN 3/3 |
 | T11 | S11   | inline | pendiente | |
 | T12 | S12   | inline | pendiente | |
 | T13 | S13   | inline | pendiente | |

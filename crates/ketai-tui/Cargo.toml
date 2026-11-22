@@ -8,7 +8,11 @@ license.workspace = true
 name = "ketai"
 path = "src/main.rs"
 
+[lib]
+name = "ketai_tui"
+path = "src/lib.rs"
+
 [dependencies]
-rodio.workspace = true
-thiserror.workspace = true
-directories.workspace = true
+ketai-protocol.workspace = true
+ratatui = "0.29"
+serde_json.workspace = true

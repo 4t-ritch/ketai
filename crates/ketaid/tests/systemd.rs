@@ -58,10 +58,16 @@ fn activate(dir: &Path, ctl: &UnixListener, viz: &UnixListener, listen_pid: &str
   if let Some(n) = notify {
     cmd.env("NOTIFY_SOCKET", n);
   }
-  // SAFETY: entre fork y exec solo se llama a dup2, que es seguro ahi.
+  // SAFETY: entre fork y exec solo se llama a fcntl y dup2.
+  //
+  // Primero se copian a fds altos: si el socket ya fuera el fd 3 o 4,
+  // dup2 sobre el mismo numero no hace nada y el fd conserva CLOEXEC, asi
+  // que se cerraria en el exec (era la causa de una falla intermitente).
   unsafe {
     cmd.pre_exec(move || {
-      if libc::dup2(ctl_fd, 3) < 0 || libc::dup2(viz_fd, 4) < 0 {
+      let ctl_high = libc::fcntl(ctl_fd, libc::F_DUPFD_CLOEXEC, 10);
+      let viz_high = libc::fcntl(viz_fd, libc::F_DUPFD_CLOEXEC, 10);
+      if ctl_high < 0 || viz_high < 0 || libc::dup2(ctl_high, 3) < 0 || libc::dup2(viz_high, 4) < 0 {
         return Err(std::io::Error::last_os_error());
       }
       Ok(())
@@ -153,5 +159,40 @@ fn notifies_ready_once_it_accepts_connections() {
   assert!(msg.lines().any(|l| l == "READY=1"), "{msg}");
   // Cuando llega READY=1 el socket ya atiende.
   let r = hello(&dir.join("ketai").join("ctl.sock"));
+  assert!(r.get("result").is_some(), "{r}");
+}
+
+#[test]
+fn a_missing_first_socket_never_turns_viz_into_ctl() {
+  // systemd paso dos sockets pero el fd 3 no es valido: el fd 4 (viz) no
+  // debe atenderse como ctl. El daemon crea su propio ctl.sock.
+  let dir = temp_runtime_dir();
+  let ketai = dir.join("ketai");
+  fs::create_dir_all(&ketai).unwrap();
+  let viz = UnixListener::bind(ketai.join("viz.sock")).unwrap();
+  let viz_fd = viz.as_raw_fd();
+  let mut cmd = base_command(&dir);
+  cmd.arg("-c").arg("LISTEN_PID=$$ LISTEN_FDS=2 exec \"$0\" 3<&-").arg(env!("CARGO_BIN_EXE_ketaid"));
+  // SAFETY: entre fork y exec solo se llama a fcntl y dup2.
+  unsafe {
+    cmd.pre_exec(move || {
+      let high = libc::fcntl(viz_fd, libc::F_DUPFD_CLOEXEC, 10);
+      if high < 0 || libc::dup2(high, 4) < 0 {
+        return Err(std::io::Error::last_os_error());
+      }
+      Ok(())
+    });
+  }
+  let child = cmd.spawn().unwrap();
+  let _d = Activated { child, dir: dir.clone() };
+  drop(viz);
+
+  let ctl_path = ketai.join("ctl.sock");
+  let deadline = Instant::now() + Duration::from_secs(5);
+  while !ctl_path.exists() {
+    assert!(Instant::now() < deadline, "daemon did not create its own ctl.sock");
+    thread::sleep(Duration::from_millis(20));
+  }
+  let r = hello(&ctl_path);
   assert!(r.get("result").is_some(), "{r}");
 }

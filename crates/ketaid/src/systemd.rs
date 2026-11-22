@@ -40,11 +40,14 @@ pub fn listen_fds() -> Option<Inherited> {
     return None;
   }
   let count = count.filter(|&n| n >= 1)?;
-  let mut fds = (0..count).map(|i| LISTEN_FDS_START + i).filter_map(take_fd);
-  let ctl = fds.next()?;
-  let viz = fds.next();
-  // Sockets de mas: se cierran al soltarlos.
-  fds.for_each(drop);
+  // Cada socket se identifica por su posicion: si uno falta, los demas no
+  // se corren de lugar (viz nunca se atiende como ctl).
+  let viz = if count >= 2 { take_fd(LISTEN_FDS_START + 1) } else { None };
+  for extra in 2..count {
+    // SAFETY: fd que systemd nos dio y nadie mas usa.
+    unsafe { libc::close(LISTEN_FDS_START + extra) };
+  }
+  let ctl = take_fd(LISTEN_FDS_START)?;
   Some(Inherited { ctl, viz })
 }
 

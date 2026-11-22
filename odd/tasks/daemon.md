@@ -173,4 +173,11 @@ de contexto, asi que no aplica el trigger de writer.
   lo disparo. Suite 167/167; una falla intermitente sin identificar en 1 de
   15 corridas (no se reprodujo en 14, ni bajo carga). Tambien se limpiaron
   advertencias de clippy en tests propios.
+- L26 (2026-11-22) Falla intermitente identificada: serves_on_the_inherited_ctl_socket.
+  Causa: con tests en paralelo el listener podia quedar en el fd 3; dup2(3,3)
+  no quita CLOEXEC, el exec cerraba el fd 3 y el daemon tomaba el fd 4 (viz)
+  como ctl. Arreglo: el harness copia a fds altos antes de dup2, y el daemon
+  identifica cada socket por su posicion (viz nunca pasa a ctl). Test nuevo
+  a_missing_first_socket_never_turns_viz_into_ctl (RED -> GREEN). 30/30
+  corridas limpias.
 - Siguiente paso: T11 (MPRIS 2 por D-Bus).

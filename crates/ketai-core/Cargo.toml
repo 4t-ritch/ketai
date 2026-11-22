@@ -12,3 +12,4 @@ symphonia-adapter-fdk-aac.workspace = true
 thiserror.workspace = true
 libpulse-binding = "2.30"
 quick-xml = "0.37"
+unicode-normalization = "0.1"

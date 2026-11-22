@@ -45,18 +45,64 @@ fn is_audio(path: &Path) -> bool {
     .is_some_and(|e| EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
-/// Palabras de una consulta, en minusculas.
-pub fn words(query: &str) -> Vec<String> {
-  query.split_whitespace().map(str::to_lowercase).collect()
+/// Texto plegado para buscar: minusculas y sin marcas diacriticas
+/// (acentos, dieresis, virgulilla, cedilla...), asi "cancion" encuentra
+/// el titulo con o acentuada (U+00F3) y al reves.
+///
+/// Se descompone con NFD, se quitan solo las marcas combinantes de U+0300 a
+/// U+036F (latin, griego, cirilico) y se vuelve a componer con NFC. Las
+/// marcas de otras escrituras se respetan y vuelven a su silaba: el dakuten
+/// japones (U+3099) cambia la palabra ("ga" no es "ka") y el hangul queda en
+/// silabas completas. Las letras que no se descomponen se pliegan a mano:
+/// U+00DF = ss, U+00E6 = ae, U+0153 = oe, U+00F8 = o, U+0142 = l, U+0111 = d.
+pub fn fold(text: &str) -> String {
+  use unicode_normalization::UnicodeNormalization;
+  let mut out = String::with_capacity(text.len());
+  for c in text.nfd() {
+    if ('\u{0300}'..='\u{036f}').contains(&c) {
+      continue;
+    }
+    match c {
+      'ß' | 'ẞ' => out.push_str("ss"),
+      'æ' | 'Æ' => out.push_str("ae"),
+      'œ' | 'Œ' => out.push_str("oe"),
+      'ø' | 'Ø' => out.push('o'),
+      'ł' | 'Ł' => out.push('l'),
+      'đ' | 'Đ' | 'ð' | 'Ð' => out.push('d'),
+      'þ' | 'Þ' => out.push_str("th"),
+      'ı' => out.push('i'),
+      _ => out.extend(c.to_lowercase()),
+    }
+  }
+  out.nfc().collect()
 }
 
-/// true si cada palabra aparece en el titulo, artista, album o nombre de
-/// archivo, sin distinguir mayusculas.
+/// Palabras de una consulta, plegadas (ver `fold`).
+pub fn words(query: &str) -> Vec<String> {
+  query.split_whitespace().map(fold).collect()
+}
+
+/// true si cada palabra aparece, en cualquier parte, en el titulo,
+/// artista, album o nombre de archivo, sin importar mayusculas ni acentos.
 pub fn matches(entry: &Entry, words: &[String]) -> bool {
+  matches_text(&search_text(entry), words)
+}
+
+/// Texto donde se busca una pista: nombre de archivo, titulo, artista y
+/// album, ya plegados. Se calcula al indexar para no plegar en cada
+/// busqueda. Los campos van separados por un salto de linea, asi una
+/// palabra no se arma con el final de un campo y el principio del otro.
+pub fn search_text(entry: &Entry) -> String {
   let i = &entry.info;
-  let name = entry.path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-  let fields: Vec<String> = [&i.title, &i.artist, &i.album].iter().filter_map(|f| f.as_ref().map(|v| v.to_lowercase())).collect();
-  words.iter().all(|w| name.contains(w.as_str()) || fields.iter().any(|f| f.contains(w.as_str())))
+  let name = entry.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+  let mut parts = vec![name];
+  parts.extend([&i.title, &i.artist, &i.album].into_iter().flatten().cloned());
+  fold(&parts.join("\n"))
+}
+
+/// Cada palabra (ya plegada) aparece en el texto de busqueda.
+pub fn matches_text(text: &str, words: &[String]) -> bool {
+  words.iter().all(|w| text.contains(w.as_str()))
 }
 
 #[cfg(test)]
@@ -77,6 +123,38 @@ mod tests {
     assert!(matches(&e, &words("SONG")));
     assert!(!matches(&e, &words("illit roses")));
     assert!(matches(&e, &words("")));
+  }
+
+  #[test]
+  fn accents_and_case_never_get_in_the_way() {
+    let e = entry("/m/Canción de niño.flac", Some("Über Straße"), Some("Ærøskøbing Œuvre"));
+    for q in ["cancion", "CANCIÓN", "nino", "NIÑO", "uber", "über", "strasse", "straße", "aeroskobing", "oeuvre", "ción de ni"] {
+      assert!(matches(&e, &words(q)), "{q:?} should match");
+    }
+    // Las variantes funcionan en los dos sentidos.
+    let plain = entry("/m/cancion de nino.flac", None, None);
+    assert!(matches(&plain, &words("canción niño")));
+    assert!(!matches(&e, &words("cancionx")));
+  }
+
+  #[test]
+  fn other_scripts_keep_their_meaning() {
+    // El dakuten (U+3099) cambia la palabra ("ga" no es "ka"): no se quita.
+    let jp = entry("/m/a.flac", Some("ながれ"), None);
+    assert!(matches(&jp, &words("なが")));
+    assert!(!matches(&jp, &words("なか")));
+    // Hangul y cirilico se buscan en cualquier parte.
+    let ko = entry("/m/a.flac", Some("키스오브라이프"), Some("Кино"));
+    assert!(matches(&ko, &words("오브")));
+    assert!(matches(&ko, &words("кино")));
+    // Diacriticos del cirilico (U+0439 = U+0438 + breve) si se pliegan.
+    let ru = entry("/m/a.flac", Some("Мой"), None);
+    assert!(matches(&ru, &words("мои")));
+  }
+
+  #[test]
+  fn fold_is_lowercase_without_marks() {
+    assert_eq!(fold("Ça Ñandú ÜBER Straße"), "ca nandu uber strasse");
   }
 
   #[test]

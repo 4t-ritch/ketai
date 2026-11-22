@@ -142,6 +142,8 @@ impl LibraryService {
 
 struct Worker {
   index: Vec<Entry>,
+  /// Texto plegado de cada pista del indice, en el mismo orden.
+  texts: Vec<String>,
   /// Carpetas de la biblioteca (`library.add_folder`).
   folders: Vec<PathBuf>,
   index_path: Option<PathBuf>,
@@ -154,7 +156,8 @@ impl Worker {
   fn load(tx: Sender<Message>, jobs: Sender<Job>) -> Self {
     let index_path = data_dir().map(|d| d.join("library.json"));
     let (index, folders) = index_path.as_deref().map(load_index).unwrap_or_default();
-    Self { index, folders, index_path, tx, jobs, next_job: 0 }
+    let texts = index.iter().map(library::search_text).collect();
+    Self { index, texts, folders, index_path, tx, jobs, next_job: 0 }
   }
 
   fn run(&mut self, id: u64, method: &str, params: &Map<String, Value>, track: Option<&TrackRef>) -> Result<Value, ErrorReply> {
@@ -198,6 +201,7 @@ impl Worker {
         let folder = self.folders.remove(at);
         // Sus canciones dejan de ser parte de la biblioteca.
         self.index.retain(|e| !e.path.starts_with(&folder));
+        self.texts = self.index.iter().map(library::search_text).collect();
         self.save();
         Ok(json!({}))
       }
@@ -208,8 +212,14 @@ impl Worker {
           Some(v) => v.as_u64().filter(|&n| n >= 1).ok_or_else(|| invalid("limit must be a positive integer"))?,
         };
         let words = library::words(query);
-        let tracks: Vec<Value> =
-          self.index.iter().filter(|e| library::matches(e, &words)).take(limit as usize).map(track_json).collect();
+        let tracks: Vec<Value> = self
+          .index
+          .iter()
+          .zip(&self.texts)
+          .filter(|(_, text)| library::matches_text(text, &words))
+          .take(limit as usize)
+          .map(|(e, _)| track_json(e))
+          .collect();
         Ok(json!({"tracks": tracks}))
       }
       "track.cover" => {
@@ -273,6 +283,7 @@ impl Worker {
     self.index.extend(entries);
     self.index.sort_by(|a, b| a.path.cmp(&b.path));
     self.index.dedup_by(|a, b| a.path == b.path);
+    self.texts = self.index.iter().map(library::search_text).collect();
     self.save();
   }
 

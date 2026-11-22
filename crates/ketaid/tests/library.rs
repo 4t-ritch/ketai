@@ -324,3 +324,15 @@ fn scanning_everything_needs_at_least_one_folder() {
   let mut s = S::new();
   assert_eq!(s.code("library.scan", json!({})), -32602);
 }
+
+#[test]
+fn search_ignores_accents_and_case_in_both_directions() {
+  let mut s = S::new();
+  s.put("vorbis.ogg", "Canción de niño.ogg");
+  s.put("opus.ogg", "cafe tacuba.ogg");
+  s.scan(&s.music());
+  assert_eq!(titles(&s.search("cancion nino")), ["Canci%C3%B3n%20de%20ni%C3%B1o.ogg"]);
+  assert_eq!(titles(&s.search("CANCIÓN")).len(), 1);
+  assert_eq!(titles(&s.search("café")), ["cafe%20tacuba.ogg"]);
+  assert_eq!(titles(&s.search("de ni")).len(), 1, "partial words anywhere");
+}

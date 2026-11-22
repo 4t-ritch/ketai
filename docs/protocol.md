@@ -385,8 +385,14 @@ Reglas de biblioteca, caratulas y cache (v1, solo archivos locales):
 - Volver a escanear una carpeta reemplaza todo lo indexado bajo ella (lo
   borrado desaparece). El indice se guarda en
   `$XDG_DATA_HOME/ketai/library.json` y sobrevive a reinicios.
-- `library.search`: `query` es obligatorio. Cada palabra debe aparecer, sin
-  distinguir mayusculas, en el titulo, artista, album o nombre de archivo.
+- `library.search`: `query` es obligatorio. Cada palabra debe aparecer, en
+  cualquier parte (no solo al principio), en el titulo, artista, album o
+  nombre de archivo. No importan las mayusculas ni las marcas: "cancion"
+  encuentra el titulo con la o acentuada y "nino" el que tiene enie, y al
+  reves (acentos, dieresis, virgulilla, cedilla; ademas U+00DF = ss,
+  U+00E6 = ae, U+0153 = oe, U+00F8 = o, U+0142 = l, U+0111 = d). Las marcas de
+  otras escrituras se respetan porque cambian la palabra (el dakuten
+  japones, U+3099: "ga" no es "ka").
   `""` devuelve todo. `limit` (por defecto 50) debe ser un entero positivo.
   Los resultados van ordenados por ruta y su `id` es `null`: no son pistas
   de la cola (se agregan con `queue.add` usando su `uri`).

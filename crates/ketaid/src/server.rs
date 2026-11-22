@@ -516,14 +516,19 @@ fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Opti
           None => Flow::Continue,
         }
       }
-      Message::Library(done) => match clients.get_mut(&done.client) {
-        Some(state) => {
-          send_reply(&state.out, done.request_id, done.result);
-          state.blocked = false;
-          drain(&mut clients, &mut services, done.client)
+      Message::Library(done) => {
+        if done.changed {
+          services.library.note_changed();
         }
-        None => Flow::Continue,
-      },
+        match clients.get_mut(&done.client) {
+          Some(state) => {
+            send_reply(&state.out, done.request_id, done.result);
+            state.blocked = false;
+            drain(&mut clients, &mut services, done.client)
+          }
+          None => Flow::Continue,
+        }
+      }
       Message::LibraryProgress(p) => {
         services.library.note_progress(p);
         Flow::Continue
@@ -772,6 +777,12 @@ fn publish(clients: &HashMap<ClientId, ClientState>, services: &mut Services) {
   for track_id in services.lyrics.take_changed() {
     let line = encode_event("lyrics.changed", json!({"track_id": track_id}));
     for state in clients.values().filter(|c| c.topics.contains("lyrics")) {
+      state.out.event(line.clone());
+    }
+  }
+  if services.library.take_changed() {
+    let line = encode_event("library.changed", json!({}));
+    for state in clients.values().filter(|c| c.topics.contains("library")) {
       state.out.event(line.clone());
     }
   }

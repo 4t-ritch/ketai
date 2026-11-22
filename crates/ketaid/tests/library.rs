@@ -71,11 +71,20 @@ impl S {
     r["error"]["code"].as_i64().unwrap_or_else(|| panic!("{method}: expected error, got {r}"))
   }
 
+  /// Escanea todas las carpetas y espera el final.
+  fn scan_all(&mut self) -> Vec<Value> {
+    self.scan_with(json!({}))
+  }
+
   /// Escanea y espera el ultimo `library.progress` (done == total).
   fn scan(&mut self, path: &Path) -> Vec<Value> {
+    self.scan_with(json!({"path": path}))
+  }
+
+  fn scan_with(&mut self, params: Value) -> Vec<Value> {
     let mut w = self.daemon.as_ref().unwrap().connect();
     w.request(1, "events.subscribe", json!({"topics": ["library"]}));
-    let job = self.ok("library.scan", json!({"path": path}))["job"].as_str().unwrap().to_string();
+    let job = self.ok("library.scan", params)["job"].as_str().unwrap().to_string();
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut events = Vec::new();
     loop {
@@ -265,4 +274,53 @@ fn cover_by_uri_for_tracks_outside_the_queue() {
   assert_eq!(s.ok("track.cover", json!({"uri": format!("file://{}", plain.display())})), Value::Null);
   assert_eq!(s.ok("track.cover", json!({"uri": "file:///nope/missing.ogg"})), Value::Null);
   assert_eq!(s.ok("track.cover", json!({"uri": "https://example.com/a.ogg"})), Value::Null);
+}
+
+#[test]
+fn library_folders_are_added_listed_removed_and_remembered() {
+  let mut s = S::new();
+  let a = s.music().join("a");
+  let b = s.music().join("b");
+  s.put("vorbis.ogg", "a/one.ogg");
+  s.put("opus.ogg", "b/two.ogg");
+  let mut w = s.daemon.as_ref().unwrap().connect();
+  w.request(1, "events.subscribe", json!({"topics": ["library"]}));
+
+  assert_eq!(s.ok("library.folders", json!({})), json!({"folders": []}));
+  assert_eq!(s.ok("library.add_folder", json!({"path": a})), json!({}));
+  assert_eq!(s.ok("library.add_folder", json!({"path": b})), json!({}));
+  assert_eq!(s.ok("library.add_folder", json!({"path": a})), json!({}), "adding twice is harmless");
+  let deadline = Instant::now() + Duration::from_secs(3);
+  loop {
+    let m = w.read_message().expect("event");
+    if m["event"] == "library.changed" {
+      break;
+    }
+    assert!(Instant::now() < deadline);
+  }
+
+  for bad in [json!({}), json!({"path": "relative"}), json!({"path": s.dir.join("missing")}), json!({"path": s.music().join("a/one.ogg")})] {
+    assert_eq!(s.code("library.add_folder", bad), -32602);
+  }
+
+  // Escanear sin path recorre todas las carpetas.
+  let events = s.scan_all();
+  assert_eq!(events.last().unwrap()["total"], 2);
+  assert_eq!(titles(&s.search("")), ["one.ogg", "two.ogg"]);
+  let folders = s.ok("library.folders", json!({}));
+  assert_eq!(folders, json!({"folders": [{"path": a, "tracks": 1}, {"path": b, "tracks": 1}]}));
+
+  s.restart();
+  assert_eq!(s.ok("library.folders", json!({}))["folders"].as_array().unwrap().len(), 2, "folders survive a restart");
+
+  // Quitar una carpeta saca sus canciones del indice.
+  assert_eq!(s.ok("library.remove_folder", json!({"path": a})), json!({}));
+  assert_eq!(titles(&s.search("")), ["two.ogg"]);
+  assert_eq!(s.code("library.remove_folder", json!({"path": a})), -32602, "not a library folder");
+}
+
+#[test]
+fn scanning_everything_needs_at_least_one_folder() {
+  let mut s = S::new();
+  assert_eq!(s.code("library.scan", json!({})), -32602);
 }

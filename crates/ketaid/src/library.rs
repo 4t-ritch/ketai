@@ -42,14 +42,16 @@ pub struct TrackRef {
 
 enum Job {
   Request { client: ClientId, request_id: u64, method: String, params: Map<String, Value>, track: Option<TrackRef> },
-  /// Un escaneo termino: reemplazar lo indexado bajo `root`.
-  Indexed { job: String, root: PathBuf, entries: Vec<Entry>, total: u64 },
+  /// Un escaneo termino: reemplazar lo indexado bajo cada carpeta.
+  Indexed { job: String, roots: Vec<PathBuf>, entries: Vec<Entry>, total: u64 },
 }
 
 pub struct Done {
   pub client: ClientId,
   pub request_id: u64,
   pub result: Result<Value, ErrorReply>,
+  /// Cambiaron las carpetas: se emite `library.changed`.
+  pub changed: bool,
 }
 
 /// Progreso de un escaneo para el evento `library.progress`.
@@ -62,6 +64,7 @@ pub struct Progress {
 pub struct LibraryService {
   jobs: Sender<Job>,
   progress: Vec<Progress>,
+  changed: bool,
 }
 
 impl LibraryService {
@@ -79,13 +82,14 @@ impl LibraryService {
                 worker.run(request_id, &method, &params, track.as_ref())
               }))
               .unwrap_or_else(|_| Err(ErrorReply::new(Some(request_id), codes::INVALID_PARAMS, "request failed")));
-              if tx.send(Message::Library(Done { client, request_id, result })).is_err() {
+              let changed = result.is_ok() && matches!(method.as_str(), "library.add_folder" | "library.remove_folder");
+              if tx.send(Message::Library(Done { client, request_id, result, changed })).is_err() {
                 return;
               }
             }
-            Job::Indexed { job, root, entries, total } => {
+            Job::Indexed { job, roots, entries, total } => {
               // Si fallara, el worker sigue vivo para atender pedidos.
-              if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.replace(&root, entries))).is_err() {
+              if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.replace(&roots, entries))).is_err() {
                 eprintln!("ketaid: library index update failed");
               }
               // El ultimo progreso sale despues de actualizar el indice: quien
@@ -96,7 +100,7 @@ impl LibraryService {
         }
       })
       .expect("spawn library thread");
-    Self { jobs, progress: Vec::new() }
+    Self { jobs, progress: Vec::new(), changed: false }
   }
 
   pub fn handles(method: &str) -> bool {
@@ -118,6 +122,15 @@ impl LibraryService {
     });
   }
 
+  /// Cambiaron las carpetas: el proximo `publish` emite `library.changed`.
+  pub fn note_changed(&mut self) {
+    self.changed = true;
+  }
+
+  pub fn take_changed(&mut self) -> bool {
+    std::mem::take(&mut self.changed)
+  }
+
   pub fn note_progress(&mut self, p: Progress) {
     self.progress.push(p);
   }
@@ -129,6 +142,8 @@ impl LibraryService {
 
 struct Worker {
   index: Vec<Entry>,
+  /// Carpetas de la biblioteca (`library.add_folder`).
+  folders: Vec<PathBuf>,
   index_path: Option<PathBuf>,
   tx: Sender<Message>,
   jobs: Sender<Job>,
@@ -138,23 +153,53 @@ struct Worker {
 impl Worker {
   fn load(tx: Sender<Message>, jobs: Sender<Job>) -> Self {
     let index_path = data_dir().map(|d| d.join("library.json"));
-    let index = index_path.as_deref().map(load_index).unwrap_or_default();
-    Self { index, index_path, tx, jobs, next_job: 0 }
+    let (index, folders) = index_path.as_deref().map(load_index).unwrap_or_default();
+    Self { index, folders, index_path, tx, jobs, next_job: 0 }
   }
 
   fn run(&mut self, id: u64, method: &str, params: &Map<String, Value>, track: Option<&TrackRef>) -> Result<Value, ErrorReply> {
     let invalid = |msg: &str| ErrorReply::new(Some(id), codes::INVALID_PARAMS, msg.to_string());
     match method {
       "library.scan" => {
-        let path = params.get("path").and_then(Value::as_str).map(PathBuf::from);
-        let root = match path {
-          Some(p) if p.is_absolute() && p.is_dir() => p,
-          _ => return Err(invalid("path must be an existing absolute folder")),
+        // Sin path: todas las carpetas de la biblioteca.
+        let roots = match params.get("path") {
+          None | Some(Value::Null) => {
+            if self.folders.is_empty() {
+              return Err(invalid("there are no library folders: add one with library.add_folder"));
+            }
+            self.folders.clone()
+          }
+          Some(p) => vec![existing_folder(p).ok_or_else(|| invalid("path must be an existing absolute folder"))?],
         };
         self.next_job += 1;
         let job = format!("j_{}", self.next_job);
-        self.spawn_scan(job.clone(), root);
+        self.spawn_scan(job.clone(), roots);
         Ok(json!({"job": job}))
+      }
+      "library.folders" => {
+        let folders: Vec<Value> = self
+          .folders
+          .iter()
+          .map(|f| json!({"path": f, "tracks": self.index.iter().filter(|e| e.path.starts_with(f)).count()}))
+          .collect();
+        Ok(json!({"folders": folders}))
+      }
+      "library.add_folder" => {
+        let folder = params.get("path").and_then(existing_folder).ok_or_else(|| invalid("path must be an existing absolute folder"))?;
+        if !self.folders.contains(&folder) {
+          self.folders.push(folder);
+          self.save();
+        }
+        Ok(json!({}))
+      }
+      "library.remove_folder" => {
+        let folder = params.get("path").and_then(Value::as_str).map(PathBuf::from);
+        let at = folder.as_ref().and_then(|f| self.folders.iter().position(|x| x == f)).ok_or_else(|| invalid("path is not a library folder"))?;
+        let folder = self.folders.remove(at);
+        // Sus canciones dejan de ser parte de la biblioteca.
+        self.index.retain(|e| !e.path.starts_with(&folder));
+        self.save();
+        Ok(json!({}))
       }
       "library.search" => {
         let query = params.get("query").and_then(Value::as_str).ok_or_else(|| invalid("query is required"))?;
@@ -193,10 +238,10 @@ impl Worker {
     }
   }
 
-  fn spawn_scan(&self, job: String, root: PathBuf) {
+  fn spawn_scan(&self, job: String, roots: Vec<PathBuf>) {
     let (tx, jobs) = (self.tx.clone(), self.jobs.clone());
     thread::spawn(move || {
-      let files = library::candidates(&root);
+      let files: Vec<PathBuf> = roots.iter().flat_map(|r| library::candidates(r)).collect();
       let total = files.len() as u64;
       let progress = |done: u64| {
         let _ = tx.send(Message::LibraryProgress(Progress { job: job.clone(), done, total }));
@@ -219,17 +264,23 @@ impl Worker {
         }
       }
       // El progreso final lo manda el worker, despues de indexar.
-      let _ = jobs.send(Job::Indexed { job, root, entries, total });
+      let _ = jobs.send(Job::Indexed { job, roots, entries, total });
     });
   }
 
-  fn replace(&mut self, root: &Path, entries: Vec<Entry>) {
-    self.index.retain(|e| !e.path.starts_with(root));
+  fn replace(&mut self, roots: &[PathBuf], entries: Vec<Entry>) {
+    self.index.retain(|e| !roots.iter().any(|r| e.path.starts_with(r)));
     self.index.extend(entries);
     self.index.sort_by(|a, b| a.path.cmp(&b.path));
+    self.index.dedup_by(|a, b| a.path == b.path);
+    self.save();
+  }
+
+  /// Guarda indice y carpetas en `library.json`.
+  fn save(&self) {
     if let Some(path) = &self.index_path {
       let tracks: Vec<Value> = self.index.iter().map(index_json).collect();
-      let content = json!({"version": INDEX_VERSION, "tracks": tracks}).to_string();
+      let content = json!({"version": INDEX_VERSION, "folders": self.folders, "tracks": tracks}).to_string();
       if let Err(e) = crate::session::write_atomic(path, content.as_bytes()) {
         eprintln!("ketaid: could not save library index: {e}");
       }
@@ -286,16 +337,24 @@ fn index_json(e: &Entry) -> Value {
   })
 }
 
-/// Indice guardado. Si no existe o no se entiende, se arranca vacio (se
-/// reconstruye con un escaneo).
-fn load_index(path: &Path) -> Vec<Entry> {
-  let Ok(text) = fs::read_to_string(path) else { return Vec::new() };
-  let Ok(v) = serde_json::from_str::<Value>(&text) else { return Vec::new() };
+/// Carpeta absoluta que existe.
+fn existing_folder(v: &Value) -> Option<PathBuf> {
+  let p = PathBuf::from(v.as_str()?);
+  (p.is_absolute() && p.is_dir()).then_some(p)
+}
+
+/// Indice y carpetas guardados. Si no existe o no se entiende, se arranca
+/// vacio (se reconstruye con un escaneo). Un indice sin `folders` (anterior
+/// a las carpetas) se lee con la lista vacia.
+fn load_index(path: &Path) -> (Vec<Entry>, Vec<PathBuf>) {
+  let Ok(text) = fs::read_to_string(path) else { return Default::default() };
+  let Ok(v) = serde_json::from_str::<Value>(&text) else { return Default::default() };
   if v["version"] != INDEX_VERSION {
-    return Vec::new();
+    return Default::default();
   }
+  let folders = v["folders"].as_array().map(|f| f.iter().filter_map(|p| p.as_str().map(PathBuf::from)).collect()).unwrap_or_default();
   let s = |t: &Value, k: &str| t[k].as_str().map(str::to_string);
-  v["tracks"]
+  let tracks = v["tracks"]
     .as_array()
     .map(|tracks| {
       tracks
@@ -317,7 +376,8 @@ fn load_index(path: &Path) -> Vec<Entry> {
         })
         .collect()
     })
-    .unwrap_or_default()
+    .unwrap_or_default();
+  (tracks, folders)
 }
 
 /// Nombre de archivo de la caratula de una pista pedida por URI:

@@ -340,7 +340,10 @@ Ver la seccion 4 para los tipos y la seccion 11 para las reglas.
 ### Biblioteca / origenes
 | Metodo           | Params                            | Resultado |
 |------------------|-----------------------------------|-----------|
-| `library.scan`   | `{"path": "/home/u/Music"}`       | `{"job": "j_1"}` (progreso via eventos) |
+| `library.scan`   | `{"path": "/home/u/Music"}` o `{}` (todas las carpetas) | `{"job": "j_1"}` (progreso via eventos) |
+| `library.folders` | -                                | `{"folders": [{"path": "/home/u/Music", "tracks": 1204}]}` |
+| `library.add_folder` | `{"path": "/home/u/Music"}`   | `{}` |
+| `library.remove_folder` | `{"path": "/home/u/Music"}` | `{}` |
 | `library.search` | `{"query": "illit", "limit": 50}` | `{"tracks": [Track]}` |
 
 ### Cache
@@ -360,7 +363,14 @@ embebidas en base64.
 
 Reglas de biblioteca, caratulas y cache (v1, solo archivos locales):
 
-- `library.scan` recibe una carpeta absoluta existente; si no, `-32602`.
+- Las carpetas de la biblioteca se guardan junto al indice. `add_folder`
+  recibe una carpeta absoluta existente (`-32602` si no); agregarla dos veces
+  no hace nada. `remove_folder` de una carpeta que no esta devuelve
+  `-32602` y, si esta, saca del indice sus canciones. Los dos emiten
+  `library.changed` (topico `library`).
+- `library.scan` con `path` recibe una carpeta absoluta existente; si no,
+  `-32602`. Sin `path` escanea todas las carpetas de la biblioteca en un
+  solo trabajo (`-32602` si no hay ninguna).
   Responde enseguida con el `job` y escanea en segundo plano, recursivo,
   sin seguir carpetas enlazadas. Los candidatos son los archivos con
   extension de audio (`flac`, `mp3`, `m4a`, `mp4`, `aac`, `ogg`, `oga`,
@@ -436,6 +446,7 @@ Reglas:
 | `playlist` | `playlist.changed`  | `{"name": "chill"}` |
 | `output`   | `output.changed`    | `{"devices": [Device], "active": "id o null"}` |
 | `library`  | `library.progress`  | `{"job": "j_1", "done": 120, "total": 400}` |
+| `library`  | `library.changed`   | `{}` (cambiaron las carpetas; el cliente vuelve a pedir `library.folders`) |
 | `lyrics`   | `lyrics.changed`    | `{"track_id": "t_9f2c"}` (cambio de offset; el cliente vuelve a pedir `lyrics.get`) |
 | `cache`    | `download.progress` | `{"track_id": "t_1", "bytes": 1000, "total": 5000}` |
 

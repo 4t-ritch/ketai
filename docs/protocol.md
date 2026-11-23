@@ -270,21 +270,39 @@ Reglas del reproductor:
 | `playlist.remove` | `{"name": "chill", "indexes": [3, 5]}`  | `{"removed": 2}` |
 | `playlist.move`   | `{"name": "chill", "from": 3, "to": 0}` | `{}` |
 | `playlist.transfer` | `{"from_name": "rock", "indexes": [2, 5, 7], "to_name": "metal", "position": null, "mode": "move"}` | `{"transferred": 3}` |
+| `favorites.set`   | `{"uri": "file:///a.ogg", "favorite": true}` | `{}` |
+| `track.playlists` | `{"uri": "file:///a.ogg"}`              | `{"playlists": ["chill", "rock"], "favorite": true}` |
 
-- Cada playlist es un archivo `.m3u8` en la carpeta de playlists,
-  compatible con otros reproductores. La carpeta es `[playlists] dir` de
+- Las playlists viven en la base de ketai (`library.db`, ver biblioteca),
+  que manda. Cada cambio es una transaccion y pasa por un solo thread: dos
+  clientes que agregan a la misma playlist al mismo tiempo nunca pierden
+  pistas. Una cancion puede estar en varias playlists, y varias veces en la
+  misma.
+- Favoritos es una playlist mas, llamada `Favoritos`, que en
+  `playlist.list` trae `"kind": "favorites"` (las demas no traen `kind`). Se
+  crea con el primer `favorites.set`. `favorites.set` con `favorite: true`
+  la agrega si no estaba; con `false` la quita. `uri` y `favorite` son
+  obligatorios (`-32602`). Emite `playlist.changed` con `Favoritos`.
+- `track.playlists` dice en que playlists esta una URI (sin Favoritos, por
+  orden de nombre) y si es favorita.
+- Cada playlist tiene una copia `.m3u8` en la carpeta de playlists,
+  compatible con otros reproductores, que escribe ketai. La carpeta es `[playlists] dir` de
   `config.toml` (ver `docs/config.md`) o, si no esta, `XDG_MUSIC_DIR/playlists`
   (`XDG_MUSIC_DIR` del entorno, de `~/.config/user-dirs.dirs` o `~/music`).
   Se resuelve en cada operacion, asi un cambio en `config.toml` se aplica sin
   reiniciar, y se crea si no existe. `playlist.get` devuelve en `path` la
   ruta del archivo. Las pistas locales se guardan como rutas absolutas. Un
-  `.m3u8` copiado a esa carpeta aparece como playlist; al leerlo se aceptan
-  rutas absolutas, rutas relativas a la carpeta y URIs.
+  `.m3u8` nuevo copiado a esa carpeta se importa como playlist; al leerlo se
+  aceptan rutas absolutas, rutas relativas a la carpeta y URIs. Un archivo
+  de una playlist que ya existe, editado o borrado a mano, se vuelve a
+  escribir desde la base. Si cambia la carpeta, todas las playlists se
+  copian a la nueva. La primera vez, las playlists que ya estaban en la
+  carpeta se importan.
 - Al modificar una playlist se reescribe el archivo solo con las rutas: se
   pierden comentarios y lineas `#EXTINF` que tuviera un `.m3u8` creado por
   otro programa.
 - Solo se reconocen archivos con extension `.m3u8` en minusculas.
-- El nombre es el nombre del archivo: no puede estar vacio, empezar con `.`
+- El nombre es tambien el del archivo: no puede estar vacio, empezar con `.`
   ni contener `/`. Un nombre invalido devuelve `-32602`.
 - `playlist.save` crea la playlist o reemplaza la existente. Con
   `from_queue: false` queda vacia.

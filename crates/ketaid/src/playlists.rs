@@ -1,9 +1,13 @@
 //! Metodos `playlist.*` y el evento `playlist.changed`.
 //!
-//! Las playlists son archivos `.m3u8` en la carpeta de playlists (ver `dir`)
-//! (por defecto `~/.local/share/ketai/playlists/`). Todo el I/O lo hace un
-//! unico thread, que procesa las operaciones en el orden en que llegan; el
-//! loop central solo recibe el resultado.
+//! Metodos `favorites.set` y `track.playlists`.
+//!
+//! Las playlists viven en la base (`store`), que manda. En la carpeta de
+//! playlists (ver `dir`) ketai escribe una copia `.m3u8` de cada una, para
+//! usarlas con otros reproductores. Un archivo nuevo en la carpeta se
+//! importa; uno conocido que se edita a mano se reescribe desde la base.
+//! Todo lo hace un unico thread, que procesa las operaciones en el orden en
+//! que llegan; el loop central solo recibe el resultado.
 
 use std::{
   collections::HashSet,
@@ -22,6 +26,7 @@ use crate::{
   player::{self, TrackIds},
   server::{ClientId, Message},
   session,
+  store::{FAVORITES, Store},
 };
 
 const PLAYLIST_NOT_FOUND: i64 = 1005;
@@ -137,7 +142,7 @@ impl PlaylistService {
     thread::Builder::new()
       .name("ketai-playlists".into())
       .spawn(move || {
-        let worker = Worker { ids };
+        let mut worker = Worker { ids, store: crate::store::open_default() };
         for job in rx {
           let done = worker.run(job);
           if tx.send(Message::Playlist(done)).is_err() {
@@ -150,7 +155,7 @@ impl PlaylistService {
   }
 
   pub fn handles(method: &str) -> bool {
-    method.starts_with("playlist.")
+    method.starts_with("playlist.") || method == "favorites.set" || method == "track.playlists"
   }
 
   /// Encola la operacion; la respuesta llega como `Message::Playlist`.
@@ -175,29 +180,45 @@ impl PlaylistService {
 
 struct Worker {
   ids: TrackIds,
+  /// Playlists y favoritos (`library.db`). Manda sobre los archivos.
+  store: Store,
 }
 
 /// Error interno de una operacion.
 type OpResult<T> = Result<T, ErrorReply>;
 
 impl Worker {
-  fn run(&self, job: Job) -> Done {
+  fn run(&mut self, job: Job) -> Done {
     let id = job.request_id;
     let mut changed = Vec::new();
-    // Playlists que cambiaron aunque la operacion termine en error.
-    let mut partial = Vec::new();
     let mut load = None;
     let result = (|| -> OpResult<Value> {
       let dir = dir().ok_or_else(|| other(id, "no playlists folder: set HOME or [playlists] dir"))?;
       // La carpeta se crea si no existe.
       std::fs::create_dir_all(&dir).map_err(|e| other(id, format!("{}: {e}", dir.display())))?;
       let dir = dir.as_path();
+      self.sync(id, dir)?;
       let p = Params { id, map: &job.params };
       match job.method.as_str() {
-        "playlist.list" => self.list(id, dir),
+        "playlist.list" => {
+          let items: Vec<Value> = self
+            .store
+            .playlists()
+            .map_err(|e| other(id, e))?
+            .into_iter()
+            .map(|pl| {
+              let mut v = json!({"name": pl.name, "count": pl.count});
+              if pl.kind != "user" {
+                v["kind"] = json!(pl.kind);
+              }
+              v
+            })
+            .collect();
+          Ok(json!({"playlists": items}))
+        }
         "playlist.get" => {
           let name = p.name("name")?;
-          let uris = self.read(id, dir, &name)?;
+          let uris = self.store.items(&name).map_err(|e| other(id, e))?.ok_or_else(|| not_found(id))?;
           let tracks = self.lenient(&uris);
           Ok(json!({"name": name, "path": file(dir, &name), "tracks": tracks.iter().map(player::track_json).collect::<Vec<_>>()}))
         }
@@ -205,47 +226,29 @@ impl Worker {
           let name = p.name("name")?;
           let from_queue = p.bool("from_queue")?;
           let uris = if from_queue { job.queue_uris.clone() } else { Vec::new() };
-          self.write(id, dir, &name, &uris)?;
+          self.update(id, &[&name], |l| {
+            l[0] = Some(uris);
+            Ok(())
+          })?;
           changed.push(name);
           Ok(json!({}))
         }
         "playlist.delete" => {
           let name = p.name("name")?;
-          let path = file(dir, &name);
-          if !path.exists() {
-            return Err(not_found(id));
-          }
-          fs::remove_file(path).map_err(|e| other(id, e))?;
+          self.update(id, &[&name], |l| l[0].take().map(|_| ()).ok_or_else(|| not_found(id)))?;
           changed.push(name);
           Ok(json!({}))
         }
         "playlist.rename" => {
           let name = p.name("name")?;
           let new_name = p.name("new_name")?;
-          let (from, to) = (file(dir, &name), file(dir, &new_name));
-          if !from.exists() {
+          if self.store.items(&name).map_err(|e| other(id, e))?.is_none() {
             return Err(not_found(id));
           }
-          if to.exists() {
+          if self.store.items(&new_name).map_err(|e| other(id, e))?.is_some() {
             return Err(ErrorReply::new(Some(id), PLAYLIST_EXISTS, "playlist already exists"));
           }
-          // hard_link nunca reemplaza un archivo existente: si otro programa
-          // creo `to` justo ahora, falla en vez de pisarlo.
-          match fs::hard_link(&from, &to) {
-            Ok(()) => {
-              if let Err(e) = fs::remove_file(&from) {
-                // Quedaron los dos nombres: se avisa del nuevo.
-                partial = vec![new_name];
-                return Err(other(id, e));
-              }
-            }
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-              return Err(ErrorReply::new(Some(id), PLAYLIST_EXISTS, "playlist already exists"));
-            }
-            // Sistemas de archivos sin hard links (vfat, exFAT): rename
-            // comun, con la comprobacion de existencia de arriba.
-            Err(_) => fs::rename(&from, &to).map_err(|e| other(id, e))?,
-          }
+          self.store.rename(&name, &new_name).map_err(|e| other(id, e))?;
           changed.push(name);
           changed.push(new_name);
           Ok(json!({}))
@@ -254,41 +257,47 @@ impl Worker {
           let name = p.name("name")?;
           let new = p.uris()?;
           let position = p.position()?;
-          let mut uris = self.read(id, dir, &name)?;
-          let at = insert_at(id, position, uris.len())?;
           // Todo o nada: se valida cada URI antes de escribir.
           player::resolve(id, &new, self.ids.reserve(new.len()))?;
           let count = new.len();
-          uris.splice(at..at, new);
-          self.write(id, dir, &name, &uris)?;
+          self.update(id, &[&name], |l| {
+            let uris = l[0].as_mut().ok_or_else(|| not_found(id))?;
+            let at = insert_at(id, position, uris.len())?;
+            uris.splice(at..at, new);
+            Ok(())
+          })?;
           changed.push(name);
           Ok(json!({"added": count}))
         }
         "playlist.remove" => {
           let name = p.name("name")?;
           let indexes = p.indexes()?;
-          let mut uris = self.read(id, dir, &name)?;
-          let remove = validate_indexes(id, &indexes, uris.len())?;
-          let mut i = 0;
-          uris.retain(|_| {
-            let keep = !remove.contains(&i);
-            i += 1;
-            keep
-          });
-          self.write(id, dir, &name, &uris)?;
+          self.update(id, &[&name], |l| {
+            let uris = l[0].as_mut().ok_or_else(|| not_found(id))?;
+            let remove = validate_indexes(id, &indexes, uris.len())?;
+            let mut i = 0;
+            uris.retain(|_| {
+              let keep = !remove.contains(&i);
+              i += 1;
+              keep
+            });
+            Ok(())
+          })?;
           changed.push(name);
           Ok(json!({"removed": indexes.len()}))
         }
         "playlist.move" => {
           let name = p.name("name")?;
           let (from, to) = (p.index("from")?, p.index("to")?);
-          let mut uris = self.read(id, dir, &name)?;
-          if from >= uris.len() || to >= uris.len() {
-            return Err(out_of_range(id));
-          }
-          let uri = uris.remove(from);
-          uris.insert(to, uri);
-          self.write(id, dir, &name, &uris)?;
+          self.update(id, &[&name], |l| {
+            let uris = l[0].as_mut().ok_or_else(|| not_found(id))?;
+            if from >= uris.len() || to >= uris.len() {
+              return Err(out_of_range(id));
+            }
+            let uri = uris.remove(from);
+            uris.insert(to, uri);
+            Ok(())
+          })?;
           changed.push(name);
           Ok(json!({}))
         }
@@ -306,30 +315,30 @@ impl Worker {
           if from_name == to_name {
             return Err(ErrorReply::new(Some(id), codes::INVALID_PARAMS, "from_name and to_name must differ; use playlist.move"));
           }
-          let mut source = self.read(id, dir, &from_name)?;
-          let mut dest = self.read(id, dir, &to_name)?;
-          let picked = validate_indexes(id, &indexes, source.len())?;
-          let at = insert_at(id, position, dest.len())?;
-          // Las pistas llegan en el orden que tenian en el origen.
-          let items: Vec<String> =
-            source.iter().enumerate().filter(|(i, _)| picked.contains(i)).map(|(_, u)| u.clone()).collect();
-          let count = items.len();
-          dest.splice(at..at, items);
-          // Primero el destino: si falla, el origen no cambio.
-          self.write(id, dir, &to_name, &dest)?;
+          // Origen y destino cambian juntos, en una sola transaccion.
+          let count = self.update(id, &[&from_name, &to_name], |l| {
+            let (source, dest) = l.split_at_mut(1);
+            let source = source[0].as_mut().ok_or_else(|| not_found(id))?;
+            let dest = dest[0].as_mut().ok_or_else(|| not_found(id))?;
+            let picked = validate_indexes(id, &indexes, source.len())?;
+            let at = insert_at(id, position, dest.len())?;
+            // Las pistas llegan en el orden que tenian en el origen.
+            let items: Vec<String> =
+              source.iter().enumerate().filter(|(i, _)| picked.contains(i)).map(|(_, u)| u.clone()).collect();
+            let count = items.len();
+            dest.splice(at..at, items);
+            if moving {
+              let mut i = 0;
+              source.retain(|_| {
+                let keep = !picked.contains(&i);
+                i += 1;
+                keep
+              });
+            }
+            Ok(count)
+          })?;
           changed.push(to_name);
           if moving {
-            let mut i = 0;
-            source.retain(|_| {
-              let keep = !picked.contains(&i);
-              i += 1;
-              keep
-            });
-            if let Err(e) = self.write(id, dir, &from_name, &source) {
-              // El destino ya cambio: se avisa aunque la operacion falle.
-              partial = std::mem::take(&mut changed);
-              return Err(e);
-            }
             changed.push(from_name);
           }
           Ok(json!({"transferred": count}))
@@ -337,62 +346,131 @@ impl Worker {
         "playlist.load" => {
           let name = p.name("name")?;
           let replace = p.bool("replace")?;
-          let uris = self.read(id, dir, &name)?;
+          let uris = self.store.items(&name).map_err(|e| other(id, e))?.ok_or_else(|| not_found(id))?;
           // Solo entran a la cola las pistas que se pueden reproducir.
           let playable =
             self.lenient(&uris).into_iter().filter(|t| t.path.is_none() || t.info.codec.is_some()).collect();
           load = Some((playable, replace));
           Ok(json!({}))
         }
+        "favorites.set" => {
+          let uri = p.uri()?;
+          let favorite = p.bool("favorite")?;
+          self.update(id, &[FAVORITES], |l| {
+            let list = l[0].get_or_insert_with(Vec::new);
+            if favorite {
+              if !list.contains(&uri) {
+                list.push(uri);
+              }
+            } else {
+              list.retain(|u| *u != uri);
+            }
+            Ok(())
+          })?;
+          changed.push(FAVORITES.to_string());
+          Ok(json!({}))
+        }
+        "track.playlists" => {
+          let uri = p.uri()?;
+          let (playlists, favorite) = self.store.memberships(&uri).map_err(|e| other(id, e))?;
+          Ok(json!({"playlists": playlists, "favorite": favorite}))
+        }
         _ => Err(ErrorReply::new(Some(id), codes::METHOD_NOT_FOUND, "method not found")),
       }
     })();
     if result.is_err() {
-      changed = partial;
+      changed.clear();
       load = None;
+    }
+    // La base ya cambio: se escriben las copias. Si falla una copia, la
+    // proxima operacion la vuelve a escribir.
+    if let Some(dir) = dir() {
+      for name in &changed {
+        self.export(&dir, name);
+      }
     }
     Done { client: job.client, request_id: id, result, changed, load }
   }
 
-  fn list(&self, id: u64, dir: &Path) -> OpResult<Value> {
-    let mut items = Vec::new();
+  /// Cambio atomico en la base (ver `Store::update`).
+  fn update<T>(
+    &mut self,
+    id: u64,
+    names: &[&str],
+    change: impl FnOnce(&mut Vec<Option<Vec<String>>>) -> OpResult<T>,
+  ) -> OpResult<T> {
+    self.store.update(names, change).map_err(|e| other(id, e))?
+  }
+
+  /// Pone la carpeta al dia con la base. Un archivo que la base no conoce
+  /// (copiado a mano) se importa; uno que cambio por fuera de ketai o que
+  /// falta se vuelve a escribir desde la base.
+  fn sync(&mut self, id: u64, dir: &Path) -> OpResult<()> {
+    let known: HashSet<String> = self.store.playlists().map_err(|e| other(id, e))?.into_iter().map(|p| p.name).collect();
     let entries = match fs::read_dir(dir) {
-      Ok(e) => e,
-      Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(json!({"playlists": []})),
+      Ok(e) => e.flatten().collect::<Vec<_>>(),
+      Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
       Err(e) => return Err(other(id, e)),
     };
-    for entry in entries.flatten() {
+    let mut on_disk = HashSet::new();
+    for entry in entries {
       let path = entry.path();
       if path.extension().and_then(|e| e.to_str()) != Some(playlist::EXTENSION) {
         continue;
       }
-      let Some(name) = path.file_stem().and_then(|s| s.to_str()) else { continue };
-      if !playlist::valid_name(name) {
+      let Some(name) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else { continue };
+      if !playlist::valid_name(&name) {
         continue;
       }
-      let count = fs::read_to_string(&path).map(|t| playlist::parse(&t, dir).len()).unwrap_or(0);
-      items.push((name.to_string(), count));
+      on_disk.insert(name.clone());
+      let stamp = stamp(&path);
+      if !known.contains(&name) {
+        let uris = fs::read_to_string(&path).map(|t| playlist::parse(&t, dir)).unwrap_or_default();
+        self.update(id, &[&name], |l| {
+          l[0] = Some(uris);
+          Ok(())
+        })?;
+        self.store.set_file_stamp(&name, stamp.as_deref()).map_err(|e| other(id, e))?;
+      } else if self.store.file_stamp(&name).map_err(|e| other(id, e))? != stamp {
+        self.export(dir, &name);
+      }
     }
-    items.sort();
-    Ok(json!({"playlists": items.into_iter().map(|(name, count)| json!({"name": name, "count": count})).collect::<Vec<_>>()}))
+    for name in known.difference(&on_disk) {
+      self.export(dir, name);
+    }
+    Ok(())
   }
 
-  fn read(&self, id: u64, dir: &Path, name: &str) -> OpResult<Vec<String>> {
-    match fs::read_to_string(file(dir, name)) {
-      Ok(text) => Ok(playlist::parse(&text, dir)),
-      Err(e) if e.kind() == io::ErrorKind::NotFound => Err(not_found(id)),
-      Err(e) => Err(other(id, e)),
+  /// Escribe la copia de una playlist (o la borra si ya no existe) y anota
+  /// su marca.
+  fn export(&mut self, dir: &Path, name: &str) {
+    let path = file(dir, name);
+    match self.store.items(name) {
+      Ok(Some(uris)) => {
+        if let Err(e) = session::write_atomic(&path, playlist::render(&uris).as_bytes()) {
+          eprintln!("ketaid: could not write {}: {e}", path.display());
+          return;
+        }
+        let _ = self.store.set_file_stamp(name, stamp(&path).as_deref());
+      }
+      Ok(None) => {
+        let _ = fs::remove_file(&path);
+      }
+      Err(e) => eprintln!("ketaid: playlist {name}: {e}"),
     }
-  }
-
-  fn write(&self, id: u64, dir: &Path, name: &str, uris: &[String]) -> OpResult<()> {
-    session::write_atomic(&file(dir, name), playlist::render(uris).as_bytes()).map_err(|e| other(id, e))
   }
 
   fn lenient(&self, uris: &[String]) -> Vec<Track> {
     let first = self.ids.reserve(uris.len());
     uris.iter().enumerate().map(|(n, uri)| player::resolve_lenient(uri, first + n as u64)).collect()
   }
+}
+
+/// Marca de un archivo: tamano, mtime con nanosegundos e inodo.
+fn stamp(path: &Path) -> Option<String> {
+  use std::os::unix::fs::MetadataExt;
+  let m = fs::metadata(path).ok()?;
+  Some(format!("{}:{}.{}:{}", m.len(), m.mtime(), m.mtime_nsec(), m.ino()))
 }
 
 fn file(dir: &Path, name: &str) -> PathBuf {
@@ -469,6 +547,12 @@ impl Params<'_> {
     let list = self.map.get("indexes").and_then(Value::as_array).filter(|l| !l.is_empty());
     let list = list.ok_or_else(|| self.invalid("indexes"))?;
     list.iter().map(|v| v.as_u64().map(|n| n as usize).ok_or_else(|| self.invalid("indexes"))).collect()
+  }
+
+  fn uri(&self) -> OpResult<String> {
+    let s = self.map.get("uri").and_then(Value::as_str).ok_or_else(|| self.invalid("uri"))?;
+    let ok = ["file://", "http://", "https://"].iter().any(|p| s.starts_with(p));
+    if ok { Ok(s.to_string()) } else { Err(self.invalid("uri")) }
   }
 
   fn uris(&self) -> OpResult<Vec<String>> {

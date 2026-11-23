@@ -398,12 +398,14 @@ fn config_toml_picks_the_folder_and_changes_apply_without_restart() {
   let mut c = d.connect();
   c.request(1, "playlist.save", json!({"name": "a", "from_queue": false}));
   assert!(dir.join("home/listas/a.m3u8").is_file());
-  // Otra carpeta: se usa desde la proxima operacion.
+  // Otra carpeta: se usa desde la proxima operacion. Las playlists viven en
+  // la base: todas se copian a la carpeta nueva.
   fs::write(&cfg, format!("[playlists]\ndir = \"{}\"\n", dir.join("otra").display())).unwrap();
   c.request(2, "playlist.save", json!({"name": "b", "from_queue": false}));
   assert!(dir.join("otra/b.m3u8").is_file());
+  assert!(dir.join("otra/a.m3u8").is_file());
   let list = c.request(3, "playlist.list", json!({}));
-  assert_eq!(list["result"]["playlists"], json!([{"name": "b", "count": 0}]));
+  assert_eq!(list["result"]["playlists"], json!([{"name": "a", "count": 0}, {"name": "b", "count": 0}]));
   // Un archivo roto: se usa la carpeta por defecto.
   fs::write(&cfg, "[playlists\ndir = 3\n").unwrap();
   c.request(4, "playlist.save", json!({"name": "c", "from_queue": false}));
@@ -411,4 +413,67 @@ fn config_toml_picks_the_folder_and_changes_apply_without_restart() {
   drop(c);
   drop(d);
   let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn two_clients_adding_at_once_never_lose_a_track() {
+  let mut s = S::new();
+  s.create("shared", &[]);
+  let handles: Vec<_> = (0..2)
+    .map(|k| {
+      let mut c = s.daemon.connect();
+      std::thread::spawn(move || {
+        for i in 0..20 {
+          let name = if (i + k) % 2 == 0 { "vorbis.ogg" } else { "opus.ogg" };
+          let r = c.request(100 + i, "playlist.add", json!({"name": "shared", "uris": [u(name)]}));
+          assert_eq!(r["result"], json!({"added": 1}), "{r}");
+        }
+      })
+    })
+    .collect();
+  for h in handles {
+    h.join().unwrap();
+  }
+  assert_eq!(s.uris_of("shared").len(), 40);
+  let file = fs::read_to_string(s.daemon.runtime_dir.join("music/playlists/shared.m3u8")).unwrap();
+  assert_eq!(file.lines().filter(|l| !l.starts_with('#')).count(), 40, "the file copy matches the database");
+}
+
+#[test]
+fn a_track_can_be_in_many_playlists_and_in_favorites() {
+  let mut s = S::new();
+  s.create("rock", &["vorbis.ogg"]);
+  s.create("chill", &["vorbis.ogg", "opus.ogg"]);
+  assert_eq!(s.ok("track.playlists", json!({"uri": u("vorbis.ogg")})), json!({"playlists": ["chill", "rock"], "favorite": false}));
+  assert_eq!(s.ok("favorites.set", json!({"uri": u("vorbis.ogg"), "favorite": true})), json!({}));
+  assert_eq!(s.ok("favorites.set", json!({"uri": u("vorbis.ogg"), "favorite": true})), json!({}), "twice is harmless");
+  assert_eq!(s.ok("track.playlists", json!({"uri": u("vorbis.ogg")})), json!({"playlists": ["chill", "rock"], "favorite": true}));
+  assert_eq!(s.ok("track.playlists", json!({"uri": u("opus.ogg")})), json!({"playlists": ["chill"], "favorite": false}));
+  // Favoritos es una playlist mas, marcada, con su copia en la carpeta.
+  let list = s.ok("playlist.list", json!({}));
+  let fav = list["playlists"].as_array().unwrap().iter().find(|p| p["name"] == "Favoritos").cloned();
+  assert_eq!(fav, Some(json!({"name": "Favoritos", "count": 1, "kind": "favorites"})));
+  assert_eq!(s.uris_of("Favoritos"), [u("vorbis.ogg")]);
+  assert!(s.daemon.runtime_dir.join("music/playlists/Favoritos.m3u8").is_file());
+  s.ok("favorites.set", json!({"uri": u("vorbis.ogg"), "favorite": false}));
+  assert!(s.uris_of("Favoritos").is_empty());
+  for bad in [json!({}), json!({"uri": "nope", "favorite": true}), json!({"uri": u("vorbis.ogg")})] {
+    assert_eq!(s.code("favorites.set", bad), -32602);
+  }
+  assert_eq!(s.code("track.playlists", json!({})), -32602);
+}
+
+#[test]
+fn the_database_wins_over_files_edited_by_hand() {
+  let mut s = S::new();
+  s.create("mine", &["vorbis.ogg"]);
+  let file = s.daemon.runtime_dir.join("music/playlists/mine.m3u8");
+  // Editado a mano: la base manda y el archivo se reescribe.
+  fs::write(&file, "#EXTM3U\n/somewhere/else.ogg\n").unwrap();
+  assert_eq!(s.uris_of("mine"), [u("vorbis.ogg")]);
+  assert!(!fs::read_to_string(&file).unwrap().contains("else.ogg"));
+  // Borrado a mano: vuelve a aparecer.
+  fs::remove_file(&file).unwrap();
+  s.ok("playlist.list", json!({}));
+  assert!(file.is_file());
 }

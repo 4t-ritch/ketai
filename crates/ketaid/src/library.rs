@@ -153,13 +153,14 @@ struct Worker {
 
 impl Worker {
   fn load(tx: Sender<Message>, jobs: Sender<Job>) -> Self {
-    let store = data_dir()
-      .and_then(|d| {
-        // El indice de versiones anteriores se importa la primera vez.
-        let legacy = load_index(&d.join("library.json"));
-        Store::open(&d.join("library.db"), Some(legacy)).map_err(|e| eprintln!("ketaid: could not open library.db: {e}")).ok()
-      })
-      .unwrap_or_else(|| Store::open(Path::new(":memory:"), None).expect("in-memory database"));
+    let mut store = crate::store::open_default();
+    // El indice de versiones anteriores se importa la primera vez.
+    if let Some(d) = data_dir() {
+      let (entries, folders) = load_index(&d.join("library.json"));
+      if let Err(e) = store.import_legacy_once(&entries, &folders) {
+        eprintln!("ketaid: could not import library.json: {e}");
+      }
+    }
     Self { store, tx, jobs, next_job: 0 }
   }
 
@@ -285,7 +286,7 @@ fn xdg(var: &str, home_rel: &str) -> Option<PathBuf> {
     .map(|b| b.join("ketai"))
 }
 
-fn data_dir() -> Option<PathBuf> {
+pub fn data_dir() -> Option<PathBuf> {
   xdg("XDG_DATA_HOME", ".local/share")
 }
 

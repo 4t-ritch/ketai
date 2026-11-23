@@ -31,10 +31,10 @@ use crate::{
 
 /// Tiempo en pausa (o detenido) tras el que se cierra la salida.
 const IDLE_CLOSE: Duration = Duration::from_secs(15);
-/// Tamano de bloque pedido a la salida: el de PipeWire por defecto (1024).
-/// Con el de rodio (~50 ms, 2048 a 44,1 kHz) PipeWire agranda el bloque de
-/// todo el grafo al aparecer ketai.
-const BUFFER_FRAMES: u32 = 1024;
+/// Tamano de bloque pedido a la salida (~46 ms a 44,1 kHz). Con 1024 hubo
+/// underruns con Bluetooth; como la salida solo esta abierta mientras suena,
+/// el bloque mas grande no afecta al resto del sistema en pausa.
+const BUFFER_FRAMES: u32 = 2048;
 
 /// Cada cuanto se informa la posicion mientras suena.
 const POSITION_INTERVAL: Duration = Duration::from_millis(250);
@@ -298,7 +298,7 @@ impl Engine {
         // motor la reabre (ver `recover`).
         let broken = self.broken.clone();
         let on_error = move |e: rodio::cpal::StreamError| {
-          if !broken.swap(true, std::sync::atomic::Ordering::SeqCst) {
+          if needs_reopen(&e) && !broken.swap(true, std::sync::atomic::Ordering::SeqCst) {
             eprintln!("ketaid: audio output error, reopening: {e}");
           }
         };
@@ -390,6 +390,13 @@ impl Engine {
   fn emit(&self, event: Event) {
     let _ = self.events.send(event);
   }
+}
+
+/// Errores de la salida que la dejan inutilizable (el dispositivo ya no
+/// esta, el stream quedo invalido, POLLERR). Un underrun no: el stream
+/// sigue vivo y reabrirlo cortaria mas que el propio underrun.
+fn needs_reopen(e: &rodio::cpal::StreamError) -> bool {
+  !matches!(e, rodio::cpal::StreamError::BufferUnderrun)
 }
 
 /// Consume la salida del player al ritmo real del audio y la descarta.
@@ -485,5 +492,15 @@ mod tests {
     e.tick();
     assert!(e.player.is_none());
     assert!(e.resume_ms.is_some());
+  }
+
+  #[test]
+  fn an_underrun_is_not_a_broken_output() {
+    use rodio::cpal::{BackendSpecificError, StreamError};
+    // Un bloque que llego tarde no rompe nada: reabrir cortaria mas.
+    assert!(!needs_reopen(&StreamError::BufferUnderrun));
+    assert!(needs_reopen(&StreamError::DeviceNotAvailable));
+    assert!(needs_reopen(&StreamError::StreamInvalidated));
+    assert!(needs_reopen(&StreamError::BackendSpecific { err: BackendSpecificError { description: "POLLERR".into() } }));
   }
 }

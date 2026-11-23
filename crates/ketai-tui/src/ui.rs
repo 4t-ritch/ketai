@@ -1309,6 +1309,9 @@ pub struct Frame {
   pub resend: Vec<String>,
   /// Todas las caratulas dibujadas en este cuadro (para no borrarlas).
   pub on_screen: Vec<String>,
+  /// Caratulas que no se olvidan aunque no esten en pantalla: la que suena
+  /// y la siguiente (sus colores se usan al cambiar de pista).
+  pub keep: Vec<String>,
 }
 
 /// Ubicaciones y pedidos del ultimo `draw`.
@@ -1330,7 +1333,19 @@ pub fn take_frame(app: &App) -> Frame {
   let resend = RESEND.with(|r| std::mem::take(&mut *r.borrow_mut()));
   let mut on_screen: Vec<String> = slots_uris;
   on_screen.dedup();
-  Frame { placements, wanted, wanted_dimmed, resend, on_screen }
+  let keep: Vec<String> =
+    [app.now_uri(), app.next_track().and_then(|t| t["uri"].as_str()).map(str::to_string)].into_iter().flatten().collect();
+  let mut wanted = wanted;
+  // La siguiente se prepara por adelantado (solo esa): al cambiar de pista
+  // sus colores ya estan y el tema no parpadea.
+  if app.images
+    && let Some(next) = keep.get(1).filter(|_| app.now_uri().is_some())
+    && app.covers.state(next).is_none()
+    && !wanted.contains(next)
+  {
+    wanted.push(next.clone());
+  }
+  Frame { placements, wanted, wanted_dimmed, resend, on_screen, keep }
 }
 
 /// Lo que ya se dibujo queda detras de un popup: sus caratulas pasan a la

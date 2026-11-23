@@ -291,7 +291,8 @@ fn main() -> io::Result<()> {
           last_refresh = Instant::now();
         }
         // Las que no se usan hace rato se borran de la terminal.
-        let in_use: Vec<String> = frame.on_screen;
+        let mut in_use: Vec<String> = frame.on_screen;
+        in_use.extend(frame.keep);
         app.covers.touch(&in_use);
         let evicted = app.covers.evict(KEEP_COVERS);
         app.covers.forget(KEEP_IN_MEMORY);

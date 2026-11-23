@@ -183,3 +183,9 @@ multiplexor. ketai guarda en su memoria como mucho 120 caratulas; las demas
 se vuelven a pedir al daemon si reaparecen. Cada 2 segundos vuelve a poner
 las ubicaciones de las imagenes en pantalla (sin borrar nada), por si el
 multiplexor las perdio sin avisar.
+
+Mientras suena una cancion, ketai prepara por adelantado la caratula y los
+colores de la siguiente en la cola (solo esa). Asi, con los colores de la
+caratula, el tema cambia en el mismo instante en que cambia la pista, sin un
+parpadeo del color anterior. Con aleatorio, la siguiente es la que sigue en
+la cola que muestra el daemon.

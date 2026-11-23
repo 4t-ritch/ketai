@@ -74,6 +74,17 @@ fn kitty_supported() -> bool {
   kitty::supported_reply(&reply)
 }
 
+/// Caratulas que la terminal guarda como mucho. Pocas pantallas muestran mas
+/// de una docena; el resto se borra y se vuelve a mandar si reaparece.
+const KEEP_COVERS: usize = 48;
+
+/// Trabajo para el thread de caratulas.
+enum Prep {
+  File(String, std::path::PathBuf, u32),
+  Image(String, image::RgbImage, u32),
+  Dimmed(String, image::RgbImage, u32),
+}
+
 /// Escribe secuencias de la capa de imagenes sin perder el cursor.
 fn emit(seq: &str) {
   if seq.is_empty() {
@@ -211,6 +222,25 @@ fn main() -> io::Result<()> {
     }
   })?;
 
+  // Un solo thread prepara las caratulas (decodificar, PNG, base64), en
+  // orden. Con un thread por caratula, cientos a la vez cargaban el sistema.
+  let (prep, prep_rx) = std::sync::mpsc::channel::<Prep>();
+  {
+    let tx = tx.clone();
+    thread::Builder::new().name("ketai-covers".into()).spawn(move || {
+      for job in prep_rx {
+        let input = match job {
+          Prep::File(uri, path, id) => Input::Cover(uri, covers::prepare(&path, id)),
+          Prep::Image(uri, img, id) => Input::Cover(uri, Some(covers::prepare_image(img, id))),
+          Prep::Dimmed(uri, img, id) => Input::CoverDim(uri, covers::dimmed_transmit(&img, id)),
+        };
+        if tx.send(input).is_err() {
+          return;
+        }
+      }
+    })?;
+  }
+
   let mut last_retry = Instant::now();
   // Imagenes ubicadas en el ultimo cuadro.
   let mut placed: Vec<kitty::Placement> = Vec::new();
@@ -229,10 +259,14 @@ fn main() -> io::Result<()> {
         }
         for uri in frame.wanted_dimmed {
           if let Some((img, id)) = app.covers.want_dimmed(&uri) {
-            let tx = tx.clone();
-            thread::spawn(move || {
-              let _ = tx.send(Input::CoverDim(uri, covers::dimmed_transmit(&img, id)));
-            });
+            let _ = prep.send(Prep::Dimmed(uri, img, id));
+          }
+        }
+        // Las que la terminal pudo haber perdido se mandan al dibujarse.
+        for uri in frame.resend {
+          if let Some((img, id)) = app.covers.restage(&uri) {
+            ketai_tui::log::log(format_args!("resend {uri}"));
+            let _ = prep.send(Prep::Image(uri, img, id));
           }
         }
         let update = kitty::update(&placed, &frame.placements);
@@ -241,6 +275,14 @@ fn main() -> io::Result<()> {
         }
         emit(&update);
         placed = frame.placements;
+        // Las que no se usan hace rato se borran de la terminal.
+        let in_use: Vec<String> = frame.on_screen;
+        app.covers.touch(&in_use);
+        let evicted = app.covers.evict(KEEP_COVERS);
+        if !evicted.is_empty() {
+          ketai_tui::log::log("evicted old covers");
+          emit(&evicted);
+        }
       }
       // Con una busqueda esperando, se despierta seguido para mandarla a
       // tiempo.
@@ -270,15 +312,10 @@ fn main() -> io::Result<()> {
           if matches!(input, Input::Focus) {
             let _ = terminal.clear();
           }
+          // Solo se marcan: cada una se manda cuando se vuelve a dibujar.
           if app.images {
-            let again = app.covers.resend();
-            ketai_tui::log::log(format_args!("resend {} covers", again.len()));
-            for (uri, img, id) in again {
-              let tx = tx.clone();
-              thread::spawn(move || {
-                let _ = tx.send(Input::Cover(uri, Some(covers::prepare_image(img, id))));
-              });
-            }
+            app.covers.invalidate_all();
+            ketai_tui::log::log("covers marked stale");
           }
         }
         Some(Input::Mouse(m)) if matches!(app.screen, Screen::Main) => {
@@ -323,10 +360,7 @@ fn main() -> io::Result<()> {
         }
         Some(Input::Daemon(DaemonMsg::Reply { id, result })) if app.covers.owns(id) => {
           if let Some(job) = app.covers.on_reply(id, result) {
-            let tx = tx.clone();
-            thread::spawn(move || {
-              let _ = tx.send(Input::Cover(job.uri, covers::prepare(&job.path, job.id)));
-            });
+            let _ = prep.send(Prep::File(job.uri, job.path, job.id));
           }
         }
         Some(Input::Config(result)) => {

@@ -74,3 +74,17 @@ fn without_images_nothing_is_placed_or_requested() {
   let (_, frame) = draw(&app);
   assert!(frame.wanted.is_empty() && frame.placements.is_empty());
 }
+
+#[test]
+fn a_stale_cover_on_screen_asks_to_be_sent_again() {
+  let mut app = playing();
+  app.covers.want("file:///m/a.ogg");
+  app.covers.sent(1, "file:///m/a.ogg");
+  app.covers.on_reply(1, Ok(json!({"path": "/x.png"})));
+  app.covers.decoded("file:///m/a.ogg", Some(image::RgbImage::new(4, 4)));
+  app.covers.invalidate_all();
+  let (_, frame) = draw(&app);
+  assert!(frame.placements.is_empty());
+  assert_eq!(frame.resend, vec!["file:///m/a.ogg".to_string()]);
+  assert!(frame.wanted.is_empty(), "not asked to the daemon again");
+}

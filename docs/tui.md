@@ -161,6 +161,9 @@ debajo del fondo de las celdas: un popup, que tiene fondo propio, las tapa
 sin recortes manuales. Detras de un popup se usa una version atenuada.
 
 Cada ketai usa su propio rango de ids de imagen y solo borra las suyas: se
-pueden tener varios abiertos en la misma terminal. Al cambiar el tamano las
-caratulas se vuelven a mandar, porque algunos multiplexores (herdr) las
-pierden.
+pueden tener varios abiertos en la misma terminal. Al cambiar el tamano o
+recuperar el foco, las caratulas se vuelven a mandar a medida que se
+dibujan (algunos multiplexores, como herdr, las pierden), y la terminal
+guarda como mucho 48: las que no se usan hace rato se borran y se mandan de
+nuevo si reaparecen. Asi no se llena la memoria de imagenes del
+multiplexor.

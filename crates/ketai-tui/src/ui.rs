@@ -20,6 +20,7 @@ use crate::{
 pub fn draw(f: &mut RFrame, app: &App) {
   SLOTS.with(|s| s.borrow_mut().clear());
   WANTED.with(|w| w.borrow_mut().clear());
+  RESEND.with(|r| r.borrow_mut().clear());
   HITS.with(|h| h.borrow_mut().clear());
   let t = &app.theme;
   let area = f.area();
@@ -1227,6 +1228,8 @@ thread_local! {
   static SLOTS: RefCell<Vec<(Rect, String, bool)>> = const { RefCell::new(Vec::new()) };
   /// Caratulas que todavia no se pidieron.
   static WANTED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+  /// Caratulas `Stale` dibujadas en este cuadro.
+  static RESEND: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
   /// Lo clickeable del cuadro que se esta dibujando.
   static HITS: RefCell<Vec<(Rect, Hit)>> = const { RefCell::new(Vec::new()) };
 }
@@ -1276,11 +1279,17 @@ pub struct Frame {
   pub wanted: Vec<String>,
   /// Caratulas detras de un popup que todavia no tienen version atenuada.
   pub wanted_dimmed: Vec<String>,
+  /// Caratulas en pantalla que hay que volver a mandar (`Stale`).
+  pub resend: Vec<String>,
+  /// Todas las caratulas dibujadas en este cuadro (para no borrarlas).
+  pub on_screen: Vec<String>,
 }
 
 /// Ubicaciones y pedidos del ultimo `draw`.
 pub fn take_frame(app: &App) -> Frame {
   let slots = SLOTS.with(|s| std::mem::take(&mut *s.borrow_mut()));
+  let mut slots_uris: Vec<String> = slots.iter().map(|s| s.1.clone()).collect();
+  slots_uris.sort();
   let wanted = WANTED.with(|w| std::mem::take(&mut *w.borrow_mut()));
   let mut wanted_dimmed: Vec<String> = Vec::new();
   let mut placements = Vec::new();
@@ -1292,7 +1301,10 @@ pub fn take_frame(app: &App) -> Frame {
       None => {}
     }
   }
-  Frame { placements, wanted, wanted_dimmed }
+  let resend = RESEND.with(|r| std::mem::take(&mut *r.borrow_mut()));
+  let mut on_screen: Vec<String> = slots_uris;
+  on_screen.dedup();
+  Frame { placements, wanted, wanted_dimmed, resend, on_screen }
 }
 
 /// Lo que ya se dibujo queda detras de un popup: sus caratulas pasan a la
@@ -1320,6 +1332,14 @@ fn draw_cover(f: &mut RFrame, app: &App, area: Rect, uri: Option<&str>) {
       }
       SLOTS.with(|s| s.borrow_mut().push((area, uri.to_string(), false)));
       return;
+    }
+    if let Some(crate::covers::CoverState::Stale { .. }) = app.covers.state(uri) {
+      RESEND.with(|r| {
+        let mut r = r.borrow_mut();
+        if !r.iter().any(|u| u == uri) {
+          r.push(uri.to_string());
+        }
+      });
     }
     if app.covers.state(uri).is_none() {
       WANTED.with(|w| {

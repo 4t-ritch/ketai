@@ -138,22 +138,58 @@ fn covers_are_sent_small() {
   let _ = std::fs::remove_dir_all(dir);
 }
 
-#[test]
-fn after_a_resize_every_cover_is_sent_again() {
-  // Algunas terminales y multiplexores (herdr) pierden las imagenes al
-  // cambiar de tamano: se vuelven a mandar con el mismo id.
+fn ready_cache(uris: &[&str]) -> CoverCache {
   let mut cache = CoverCache::default();
-  cache.want("u");
-  cache.sent(1, "u");
-  cache.on_reply(1, Ok(json!({"path": "/x.png"})));
-  assert!(!cache.decoded("u", Some(image::RgbImage::new(4, 4))).is_empty());
+  for (n, u) in uris.iter().enumerate() {
+    cache.want(u);
+    cache.sent(n as u64, u);
+    cache.on_reply(n as u64, Ok(json!({"path": "/x.png"})));
+    cache.decoded(u, Some(image::RgbImage::new(4, 4)));
+  }
+  cache
+}
+
+#[test]
+fn after_a_resize_only_what_is_drawn_is_sent_again() {
+  // Algunas terminales y multiplexores (herdr) pierden las imagenes al
+  // cambiar de tamano. Mandar todas las caratulas cargadas (cientos) llena
+  // la memoria de imagenes del multiplexor: se marcan y se manda cada una
+  // recien cuando se vuelve a dibujar, con el mismo id.
+  let mut cache = ready_cache(&["u", "v"]);
   let id = cache.image_for("u", false).unwrap();
-  let again = cache.resend();
-  assert_eq!(again.len(), 1);
-  assert_eq!((again[0].0.as_str(), again[0].2), ("u", id));
+  cache.invalidate_all();
   assert_eq!(cache.image_for("u", false), None, "not placed until it is sent again");
-  let (uri, img, id) = again.into_iter().next().unwrap();
-  let seq = cache.ready(&uri, Some(ketai_tui::covers::prepare_image(img, id)));
+  assert_eq!(cache.state("v"), Some(&CoverState::Stale { normal: cache_ids(&cache, "v").0, dimmed: cache_ids(&cache, "v").1 }));
+  let (img, again) = cache.restage("u").expect("drawn again: prepared once");
+  assert_eq!(again, id);
+  assert!(cache.restage("u").is_none(), "only once");
+  let seq = cache.ready("u", Some(ketai_tui::covers::prepare_image(img, again)));
   assert!(seq.contains(&format!("i={id},")), "{seq:?}");
   assert_eq!(cache.image_for("u", false), Some(id));
+}
+
+fn cache_ids(cache: &CoverCache, uri: &str) -> (u32, u32) {
+  match cache.state(uri) {
+    Some(CoverState::Stale { normal, dimmed } | CoverState::Ready { normal, dimmed, .. } | CoverState::Preparing { normal, dimmed }) => (*normal, *dimmed),
+    other => panic!("{other:?}"),
+  }
+}
+
+#[test]
+fn the_terminal_never_keeps_more_than_a_few_covers() {
+  // Las que no se usan hace rato se borran de la terminal; si vuelven a
+  // aparecer, se mandan otra vez.
+  let uris: Vec<String> = (0..10).map(|i| format!("u{i}")).collect();
+  let refs: Vec<&str> = uris.iter().map(String::as_str).collect();
+  let mut cache = ready_cache(&refs);
+  cache.touch(&["u9".to_string(), "u0".to_string()]);
+  let seq = cache.evict(4);
+  let gone: Vec<&str> = refs.iter().copied().filter(|u| matches!(cache.state(u), Some(CoverState::Stale { .. }))).collect();
+  assert_eq!(gone.len(), 6, "{gone:?}");
+  assert!(!gone.contains(&"u9") && !gone.contains(&"u0"), "recently used stay: {gone:?}");
+  for u in &gone {
+    let (normal, dimmed) = cache_ids(&cache, u);
+    assert!(seq.contains(&format!("d=I,i={normal},")) && seq.contains(&format!("d=I,i={dimmed},")), "{seq:?}");
+  }
+  assert!(cache.evict(4).is_empty(), "nothing more to drop");
 }

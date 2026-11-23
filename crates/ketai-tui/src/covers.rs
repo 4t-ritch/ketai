@@ -29,6 +29,9 @@ pub enum CoverState {
   /// Preparandose en otro thread, con sus ids ya reservados.
   Preparing { normal: u32, dimmed: u32 },
   Ready { normal: u32, dimmed: u32, dim: DimState },
+  /// La terminal pudo haberla perdido (cambio de tamano, foco) o se borro
+  /// para no acumular: se vuelve a mandar cuando se dibuje.
+  Stale { normal: u32, dimmed: u32 },
   Missing,
 }
 
@@ -64,6 +67,9 @@ pub struct CoverCache {
   images: HashMap<String, RgbImage>,
   palettes: HashMap<String, CoverPalette>,
   next_image: u32,
+  /// Ultimo uso de cada caratula (para borrar las viejas de la terminal).
+  last_used: HashMap<String, u64>,
+  clock: u64,
 }
 
 impl CoverCache {
@@ -81,19 +87,57 @@ impl CoverCache {
   }
 
   /// Algunas terminales y multiplexores (herdr) pierden las imagenes al
-  /// cambiar de tamano. Devuelve las caratulas listas para volver a
-  /// prepararlas con el mismo id; mientras tanto no se ubican.
-  pub fn resend(&mut self) -> Vec<(String, RgbImage, u32)> {
-    let mut out = Vec::new();
-    for (uri, state) in self.covers.iter_mut() {
-      if let CoverState::Ready { normal, dimmed, .. } = *state
-        && let Some(img) = self.images.get(uri)
-      {
-        *state = CoverState::Preparing { normal, dimmed };
-        out.push((uri.clone(), img.clone(), normal));
+  /// cambiar de tamano o de pestana. Todas las listas pasan a `Stale`; cada
+  /// una se vuelve a mandar recien cuando se dibuja (`restage`). Mandar todas
+  /// de una (cientos) llenaba la memoria de imagenes del multiplexor y
+  /// cargaba el sistema.
+  pub fn invalidate_all(&mut self) {
+    for state in self.covers.values_mut() {
+      if let CoverState::Ready { normal, dimmed, .. } = *state {
+        *state = CoverState::Stale { normal, dimmed };
       }
     }
-    out
+  }
+
+  /// Una caratula `Stale` que se dibuja: imagen e id para volver a
+  /// prepararla en otro thread, una sola vez.
+  pub fn restage(&mut self, uri: &str) -> Option<(RgbImage, u32)> {
+    let Some(CoverState::Stale { normal, dimmed }) = self.covers.get(uri).cloned() else { return None };
+    let img = self.images.get(uri)?.clone();
+    self.covers.insert(uri.to_string(), CoverState::Preparing { normal, dimmed });
+    Some((img, normal))
+  }
+
+  /// Marca caratulas como recien usadas.
+  pub fn touch(&mut self, uris: &[String]) {
+    self.clock += 1;
+    for u in uris {
+      self.last_used.insert(u.clone(), self.clock);
+    }
+  }
+
+  /// Deja en la terminal como mucho `keep` caratulas: borra las usadas hace
+  /// mas tiempo (pasan a `Stale`). Devuelve lo que hay que mandar.
+  pub fn evict(&mut self, keep: usize) -> String {
+    let mut ready: Vec<(u64, String, u32, u32)> = self
+      .covers
+      .iter()
+      .filter_map(|(u, s)| match s {
+        CoverState::Ready { normal, dimmed, .. } => Some((self.last_used.get(u).copied().unwrap_or(0), u.clone(), *normal, *dimmed)),
+        _ => None,
+      })
+      .collect();
+    if ready.len() <= keep {
+      return String::new();
+    }
+    ready.sort();
+    let drop = ready.len() - keep;
+    let mut ids = Vec::new();
+    for (_, uri, normal, dimmed) in ready.into_iter().take(drop) {
+      self.covers.insert(uri, CoverState::Stale { normal, dimmed });
+      ids.extend([normal, dimmed]);
+    }
+    crate::kitty::delete_images(&ids)
   }
 
   /// Ids de imagen reservados por este cache (para borrarlos al salir).
@@ -102,7 +146,9 @@ impl CoverCache {
       .covers
       .values()
       .flat_map(|c| match c {
-        CoverState::Preparing { normal, dimmed } | CoverState::Ready { normal, dimmed, .. } => vec![*normal, *dimmed],
+        CoverState::Preparing { normal, dimmed } | CoverState::Ready { normal, dimmed, .. } | CoverState::Stale { normal, dimmed } => {
+          vec![*normal, *dimmed]
+        }
         _ => vec![],
       })
       .collect();

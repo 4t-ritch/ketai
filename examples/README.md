@@ -2,8 +2,12 @@
 
 Archivos de ejemplo para `~/.config/ketai/config.toml`, con su explicacion.
 
-| Carpeta | Que hay |
+Para empezar, copia [config.toml](config.toml) a `~/.config/ketai/config.toml`:
+tiene todas las secciones, comentadas.
+
+| Carpeta o archivo | Que hay |
 |---|---|
+| `config.toml` | Ejemplo general con todas las secciones |
 | `keys/` | Atajos de teclado (`[keys]`): formato, acciones y ejemplos |
 | `theme/` | Colores (`[theme]`): `cover_color`, cada color y ejemplos |
 

@@ -109,6 +109,26 @@ favorita (queda en la playlist Favoritos). `P` abre la lista de playlists
 playlist nueva (se escribe el nombre) y la agrega ahi. Si ya estaba,
 ketaid avisa y ketai pregunta: `a` la agrega de todos modos, `n` no.
 
+## Mouse
+
+Todo lo que se ve se puede usar con el mouse; hace lo mismo que su tecla.
+
+- Clic en una pestana, en los controles (aleatorio, anterior,
+  reproducir o pausar, siguiente, repeticion), en Favorito o en Agregar a
+  playlist.
+- Clic en la barra de progreso salta a ese punto; en la barra de volumen
+  pone ese volumen.
+- En Biblioteca: clic en una vista (Playlists, Canciones, Artistas...), en
+  una playlist o grupo de la izquierda, o en una cancion. Un clic elige; doble
+  clic reproduce (como `Enter`).
+- En Buscar: clic en un filtro o en un resultado; doble clic reproduce.
+- La rueda mueve la lista que esta bajo el puntero.
+- Con un popup abierto, solo responde el popup: clic en una opcion la elige
+  y un clic afuera lo cierra.
+
+Mientras ketai usa el mouse, la terminal no selecciona texto con un clic
+comun; la mayoria permite seleccionar igual con Shift + arrastrar.
+
 ## Modo mini
 
 Si la terminal mide menos de 72 columnas o 15 filas, ketai pasa solo a una

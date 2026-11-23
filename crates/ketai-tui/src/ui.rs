@@ -12,7 +12,7 @@ use std::cell::RefCell;
 
 use crate::{
   kitty,
-  app::{App, Screen, Tab, fmt_ms},
+  app::{App, Hit, Screen, Tab, fmt_ms},
   service::State,
   theme::Theme,
 };
@@ -20,6 +20,7 @@ use crate::{
 pub fn draw(f: &mut RFrame, app: &App) {
   SLOTS.with(|s| s.borrow_mut().clear());
   WANTED.with(|w| w.borrow_mut().clear());
+  HITS.with(|h| h.borrow_mut().clear());
   let t = &app.theme;
   let area = f.area();
   f.buffer_mut().set_style(area, Style::new().bg(t.bg));
@@ -97,6 +98,7 @@ fn add_popup(f: &mut RFrame, app: &App) {
   let w = 56.min(area.width.saturating_sub(4));
   let pop = Rect::new(area.x + (area.width.saturating_sub(w)) / 2, area.y + (area.height.saturating_sub(h)) / 3, w, h);
   popup_frame(f, t, pop);
+  modal(f.area(), pop);
   let buf = f.buffer_mut();
   let x = pop.x + 3;
   let iw = pop.width.saturating_sub(6) as usize;
@@ -123,6 +125,7 @@ fn add_popup(f: &mut RFrame, app: &App) {
     if y + 1 > pop.y + pop.height - 2 {
       break;
     }
+    hit(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), 1), Hit::PopupRow(i));
     let mark = if app.now_playlists.contains(name) { "  ✓" } else { "" };
     if i == app.add_cursor {
       buf.set_style(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), 1), Style::new().bg(t.row));
@@ -175,6 +178,7 @@ fn devices(f: &mut RFrame, app: &App) {
   let w = 64.min(area.width.saturating_sub(4));
   let pop = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 3, w, h);
   popup_frame(f, t, pop);
+  modal(f.area(), pop);
   let buf = f.buffer_mut();
   let x = pop.x + 3;
   put(buf, x, pop.y + 1, "Conectar a un dispositivo", t.title());
@@ -193,6 +197,7 @@ fn devices(f: &mut RFrame, app: &App) {
     if y + 2 > pop.y + pop.height - 1 {
       break;
     }
+    hit(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), 2), Hit::PopupRow(i));
     let sel = i == app.devices_cursor;
     if sel {
       buf.set_style(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), 2), Style::new().bg(t.row));
@@ -224,6 +229,7 @@ fn folders(f: &mut RFrame, app: &App) {
   let h = (app.folders.len() as u16 * 3 + 14).max(16).min(area.height.saturating_sub(4).max(1));
   let pop = Rect::new(area.x + (area.width.saturating_sub(w)) / 2, area.y + (area.height.saturating_sub(h)) / 3, w, h);
   popup_frame(f, t, pop);
+  modal(f.area(), pop);
   let buf = f.buffer_mut();
   let x = pop.x + 3;
   let inner = pop.width.saturating_sub(6);
@@ -281,6 +287,7 @@ fn palette(f: &mut RFrame, app: &App) {
   let h = 30.min(area.height.saturating_sub(4));
   let pop = Rect::new(area.x + (area.width - w) / 2, area.y + 4.min(area.height / 8), w, h);
   popup_frame(f, t, pop);
+  modal(f.area(), pop);
   let x = pop.x + 3;
   let inner_w = pop.width.saturating_sub(6);
   let mut slots = Vec::new();
@@ -370,6 +377,7 @@ fn progress(buf: &mut Buffer, t: &Theme, x: u16, y: u16, w: u16, pos: u64, dur: 
   put(buf, bx + done, y, "●", t.text());
   put(buf, bx + done + 1, y, "━".repeat(bar_w.saturating_sub(done + 1) as usize), Style::new().fg(t.raised));
   put(buf, bx + bar_w + 2, y, &right, t.dim());
+  hit(Rect::new(bx, y, bar_w, 1), Hit::Seek { x: bx, w: bar_w });
 }
 
 /// Espectro de `viz.sock` con bloques de octavos; degradado del acento al
@@ -449,6 +457,7 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
     Span::styled(format!("  {}%", (vol * 100.0).round()), t.text()),
   ]);
   put_line(buf, x, y, &volume, w);
+  hit(Rect::new(x + 3, y, 15, 1), Hit::Volume { x: x + 3, w: 15 });
   {
     let name = app.output_label();
     let icon = if app.output_active.as_deref().is_some_and(|o| o.starts_with("bluez")) { I_HEADPHONES } else { I_DEVICE };
@@ -471,7 +480,12 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
     Span::styled("+ Agregar a playlist ", t.dim()),
     keycap(&key_label(app, crate::keys::Action::AddToPlaylist)),
   ];
-  put_line(buf, x, y, &Line::from(mine), w);
+  let mine = Line::from(mine);
+  put_line(buf, x, y, &mine, w);
+  {
+    use crate::keys::Action as A;
+    span_hits(x, y, &mine, &[Some(A::Favorite), Some(A::Favorite), None, Some(A::AddToPlaylist), Some(A::AddToPlaylist)]);
+  }
   y += 2;
   // Formato y en cuantas playlists esta.
   let mut info = Vec::new();
@@ -509,6 +523,7 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   }
   let cw = controls.width() as u16;
   put_line(buf, x + w.saturating_sub(cw) / 2, py + 2, &controls, w);
+  span_hits(x + w.saturating_sub(cw) / 2, py + 2, &controls, &CONTROL_ACTIONS);
 
   if app.playing() {
     let viz = Rect::new(area.x + 2, area.y + area.height - viz_h - 1, area.width.saturating_sub(4), viz_h);
@@ -690,6 +705,10 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
     Span::styled(format!("      {I_NEXT}"), t.text()),
   ]);
   let cw = controls.width() as u16;
+  {
+    use crate::keys::Action as A;
+    span_hits(area.x + area.width.saturating_sub(cw) / 2, area.y + area.height - 2, &controls, &[Some(A::Previous), Some(A::Toggle), Some(A::Next)]);
+  }
   center(f, area.y + area.height - 2, controls);
   let end = area.x + (area.width + cw) / 2;
   status_right(f.buffer_mut(), app, area, area.y + area.height - 2, end);
@@ -722,6 +741,9 @@ fn playlists_column(buf: &mut Buffer, app: &App, area: Rect) -> Vec<(Rect, Optio
   let focused = app.lib_focus == crate::app::LibFocus::Playlists && app.tab == Tab::Library;
   for (i, p) in app.playlists.iter().enumerate() {
     let y = area.y + 4 + i as u16 * 4;
+    if app.tab == Tab::Library {
+      hit(Rect::new(area.x, y, area.width, 3), Hit::LibSide(i));
+    }
     if y + 3 > area.y + area.height {
       break;
     }
@@ -831,6 +853,7 @@ fn player_bar(f: &mut RFrame, app: &App, area: Rect) {
     putn(buf, area.x + 10, area.y + 1, track["artist"].as_str().unwrap_or(""), tw, t.dim());
   }
   put_line(buf, start, area.y, &controls, area.width);
+  span_hits(start, area.y, &controls, &CONTROL_ACTIONS);
   // Volumen, salida y favorito a la derecha (o en la fila de abajo si no
   // entran al lado de los controles).
   let end = start + controls.width() as u16;
@@ -878,6 +901,7 @@ fn view_chips(buf: &mut Buffer, app: &App, x: u16, y: u16, w: u16) {
     }
     let style = if *v == app.lib_view { Style::new().fg(t.on_accent).bg(t.accent) } else { t.dim() };
     put(buf, cx, y, &label, style);
+    hit(Rect::new(cx, y, lw, 1), Hit::LibView(*v));
     cx += lw + 1;
     last = i;
   }
@@ -914,6 +938,7 @@ fn groups_column(buf: &mut Buffer, app: &App, area: Rect) {
   for (slot, i) in (first..app.lib_groups.len()).take(rows as usize).enumerate() {
     let g = &app.lib_groups[i];
     let y = area.y + 4 + slot as u16 * 2;
+    hit(Rect::new(area.x, y, area.width, 2), Hit::LibSide(i));
     if i == app.lib_cursor {
       buf.set_style(Rect::new(area.x, y, area.width, 2), Style::new().bg(t.row));
       if focused {
@@ -960,6 +985,7 @@ fn track_table(buf: &mut Buffer, app: &App, area: Rect, rows_src: &[serde_json::
   for (slot, i) in (first..rows_src.len()).take(rows).enumerate() {
     let tr = &rows_src[i];
     let ry = area.y + 2 + slot as u16 * 3;
+    hit(Rect::new(area.x, ry, area.width, 2), Hit::LibTrack(i));
     let playing = playing_uri.is_some() && tr["uri"].as_str() == playing_uri;
     if focus && i == app.track_cursor {
       buf.set_style(Rect::new(area.x, ry, area.width, 2), Style::new().bg(t.row));
@@ -1089,6 +1115,7 @@ fn search(f: &mut RFrame, app: &App, area: Rect) {
   for (i, name) in crate::app::SEARCH_FILTERS.iter().enumerate() {
     let style = if i == app.search_filter { Style::new().fg(t.on_accent).bg(t.accent) } else { t.faint() };
     put(buf, x, c.y, format!(" {name} "), style);
+    hit(Rect::new(x, c.y, name.chars().count() as u16 + 2, 1), Hit::SearchFilter(i));
     x += name.chars().count() as u16 + 3;
   }
   let q = app.search_query.trim();
@@ -1131,6 +1158,7 @@ fn search(f: &mut RFrame, app: &App, area: Rect) {
     for (slot, i) in (first..tracks.len()).take(rows).enumerate() {
       let tr = &tracks[i];
       let ry = y + 2 + slot as u16 * 3;
+      hit(Rect::new(rx, ry, rw, 2), Hit::SearchRow(i));
       if !app.search_editing && i == app.search_cursor {
         buf.set_style(Rect::new(rx, ry, rw, 2), Style::new().bg(t.row));
         put(buf, rx, ry, "▌", t.accent());
@@ -1158,6 +1186,7 @@ fn search(f: &mut RFrame, app: &App, area: Rect) {
       let style = if selected { t.accent() } else { t.dim() };
       let line = Line::from(vec![Span::styled(format!("{I_MUSIC}  "), t.faint()), Span::styled(uri_path(tr["uri"].as_str().unwrap_or("")), style)]);
       put_line(buf, c.x, y + 2 + i as u16, &line, c.width);
+      hit(Rect::new(c.x, y + 2 + i as u16, c.width, 1), Hit::SearchRow(i));
     }
   }
   for (s, uri) in slots {
@@ -1179,7 +1208,47 @@ thread_local! {
   static SLOTS: RefCell<Vec<(Rect, String, bool)>> = const { RefCell::new(Vec::new()) };
   /// Caratulas que todavia no se pidieron.
   static WANTED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+  /// Lo clickeable del cuadro que se esta dibujando.
+  static HITS: RefCell<Vec<(Rect, Hit)>> = const { RefCell::new(Vec::new()) };
 }
+
+/// Registra algo clickeable. Lo que se registra despues queda encima.
+fn hit(area: Rect, h: Hit) {
+  if area.width > 0 && area.height > 0 {
+    HITS.with(|v| v.borrow_mut().push((area, h)));
+  }
+}
+
+/// Lo clickeable del ultimo `draw`.
+pub fn take_hits() -> Vec<(Rect, Hit)> {
+  HITS.with(|v| std::mem::take(&mut *v.borrow_mut()))
+}
+
+/// Un popup tapa todo: lo de atras deja de responder y un clic fuera del
+/// popup lo cierra.
+fn modal(area: Rect, pop: Rect) {
+  HITS.with(|v| v.borrow_mut().clear());
+  hit(area, Hit::Backdrop);
+  hit(pop, Hit::Popup);
+}
+
+/// Registra cada tramo de una linea dibujada en (x, y) con su accion.
+fn span_hits(x: u16, y: u16, line: &Line, actions: &[Option<crate::keys::Action>]) {
+  let mut cx = x;
+  for (span, action) in line.spans.iter().zip(actions) {
+    let w = span.width() as u16;
+    if let Some(a) = action {
+      hit(Rect::new(cx, y, w, 1), Hit::Act(*a));
+    }
+    cx += w;
+  }
+}
+
+/// Acciones de los cinco tramos de `controls`.
+const CONTROL_ACTIONS: [Option<crate::keys::Action>; 5] = {
+  use crate::keys::Action as A;
+  [Some(A::Shuffle), Some(A::Previous), Some(A::Toggle), Some(A::Next), Some(A::Repeat)]
+};
 
 /// Lo que dejo el ultimo dibujo para la capa de imagenes.
 #[derive(Debug, Default, PartialEq)]
@@ -1396,6 +1465,7 @@ fn header(f: &mut RFrame, app: &App, area: Rect) {
   for tab in Tab::ALL {
     let style = if tab == app.tab { t.title().add_modifier(Modifier::UNDERLINED) } else { t.faint() };
     put(buf, x, area.y + 1, tab.label(), style);
+    hit(Rect::new(x, area.y, tab.label().chars().count() as u16, 3), Hit::Tab(tab));
     x += tab.label().chars().count() as u16 + 4;
   }
   // Campo de busqueda junto a las pestanas, en Buscar.

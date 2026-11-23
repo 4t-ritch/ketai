@@ -3,7 +3,10 @@
 
 use std::{collections::HashMap, time::Instant};
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::{
+  crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+  layout::Rect,
+};
 use serde_json::{Value, json};
 
 use crate::{
@@ -99,6 +102,37 @@ pub enum NameFor {
 fn valid_playlist_name(name: &str) -> bool {
   !name.is_empty() && !name.starts_with('.') && !name.contains('/')
 }
+
+/// Algo clickeable de la pantalla. Lo registra el dibujo (`ui::take_hits`),
+/// asi el mouse siempre coincide con lo que se ve.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Hit {
+  Tab(Tab),
+  /// Una accion global (controles, favorito, agregar).
+  Act(crate::keys::Action),
+  /// Barra de progreso: columna donde empieza y ancho.
+  Seek { x: u16, w: u16 },
+  /// Barra de volumen.
+  Volume { x: u16, w: u16 },
+  LibView(LibView),
+  /// Fila de la columna izquierda de Biblioteca (playlist o grupo).
+  LibSide(usize),
+  /// Fila de la lista de canciones de Biblioteca.
+  LibTrack(usize),
+  /// Filtro de Buscar (Todo, Canciones, ...).
+  SearchFilter(usize),
+  /// Fila de resultados de Buscar.
+  SearchRow(usize),
+  /// Fila de un popup (salidas o agregar a playlist).
+  PopupRow(usize),
+  /// Dentro de un popup, fuera de sus filas: no hace nada.
+  Popup,
+  /// Fuera de un popup abierto: lo cierra.
+  Backdrop,
+}
+
+/// Tiempo maximo entre dos clics para que sean doble clic.
+pub const DOUBLE_CLICK: std::time::Duration = std::time::Duration::from_millis(400);
 
 /// Pistas por pedido en las vistas de biblioteca.
 pub const LIB_LIMIT: u64 = 5000;
@@ -204,6 +238,10 @@ pub struct App {
   pub add_confirm: Option<String>,
   /// Nombre de una playlist nueva que se esta escribiendo, y desde donde.
   pub naming: Option<(String, NameFor)>,
+  /// Lo clickeable del ultimo cuadro (ver `Hit`).
+  pub hits: Vec<(Rect, Hit)>,
+  /// Ultimo clic, para detectar doble clic.
+  pub last_click: Option<(Hit, Instant)>,
   /// Aviso corto abajo (por ejemplo "Agregada a «rock»"); se borra con la
   /// proxima tecla.
   pub notice: Option<String>,
@@ -340,6 +378,8 @@ impl Default for App {
       add_confirm: None,
       notice: None,
       naming: None,
+      hits: Vec::new(),
+      last_click: None,
       images: false,
       covers: Default::default(),
       outputs: Vec::new(),
@@ -387,29 +427,12 @@ impl App {
     let typing = self.tab == Tab::Search && self.search_editing;
     use crate::keys::Action as A;
     let action = self.config.keys.action(&key, typing);
-    // Popups y busqueda rapida: antes que las teclas de cada vista.
-    match action {
-      Some(A::Devices) => return self.open_devices(),
-      Some(A::Favorite) => return self.toggle_favorite(),
-      Some(A::AddToPlaylist) if self.now_uri().is_some() => {
-        self.add_open = true;
-        self.add_cursor = 0;
-        self.add_confirm = None;
-        if !self.playlists_loaded {
-          return vec![("playlist.list".into(), json!({}))];
-        }
-        return Vec::new();
-      }
-      Some(A::Folders) => return self.open_folders(),
-      // En Buscar, "/" vuelve a escribir (lo maneja la vista).
-      Some(A::Actions) if !(self.tab == Tab::Search && key.code == KeyCode::Char('/')) => {
-        self.palette_open = true;
-        self.palette_query.clear();
-        self.palette_results.clear();
-        self.palette_cursor = 0;
-        return Vec::new();
-      }
-      _ => {}
+    // Popups y busqueda rapida: antes que las teclas de cada vista. En
+    // Buscar, "/" vuelve a escribir (lo maneja la vista).
+    let early = matches!(action, Some(A::Devices | A::Favorite | A::AddToPlaylist | A::Folders))
+      || (action == Some(A::Actions) && !(self.tab == Tab::Search && key.code == KeyCode::Char('/')));
+    if let (true, Some(a)) = (early, action) {
+      return self.do_action(a);
     }
     if self.tab == Tab::Search
       && let Some(cmds) = self.search_key(key)
@@ -426,6 +449,106 @@ impl App {
     {
       return cmds;
     }
+    match action {
+      Some(a) => self.do_action(a),
+      None => Vec::new(),
+    }
+  }
+
+  /// Evento del mouse. Usa lo registrado en el ultimo cuadro: lo de arriba
+  /// (un popup) gana sobre lo de atras.
+  pub fn on_mouse(&mut self, ev: MouseEvent, now: Instant) -> Vec<Command> {
+    let at = |r: &Rect| ev.column >= r.x && ev.column < r.x + r.width && ev.row >= r.y && ev.row < r.y + r.height;
+    let hit = self.hits.iter().rev().find(|(r, _)| at(r)).map(|(r, h)| (*r, *h));
+    let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
+    match ev.kind {
+      MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+        let code = if ev.kind == MouseEventKind::ScrollUp { KeyCode::Up } else { KeyCode::Down };
+        // La rueda mueve la lista bajo el puntero.
+        match hit.map(|(_, h)| h) {
+          Some(Hit::LibTrack(_)) => {
+            self.lib_focus = LibFocus::Tracks;
+            self.on_key(key(code))
+          }
+          Some(Hit::LibSide(_)) => {
+            self.lib_focus = LibFocus::Playlists;
+            self.on_key(key(code))
+          }
+          Some(Hit::PopupRow(_) | Hit::Popup) => self.on_key(key(code)),
+          _ => Vec::new(),
+        }
+      }
+      MouseEventKind::Down(MouseButton::Left) => {
+        let Some((_, hit)) = hit else { return Vec::new() };
+        let double = self.last_click.is_some_and(|(h, t)| h == hit && now.duration_since(t) <= DOUBLE_CLICK);
+        self.last_click = if double { None } else { Some((hit, now)) };
+        self.notice = None;
+        match hit {
+          Hit::Tab(tab) => self.go_to(tab),
+          Hit::Act(a) => self.do_action(a),
+          Hit::Seek { x, w } => {
+            let Some(dur) = self.player["track"]["duration_ms"].as_u64() else { return Vec::new() };
+            let frac = (ev.column.saturating_sub(x) as f64 / w.max(1) as f64).clamp(0.0, 1.0);
+            vec![("player.seek".into(), json!({"position_ms": (dur as f64 * frac) as u64}))]
+          }
+          Hit::Volume { x, w } => {
+            let frac = (ev.column.saturating_sub(x) as f64 / w.saturating_sub(1).max(1) as f64).clamp(0.0, 1.0);
+            vec![("player.set_volume".into(), json!({"volume": (frac * 100.0).round() / 100.0}))]
+          }
+          Hit::LibView(v) => self.set_lib_view(v),
+          Hit::LibSide(i) => {
+            self.lib_focus = LibFocus::Playlists;
+            self.lib_cursor = i;
+            let cmds = if self.lib_view == LibView::Playlists { self.open_selected() } else { self.open_group() };
+            if double {
+              self.lib_focus = LibFocus::Tracks;
+            }
+            cmds
+          }
+          Hit::LibTrack(i) => {
+            self.lib_focus = LibFocus::Tracks;
+            self.track_cursor = i;
+            // Doble clic: como Enter.
+            if double { self.on_key(key(KeyCode::Enter)) } else { Vec::new() }
+          }
+          Hit::SearchFilter(i) => {
+            self.search_editing = false;
+            self.search_filter = i;
+            self.search_cursor = 0;
+            Vec::new()
+          }
+          Hit::SearchRow(i) => {
+            self.search_editing = false;
+            self.search_cursor = i;
+            if double { self.on_key(key(KeyCode::Enter)) } else { Vec::new() }
+          }
+          Hit::PopupRow(i) => {
+            if self.devices_open {
+              self.devices_cursor = i;
+            } else if self.add_open {
+              self.add_cursor = i;
+            }
+            self.on_key(key(KeyCode::Enter))
+          }
+          Hit::Popup => Vec::new(),
+          Hit::Backdrop => {
+            self.devices_open = false;
+            self.add_open = false;
+            self.add_confirm = None;
+            self.naming = None;
+            self.folders_open = false;
+            self.palette_open = false;
+            Vec::new()
+          }
+        }
+      }
+      _ => Vec::new(),
+    }
+  }
+
+  /// Ejecuta una accion global (de una tecla o de un clic).
+  pub fn do_action(&mut self, action: crate::keys::Action) -> Vec<Command> {
+    use crate::keys::Action as A;
     let cmd = |m: &str| vec![(m.to_string(), json!({}))];
     let volume = |app: &App, step: f64| {
       let v = app.player["volume"].as_f64().unwrap_or(1.0) + step;
@@ -433,29 +556,47 @@ impl App {
       vec![("player.set_volume".into(), json!({"volume": v}))]
     };
     match action {
-      Some(A::Quit) => self.quit = true,
-      Some(A::TabNowPlaying) => return self.go_to(Tab::NowPlaying),
-      Some(A::TabLyrics) => return self.go_to(Tab::Lyrics),
-      Some(A::TabLibrary) => return self.go_to(Tab::Library),
-      Some(A::TabSearch) => return self.go_to(Tab::Search),
-      Some(A::NextTab) => return self.go_to(Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()]),
-      Some(A::PrevTab) => return self.go_to(Tab::ALL[(self.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]),
-      Some(A::Toggle) => return cmd("player.toggle"),
-      Some(A::Next) => return cmd("player.next"),
-      Some(A::Previous) => return cmd("player.previous"),
-      Some(A::SeekForward) => return vec![("player.seek_relative".into(), json!({"offset_ms": 5000}))],
-      Some(A::SeekBack) => return vec![("player.seek_relative".into(), json!({"offset_ms": -5000}))],
-      Some(A::VolumeUp) => return volume(self, 0.05),
-      Some(A::VolumeDown) => return volume(self, -0.05),
-      Some(A::Mute) => {
+      A::Devices => return self.open_devices(),
+      A::Favorite => return self.toggle_favorite(),
+      A::AddToPlaylist if self.now_uri().is_some() => {
+        self.add_open = true;
+        self.add_cursor = 0;
+        self.add_confirm = None;
+        if !self.playlists_loaded {
+          return vec![("playlist.list".into(), json!({}))];
+        }
+      }
+      A::AddToPlaylist => {}
+      A::Folders => return self.open_folders(),
+      A::Actions => {
+        self.palette_open = true;
+        self.palette_query.clear();
+        self.palette_results.clear();
+        self.palette_cursor = 0;
+      }
+      A::Quit => self.quit = true,
+      A::TabNowPlaying => return self.go_to(Tab::NowPlaying),
+      A::TabLyrics => return self.go_to(Tab::Lyrics),
+      A::TabLibrary => return self.go_to(Tab::Library),
+      A::TabSearch => return self.go_to(Tab::Search),
+      A::NextTab => return self.go_to(Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()]),
+      A::PrevTab => return self.go_to(Tab::ALL[(self.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]),
+      A::Toggle => return cmd("player.toggle"),
+      A::Next => return cmd("player.next"),
+      A::Previous => return cmd("player.previous"),
+      A::SeekForward => return vec![("player.seek_relative".into(), json!({"offset_ms": 5000}))],
+      A::SeekBack => return vec![("player.seek_relative".into(), json!({"offset_ms": -5000}))],
+      A::VolumeUp => return volume(self, 0.05),
+      A::VolumeDown => return volume(self, -0.05),
+      A::Mute => {
         let muted = self.player["muted"].as_bool().unwrap_or(false);
         return vec![("player.set_muted".into(), json!({"muted": !muted}))];
       }
-      Some(A::Shuffle) => {
+      A::Shuffle => {
         let on = self.player["shuffle"].as_bool().unwrap_or(false);
         return vec![("player.set_shuffle".into(), json!({"shuffle": !on}))];
       }
-      Some(A::Repeat) => {
+      A::Repeat => {
         let next = match self.player["repeat"].as_str() {
           Some("off") | None => "track",
           Some("track") => "queue",
@@ -463,7 +604,6 @@ impl App {
         };
         return vec![("player.set_repeat".into(), json!({"repeat": next}))];
       }
-      _ => {}
     }
     Vec::new()
   }

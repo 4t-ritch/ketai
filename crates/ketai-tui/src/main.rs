@@ -26,6 +26,7 @@ use serde_json::json;
 enum Input {
   Key(event::KeyEvent),
   Resize,
+  Mouse(ratatui::crossterm::event::MouseEvent),
   Daemon(DaemonMsg),
   /// Resultado de buscar el servicio.
   Observed(Observed),
@@ -153,7 +154,11 @@ fn main() -> io::Result<()> {
   app.refresh_theme();
   let mut terminal = ratatui::init();
   // Avisos de foco, para reenviar las caratulas al volver al panel.
-  let _ = ratatui::crossterm::execute!(io::stdout(), ratatui::crossterm::event::EnableFocusChange);
+  let _ = ratatui::crossterm::execute!(
+    io::stdout(),
+    ratatui::crossterm::event::EnableFocusChange,
+    ratatui::crossterm::event::EnableMouseCapture
+  );
   // La pregunta se hace antes de leer teclas: la respuesta llega por stdin.
   let no_images = std::env::var_os("KETAI_NO_IMAGES").is_some_and(|v| v == "1");
   app.images = !no_images && kitty_supported();
@@ -179,6 +184,7 @@ fn main() -> io::Result<()> {
         // Al volver al panel o a la pestana (herdr, tmux) algunas terminales
         // perdieron las imagenes: se reenvian como al redimensionar.
         Ok(Event::FocusGained) => Input::Resize,
+        Ok(Event::Mouse(m)) => Input::Mouse(m),
         Ok(_) => continue,
         Err(_) => return,
       };
@@ -194,6 +200,7 @@ fn main() -> io::Result<()> {
   let result = (|| -> io::Result<()> {
     loop {
       terminal.draw(|f| ui::draw(f, &app))?;
+      app.hits = ui::take_hits();
       if app.images {
         let frame = ui::take_frame(&app);
         for uri in frame.wanted {
@@ -246,6 +253,12 @@ fn main() -> io::Result<()> {
             }
           }
         }
+        Some(Input::Mouse(m)) if matches!(app.screen, Screen::Main) => {
+          for (method, params) in app.on_mouse(m, Instant::now()) {
+            send(&mut client, &mut app, &method, params);
+          }
+        }
+        Some(Input::Mouse(_)) => {}
         Some(Input::Key(k)) => {
           if let Screen::Service { observed, .. } = &app.screen {
             let observed = observed.clone();
@@ -335,7 +348,11 @@ fn main() -> io::Result<()> {
   if app.images {
     emit(&kitty::delete_images(&app.covers.ids()));
   }
-  let _ = ratatui::crossterm::execute!(io::stdout(), ratatui::crossterm::event::DisableFocusChange);
+  let _ = ratatui::crossterm::execute!(
+    io::stdout(),
+    ratatui::crossterm::event::DisableMouseCapture,
+    ratatui::crossterm::event::DisableFocusChange
+  );
   ratatui::restore();
   result
 }

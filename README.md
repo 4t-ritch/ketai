@@ -168,4 +168,4 @@ ketai es un proyecto personal y abierto para usar. **Los reportes y propuestas v
 
 ## Licencia
 
-MIT (declarada en `Cargo.toml`).
+MIT. Ver [LICENSE](LICENSE).

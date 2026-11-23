@@ -123,6 +123,11 @@ struct Engine {
   resume_ms: Option<u64>,
   /// Desde cuando no suena (para cerrar la salida).
   idle_since: Option<Instant>,
+  /// La salida informo un error (por ejemplo POLLERR porque el dispositivo
+  /// desaparecio): hay que cerrarla y reabrirla.
+  broken: std::sync::Arc<std::sync::atomic::AtomicBool>,
+  /// Ultima reapertura, para no reintentar en bucle.
+  last_recover: Option<Instant>,
 }
 
 impl Engine {
@@ -143,6 +148,8 @@ impl Engine {
       last_position: Instant::now(),
       resume_ms: None,
       idle_since: None,
+      broken: Default::default(),
+      last_recover: None,
     }
   }
 
@@ -287,9 +294,19 @@ impl Engine {
       Backend::System => {
         // Con el bloque de PipeWire; si el dispositivo no lo acepta, el de
         // rodio.
+        // Un error de la salida no se imprime en bucle: se avisa una vez y el
+        // motor la reabre (ver `recover`).
+        let broken = self.broken.clone();
+        let on_error = move |e: rodio::cpal::StreamError| {
+          if !broken.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            eprintln!("ketaid: audio output error, reopening: {e}");
+          }
+        };
         let mut sink = DeviceSinkBuilder::from_default_device()
-          .and_then(|b| b.with_buffer_size(rodio::cpal::BufferSize::Fixed(BUFFER_FRAMES)).open_stream())
-          .or_else(|_| DeviceSinkBuilder::open_default_sink())
+          .and_then(|b| {
+            b.with_buffer_size(rodio::cpal::BufferSize::Fixed(BUFFER_FRAMES)).with_error_callback(on_error.clone()).open_stream()
+          })
+          .or_else(|_| DeviceSinkBuilder::from_default_device().and_then(|b| b.with_error_callback(on_error).open_stream()))
           .map_err(|e| e.to_string())?;
         sink.log_on_drop(false);
         self.player = Some(Player::connect_new(sink.mixer()));
@@ -307,7 +324,37 @@ impl Engine {
     Ok(())
   }
 
+  /// Cierra una salida rota y, si estaba sonando, la reabre en la misma
+  /// posicion. Como mucho una vez por segundo.
+  fn recover(&mut self) {
+    if self.last_recover.is_some_and(|t| t.elapsed() < Duration::from_secs(1)) {
+      return;
+    }
+    self.broken.store(false, std::sync::atomic::Ordering::SeqCst);
+    self.last_recover = Some(Instant::now());
+    let Some(player) = &self.player else { return };
+    let at = self.resume_ms.unwrap_or(self.base_ms + player.get_pos().as_millis() as u64);
+    self.player = None;
+    self._sink = None;
+    if !self.loaded {
+      return;
+    }
+    match (self.playing, self.path.clone()) {
+      (true, Some(path)) => {
+        if let Err(message) = self.load(path, at, true) {
+          self.loaded = false;
+          self.playing = false;
+          self.emit(Event::Failed { generation: self.generation, message });
+        }
+      }
+      _ => self.resume_ms = Some(at),
+    }
+  }
+
   fn tick(&mut self) {
+    if self.broken.load(std::sync::atomic::Ordering::SeqCst) {
+      self.recover();
+    }
     let Some(player) = &self.player else { return };
     // Un rato sin sonar: se cierra la salida.
     if !self.playing && self.idle_since.is_some_and(|t| t.elapsed() >= IDLE_CLOSE) {
@@ -415,5 +462,28 @@ mod tests {
     e.handle(Command::Play);
     assert!(e.player.is_some());
     assert_eq!(e.base_ms, at);
+  }
+
+  #[test]
+  fn a_broken_output_is_reopened_where_it_was() {
+    // Un dispositivo que desaparece (Bluetooth que se desconecta) deja el
+    // stream roto (POLLERR): se cierra y se reabre en la misma posicion.
+    let (mut e, rx) = engine();
+    e.handle(Command::Load { generation: 1, path: fixture(), start_ms: 0, play: true });
+    thread::sleep(Duration::from_millis(300));
+    e.broken.store(true, std::sync::atomic::Ordering::SeqCst);
+    e.tick();
+    assert!(e.player.is_some(), "reopened");
+    assert!(e.playing);
+    assert!(e.base_ms >= 200, "{}", e.base_ms);
+    assert!(!e.broken.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(rx.try_iter().all(|ev| !matches!(ev, Event::Ended { .. } | Event::Failed { .. })));
+    // En pausa: se cierra y se reabre al reproducir.
+    e.handle(Command::Pause);
+    e.broken.store(true, std::sync::atomic::Ordering::SeqCst);
+    e.last_recover = None;
+    e.tick();
+    assert!(e.player.is_none());
+    assert!(e.resume_ms.is_some());
   }
 }

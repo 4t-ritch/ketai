@@ -165,16 +165,30 @@ impl Store {
     self.conn.query_row("SELECT count(*) FROM tracks WHERE path >= ?1 AND path < ?2", params![lo, hi], |r| r.get(0))
   }
 
-  /// Reemplaza lo indexado bajo cada carpeta por `entries`, en una sola
-  /// transaccion: quien busque ve el indice viejo o el nuevo, nunca uno a
-  /// medias.
-  pub fn replace(&mut self, roots: &[PathBuf], entries: &[Entry]) -> rusqlite::Result<()> {
+  /// Guarda una tanda de pistas de un escaneo en curso, en una
+  /// transaccion. Si el escaneo se corta, lo guardado queda.
+  pub fn save_batch(&mut self, entries: &[Entry]) -> rusqlite::Result<()> {
     let tx = self.conn.transaction()?;
-    for r in roots {
-      delete_under(&tx, r)?;
-    }
     for e in entries {
       upsert(&tx, e)?;
+    }
+    tx.commit()
+  }
+
+  /// Fin de un escaneo: borra lo indexado bajo `roots` que ya no aparecio
+  /// (archivos borrados o que dejaron de poder leerse).
+  pub fn finish_scan(&mut self, roots: &[PathBuf], seen: &std::collections::HashSet<PathBuf>) -> rusqlite::Result<()> {
+    let tx = self.conn.transaction()?;
+    for r in roots {
+      let (lo, hi) = range(r);
+      let stale: Vec<String> = {
+        let mut st = tx.prepare("SELECT path FROM tracks WHERE path >= ?1 AND path < ?2")?;
+        let rows = st.query_map(params![lo, hi], |row| row.get::<_, String>(0))?;
+        rows.filter_map(Result::ok).filter(|p| !seen.contains(Path::new(p))).collect()
+      };
+      for p in stale {
+        tx.execute("DELETE FROM tracks WHERE path = ?1", [p])?;
+      }
     }
     tx.commit()
   }

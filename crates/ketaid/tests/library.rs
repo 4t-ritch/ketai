@@ -409,3 +409,33 @@ fn two_clients_changing_folders_at_once_both_count() {
   s.restart();
   assert_eq!(s.ok("library.folders", json!({}))["folders"].as_array().unwrap().len(), 8);
 }
+
+#[test]
+fn a_scan_cut_halfway_keeps_what_it_already_read() {
+  let mut s = S::new();
+  let first = s.put("vorbis.ogg", "many/0000.ogg");
+  for i in 1..3000 {
+    fs::hard_link(&first, s.music().join(format!("many/{i:04}.ogg"))).unwrap();
+  }
+  let mut w = s.daemon.as_ref().unwrap().connect();
+  w.request(1, "events.subscribe", json!({"topics": ["library"]}));
+  s.ok("library.scan", json!({"path": s.music()}));
+  let deadline = Instant::now() + Duration::from_secs(20);
+  loop {
+    assert!(Instant::now() < deadline);
+    let m = w.read_message().expect("event");
+    let done = m["data"]["done"].as_u64().unwrap_or(0);
+    if m["event"] == "library.progress" && done >= 1200 {
+      assert!(done < 3000, "the scan finished before it could be cut; use more files");
+      break;
+    }
+  }
+  // Corte de golpe (SIGKILL), sin cerrar nada.
+  let mut d = s.daemon.take().unwrap();
+  d.child.kill().unwrap();
+  d.child.wait().unwrap();
+  drop(d);
+  s.restart();
+  let kept = s.ok("library.search", json!({"query": "", "limit": 5000}))["tracks"].as_array().unwrap().len();
+  assert!(kept >= 200, "only {kept} tracks survived the cut");
+}

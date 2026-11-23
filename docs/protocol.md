@@ -416,7 +416,9 @@ Reglas de biblioteca, caratulas y cache (v1, solo archivos locales):
   y al final con `done == total`. El evento final llega cuando el indice ya
   esta actualizado: una busqueda hecha al recibirlo ya ve las pistas.
 - Volver a escanear una carpeta reemplaza todo lo indexado bajo ella (lo
-  borrado desaparece). El indice y las carpetas se guardan en una base
+  borrado desaparece al terminar). Lo leido se guarda por tandas de 200
+  pistas mientras escanea: si el daemon se corta a mitad, lo guardado
+  queda. El indice y las carpetas se guardan en una base
   SQLite, `$XDG_DATA_HOME/ketai/library.db`, y sobreviven a reinicios.
   Cada cambio es una transaccion y los pedidos de todos los clientes pasan
   por un solo thread: dos clientes al mismo tiempo nunca se pisan. Si

@@ -7,6 +7,7 @@
 //! lo guarda en `$XDG_DATA_HOME/ketai/library.json`.
 
 use std::{
+  collections::HashSet,
   fs,
   io::Write,
   os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
@@ -35,6 +36,8 @@ const DEFAULT_LIMIT: u64 = 50;
 const CACHE_LIMIT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const INDEX_VERSION: u64 = 1;
 /// Cada cuanto se informa el progreso de un escaneo como maximo.
+/// Pistas por tanda de guardado durante un escaneo.
+const BATCH: usize = 200;
 const PROGRESS_EVERY: Duration = Duration::from_millis(200);
 
 /// Pista de la cola a la que se refiere `track.cover`.
@@ -45,8 +48,10 @@ pub struct TrackRef {
 
 enum Job {
   Request { client: ClientId, request_id: u64, method: String, params: Map<String, Value>, track: Option<TrackRef> },
-  /// Un escaneo termino: reemplazar lo indexado bajo cada carpeta.
-  Indexed { job: String, roots: Vec<PathBuf>, entries: Vec<Entry>, total: u64 },
+  /// Tanda de un escaneo en curso: se guarda enseguida.
+  Batch(Vec<Entry>),
+  /// Un escaneo termino: se borra lo que ya no aparecio bajo cada carpeta.
+  Indexed { job: String, roots: Vec<PathBuf>, seen: HashSet<PathBuf>, total: u64 },
 }
 
 pub struct Done {
@@ -90,10 +95,14 @@ impl LibraryService {
                 return;
               }
             }
-            Job::Indexed { job, roots, entries, total } => {
-              // Si fallara, el worker sigue vivo para atender pedidos.
-              if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.replace(&roots, entries))).is_err() {
-                eprintln!("ketaid: library index update failed");
+            Job::Batch(entries) => {
+              if let Err(e) = worker.store.save_batch(&entries) {
+                eprintln!("ketaid: could not save library index: {e}");
+              }
+            }
+            Job::Indexed { job, roots, seen, total } => {
+              if let Err(e) = worker.store.finish_scan(&roots, &seen) {
+                eprintln!("ketaid: could not save library index: {e}");
               }
               // El ultimo progreso sale despues de actualizar el indice: quien
               // busque al verlo ya encuentra las pistas nuevas.
@@ -252,13 +261,19 @@ impl Worker {
       progress(0);
       let mut last = Instant::now();
       let mut entries = Vec::new();
+      let mut seen = HashSet::new();
       for (i, path) in files.into_iter().enumerate() {
         // Un archivo que no se puede reproducir no entra al indice.
         // Un archivo que hace fallar al decoder se salta: el escaneo siempre
         // termina y siempre llega el progreso final.
         let probed = std::panic::catch_unwind(|| metadata::probe(&path));
         if let Ok(Ok(info)) = probed {
+          seen.insert(path.clone());
           entries.push(Entry { path, info });
+        }
+        // Se guarda por tandas: un corte a mitad no pierde lo ya leido.
+        if entries.len() >= BATCH {
+          let _ = jobs.send(Job::Batch(std::mem::take(&mut entries)));
         }
         let done = i as u64 + 1;
         if done < total && last.elapsed() >= PROGRESS_EVERY {
@@ -267,14 +282,11 @@ impl Worker {
         }
       }
       // El progreso final lo manda el worker, despues de indexar.
-      let _ = jobs.send(Job::Indexed { job, roots, entries, total });
+      if !entries.is_empty() {
+        let _ = jobs.send(Job::Batch(entries));
+      }
+      let _ = jobs.send(Job::Indexed { job, roots, seen, total });
     });
-  }
-
-  fn replace(&mut self, roots: &[PathBuf], entries: Vec<Entry>) {
-    if let Err(e) = self.store.replace(roots, &entries) {
-      eprintln!("ketaid: could not save library index: {e}");
-    }
   }
 }
 

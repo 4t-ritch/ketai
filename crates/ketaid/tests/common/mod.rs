@@ -18,13 +18,51 @@ use std::{
 use serde_json::Value;
 
 static NEXT_DIR: AtomicU32 = AtomicU32::new(0);
+/// Carpetas creadas por este proceso: se borran al salir (ver `cleanup`).
+static CREATED: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+static SETUP: std::sync::Once = std::sync::Once::new();
 
-/// Directorio temporal propio de cada test, fuera del worktree.
+const PREFIX: &str = "ketaid-test-";
+
+/// Al terminar el proceso de tests (con tests que fallaron o no) se borran
+/// todas sus carpetas. Un test que falla antes de su `remove_dir_all` ya no
+/// deja nada.
+extern "C" fn cleanup() {
+  let dirs = std::mem::take(&mut *CREATED.lock().unwrap_or_else(|e| e.into_inner()));
+  for d in dirs {
+    let _ = std::fs::remove_dir_all(d);
+  }
+}
+
+/// Borra carpetas de corridas que ya no existen (cortadas de golpe, por
+/// ejemplo con Ctrl+C, que no llegan a `cleanup`).
+pub fn sweep_dead_runs() {
+  let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+  for e in entries.flatten() {
+    let name = e.file_name().to_string_lossy().into_owned();
+    let Some(pid) = name.strip_prefix(PREFIX).and_then(|r| r.split('-').next()).and_then(|p| p.parse::<i32>().ok()) else {
+      continue;
+    };
+    // kill(pid, 0) falla con ESRCH si el proceso no existe.
+    let alive = unsafe { libc::kill(pid, 0) } == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+    if !alive {
+      let _ = std::fs::remove_dir_all(e.path());
+    }
+  }
+}
+
+/// Directorio temporal propio de cada test, fuera del worktree. Se borra
+/// al terminar el proceso de tests aunque el test falle.
 pub fn temp_runtime_dir() -> PathBuf {
+  SETUP.call_once(|| {
+    sweep_dead_runs();
+    unsafe { libc::atexit(cleanup) };
+  });
   let n = NEXT_DIR.fetch_add(1, Ordering::SeqCst);
-  let dir = std::env::temp_dir().join(format!("ketaid-test-{}-{n}", std::process::id()));
+  let dir = std::env::temp_dir().join(format!("{PREFIX}{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(&dir).unwrap();
+  CREATED.lock().unwrap_or_else(|e| e.into_inner()).push(dir.clone());
   dir
 }
 

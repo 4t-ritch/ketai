@@ -247,10 +247,12 @@ fn main() -> io::Result<()> {
 
   let mut last_retry = Instant::now();
   let mut last_refresh = Instant::now();
+  let started = Instant::now();
   // Imagenes ubicadas en el ultimo cuadro.
   let mut placed: Vec<kitty::Placement> = Vec::new();
   let result = (|| -> io::Result<()> {
     loop {
+      app.anim_ms = started.elapsed().as_millis() as u64;
       terminal.draw(|f| ui::draw(f, &app))?;
       app.hits = ui::take_hits();
       if app.images {

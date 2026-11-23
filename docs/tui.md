@@ -117,6 +117,15 @@ playlist nueva (se escribe el nombre) y la agrega ahi, y `x` la quita de la
 playlist elegida (las que tienen la marca). Si ya estaba,
 ketaid avisa y ketai pregunta: `a` la agrega de todos modos, `n` no.
 
+## Texto largo
+
+Si un texto no entra en su lugar, se desplaza para leerlo completo: espera
+un segundo y medio quieto, avanza un caracter cada cuarto de segundo y,
+despues de un separador, vuelve a empezar. Se desplazan el titulo, artista
+y album de Reproduciendo, el titulo y artista de la barra de abajo, y la
+fila elegida de las listas de Biblioteca y Buscar; el resto se corta, para
+que la pantalla no quede llena de cosas en movimiento.
+
 ## Mouse
 
 Todo lo que se ve se puede usar con el mouse; hace lo mismo que su tecla.

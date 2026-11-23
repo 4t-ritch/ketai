@@ -246,6 +246,9 @@ pub struct App {
   pub add_confirm: Option<String>,
   /// Nombre de una playlist nueva que se esta escribiendo, y desde donde.
   pub naming: Option<(String, NameFor)>,
+  /// Milisegundos desde que arranco la TUI, para animar texto largo
+  /// (`marquee`). Lo pone el loop antes de dibujar.
+  pub anim_ms: u64,
   /// Lo clickeable del ultimo cuadro (ver `Hit`).
   pub hits: Vec<(Rect, Hit)>,
   /// Ultimo clic, para detectar doble clic.
@@ -392,6 +395,7 @@ impl Default for App {
       remove_pending: None,
       notice: None,
       naming: None,
+      anim_ms: 0,
       hits: Vec::new(),
       last_click: None,
       dragging: None,

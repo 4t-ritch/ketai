@@ -442,11 +442,11 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   let mut y = area.y + if roomy { 3 } else { 1 };
   put(buf, x, y, "REPRODUCIENDO", t.faint());
   y += 2;
-  putn(buf, x, y, &title, w as usize, t.title());
+  putm(buf, app, x, y, &title, w as usize, t.title());
   put(buf, x, y + 1, "▔".repeat(title.chars().count().min(w as usize)), t.accent());
   y += 3;
-  putn(buf, x, y, s("artist"), w as usize, t.text());
-  putn(buf, x, y + 1, s("album"), w as usize, t.faint());
+  putm(buf, app, x, y, s("artist"), w as usize, t.text());
+  putm(buf, app, x, y + 1, s("album"), w as usize, t.faint());
   y += if roomy { 4 } else { 3 };
   // Detalles: volumen y salida, favorito y agregar, formato. Cada fila con
   // aire; despues la letra y lo que sigue, y abajo progreso y controles.
@@ -875,8 +875,8 @@ fn player_bar(f: &mut RFrame, app: &App, area: Rect) {
   if track.is_object() {
     // El titulo termina antes de los controles.
     let tw = start.saturating_sub(area.x + 12).min(40) as usize;
-    putn(buf, area.x + 10, area.y, track_title(track), tw, t.title());
-    putn(buf, area.x + 10, area.y + 1, track["artist"].as_str().unwrap_or(""), tw, t.dim());
+    putm(buf, app, area.x + 10, area.y, track_title(track), tw, t.title());
+    putm(buf, app, area.x + 10, area.y + 1, track["artist"].as_str().unwrap_or(""), tw, t.dim());
   }
   put_line(buf, start, area.y, &controls, area.width);
   span_hits(start, area.y, &controls, &CONTROL_ACTIONS);
@@ -1027,8 +1027,16 @@ fn track_table(buf: &mut Buffer, app: &App, area: Rect, rows_src: &[serde_json::
     put(buf, cols[0], ry, if playing { "▶".to_string() } else { (i + 1).to_string() }, if playing { t.accent() } else { t.faint() });
     slots.push((Rect::new(cols[1], ry, 4, 2), tr["uri"].as_str().map(str::to_string)));
     let tw = cols[2].saturating_sub(cols[1] + 7) as usize;
-    putn(buf, cols[1] + 6, ry, track_title(tr), tw, if playing { t.accent().add_modifier(Modifier::BOLD) } else { t.text() });
-    putn(buf, cols[1] + 6, ry + 1, tr["artist"].as_str().unwrap_or(""), tw, t.faint());
+    // Solo la fila elegida se desplaza: una lista entera en movimiento cansa.
+    let style = if playing { t.accent().add_modifier(Modifier::BOLD) } else { t.text() };
+    let (title, artist) = (track_title(tr), tr["artist"].as_str().unwrap_or("").to_string());
+    if focus && i == app.track_cursor {
+      putm(buf, app, cols[1] + 6, ry, title, tw, style);
+      putm(buf, app, cols[1] + 6, ry + 1, artist, tw, t.faint());
+    } else {
+      putn(buf, cols[1] + 6, ry, title, tw, style);
+      putn(buf, cols[1] + 6, ry + 1, artist, tw, t.faint());
+    }
     putn(buf, cols[2], ry, tr["album"].as_str().unwrap_or(""), cols[3].saturating_sub(cols[2] + 2) as usize, t.dim());
     if wide && let Some(y) = tr["year"].as_u64() {
       put(buf, cols[3], ry, y.to_string(), t.faint());
@@ -1197,8 +1205,14 @@ fn search(f: &mut RFrame, app: &App, area: Rect) {
         put(buf, rx, ry + 1, "▌", t.accent());
       }
       slots.push((Rect::new(rx + 2, ry, 4, 2), tr["uri"].as_str().map(str::to_string)));
-      putn(buf, rx + 8, ry, track_title(tr), rw.saturating_sub(16) as usize, t.text());
-      putn(buf, rx + 8, ry + 1, tr["artist"].as_str().unwrap_or(""), rw.saturating_sub(16) as usize, t.faint());
+      let tw = rw.saturating_sub(16) as usize;
+      if !app.search_editing && i == app.search_cursor {
+        putm(buf, app, rx + 8, ry, track_title(tr), tw, t.text());
+        putm(buf, app, rx + 8, ry + 1, tr["artist"].as_str().unwrap_or(""), tw, t.faint());
+      } else {
+        putn(buf, rx + 8, ry, track_title(tr), tw, t.text());
+        putn(buf, rx + 8, ry + 1, tr["artist"].as_str().unwrap_or(""), tw, t.faint());
+      }
       put(buf, rx + rw.saturating_sub(6), ry, tr["duration_ms"].as_u64().map(fmt_ms).unwrap_or_default(), t.faint());
     }
     y += 20;
@@ -1378,6 +1392,11 @@ fn put<S: AsRef<str>>(buf: &mut Buffer, x: u16, y: u16, text: S, style: Style) {
   if visible(buf, x, y) {
     buf.set_string(x, y, text, style);
   }
+}
+
+/// Como `putn`, pero si el texto no entra se desplaza (ver `marquee`).
+fn putm<S: AsRef<str>>(buf: &mut Buffer, app: &App, x: u16, y: u16, text: S, width: usize, style: Style) {
+  putn(buf, x, y, crate::marquee::visible(text.as_ref(), width, app.anim_ms), width, style);
 }
 
 fn putn<S: AsRef<str>>(buf: &mut Buffer, x: u16, y: u16, text: S, width: usize, style: Style) {

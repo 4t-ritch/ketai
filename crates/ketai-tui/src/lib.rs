@@ -8,6 +8,7 @@ pub mod covers;
 pub mod keys;
 pub mod kitty;
 pub mod log;
+pub mod marquee;
 pub mod service;
 pub mod theme;
 pub mod ui;

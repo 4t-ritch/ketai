@@ -18,6 +18,7 @@ Tests: `cargo test` (workspace).
 - S10: Texto largo en movimiento. Usuario: "cuando el texto no se ve por completo en el contenedor que tiene por que es muy largo debe de iniciar un movimiento en scroll horizontal para poder visualizarlo todo."
 - S11: Boton de play. Usuario: "corrige el recuadro contenedor del boton de play/pause porque se ve feo como esta actualmente que un lado esta mas largo que el otro".
 - S12: Audio. Usuario: "por momentos se traba como si tuviera saturacion en su buffer de audio es algo intermintente ... tarda como unos 500ms o un poco mas en detener la cancion o cuando se hace un seek tarda esos como 500 ms o mas en poder reflejar el cambio en el audio."
+- S13: Confirmar repetidas. Usuario: "en la TUI hay que agregar una alerta de que ya se encuentra en la playlist pero hay que ofrecerle la opcion al usuario de agregarla de todos modos o no agregarla. pero esto debe de validarse desde el ketaid para que la confirmacion quede del lado del cliente."
 
 ## Tasks
 
@@ -28,7 +29,7 @@ Tests: `cargo test` (workspace).
 | T2 | S3, S4, S7 | inline | hecho | 384d9fc: library.db (WAL, transacciones, un solo thread), importa library.json una vez, genero/ano/numeros/artista del album |
 | T3 | S3, S4 | inline | hecho | ver commit; playlists y favoritos en library.db, copias .m3u8, favorites.set, track.playlists |
 | T4 | S7, S9 | inline | pendiente | Biblioteca: todas, artista, album, carpeta, ano, genero |
-| T5 | S2 | inline | pendiente | Volumen, dispositivo, agregar a playlist y favorito en Reproduciendo |
+| T5 | S2, S13 | inline | pendiente | Volumen, dispositivo, agregar a playlist y favorito en Reproduciendo |
 | T6 | S8 | inline | pendiente | `cover_color` en toda la UI |
 | T7 | S6 | inline | pendiente | `[keys]` en config.toml, acciones con Ctrl+P |
 | T8 | S5 | inline | pendiente | Mouse |
@@ -46,4 +47,5 @@ Tests: `cargo test` (workspace).
 - L6 (2026-11-22) Decision del usuario (opcion B): la base manda y ketai escribe los archivos de playlist como copia; la primera vez importa las playlists existentes, un archivo nuevo en la carpeta se importa, uno ya conocido editado a mano se reescribe desde la base.
 - L7 T2 hecho (384d9fc). Prueba con copia del library.json real en carpeta temporal: 1215 pistas importadas, busquedas de 0,4 a 0,7 ms, listar todo 36 ms en debug.
 - L8 T3: playlists en la base (migraciones 2 y 3), copias .m3u8 escritas por ketai, sincronizacion de la carpeta en cada operacion (nuevo se importa, conocido cambiado o borrado se reescribe), Favoritos como playlist con kind, `favorites.set`, `track.playlists`. Cambio de regla deliberado (decision B): al cambiar la carpeta, las playlists siguen existiendo y se copian a la nueva (test de config actualizado). Error encontrado: dos threads abriendo la base a la vez daban "database is locked" al pasar a WAL; se serializa la apertura. RED: 3 tests nuevos fallaban; el de dos clientes agregando a la vez ya pasaba (un solo thread de playlists).
+- L9 (2026-11-22) S13 lado daemon: `playlist.add` con `duplicates` ask/add/skip; ask devuelve 1009 con `error.data.duplicates` (campo `data` opcional nuevo en los errores). El test de dos clientes ahora manda `duplicates: "add"` (agrega repetidas a proposito). Falta el dialogo en la TUI (T5).
 - Siguiente paso: T4 (vistas de biblioteca en columnas); T11 espera la medicion del usuario.

@@ -40,6 +40,8 @@ son parte del contrato.
 {"id": 1, "result": {}}
 {"id": 1, "error": {"code": -32601, "message": "method not found"}}
 ```
+Algunos errores traen `error.data` con el detalle (por ejemplo `1009`); los
+clientes que no lo usan lo ignoran.
 
 **Evento** (daemon -> cliente, sin `id`, solo despues de `events.subscribe`):
 ```json
@@ -266,7 +268,7 @@ Reglas del reproductor:
 | `playlist.delete` | `{"name": "chill"}`                     | `{}` |
 | `playlist.load`   | `{"name": "chill", "replace": true}`    | `{}` |
 | `playlist.rename` | `{"name": "chill", "new_name": "relax"}` | `{}` |
-| `playlist.add`    | `{"name": "chill", "uris": ["file:///a.ogg", "file:///b.ogg"], "position": null}` | `{"added": 2}` |
+| `playlist.add`    | `{"name": "chill", "uris": ["file:///a.ogg", "file:///b.ogg"], "position": null, "duplicates": "ask"}` | `{"added": 2}` |
 | `playlist.remove` | `{"name": "chill", "indexes": [3, 5]}`  | `{"removed": 2}` |
 | `playlist.move`   | `{"name": "chill", "from": 3, "to": 0}` | `{}` |
 | `playlist.transfer` | `{"from_name": "rock", "indexes": [2, 5, 7], "to_name": "metal", "position": null, "mode": "move"}` | `{"transferred": 3}` |
@@ -283,6 +285,11 @@ Reglas del reproductor:
   crea con el primer `favorites.set`. `favorites.set` con `favorite: true`
   la agrega si no estaba; con `false` la quita. `uri` y `favorite` son
   obligatorios (`-32602`). Emite `playlist.changed` con `Favoritos`.
+- `playlist.add` con pistas que ya estan en la playlist: `duplicates`
+  decide. `"ask"` (o sin el campo) no agrega nada y devuelve el error
+  `1009` con `data: {"duplicates": [uris]}`, para que el cliente pregunte
+  al usuario; `"add"` las agrega igual; `"skip"` agrega solo las que
+  faltan (`added` cuenta las agregadas). Otro valor devuelve `-32602`.
 - `track.playlists` dice en que playlists esta una URI (sin Favoritos, por
   orden de nombre) y si es favorita.
 - Cada playlist tiene una copia `.m3u8` en la carpeta de playlists,
@@ -564,6 +571,7 @@ Detalles de v1:
 | 1006    | Letra invalida (no se pudo parsear) |
 | 1007    | Capa de letra no encontrada |
 | 1008    | Ya existe una playlist con ese nombre |
+| 1009    | La pista ya esta en la playlist (`data.duplicates`) |
 
 ## 9. Reglas de compatibilidad
 

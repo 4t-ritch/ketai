@@ -37,11 +37,18 @@ pub struct ErrorReply {
   pub id: Option<u64>,
   pub code: i64,
   pub message: String,
+  /// Detalle opcional para el cliente (`error.data`).
+  pub data: Option<Value>,
 }
 
 impl ErrorReply {
   pub fn new(id: Option<u64>, code: i64, message: impl Into<String>) -> Self {
-    Self { id, code, message: message.into() }
+    Self { id, code, message: message.into(), data: None }
+  }
+
+  pub fn with_data(mut self, data: Value) -> Self {
+    self.data = Some(data);
+    self
   }
 }
 
@@ -84,11 +91,11 @@ pub fn encode_result(id: u64, result: Value) -> String {
 
 /// Linea de respuesta de error, terminada en `\n`.
 pub fn encode_error(err: &ErrorReply) -> String {
-  let mut line = json!({
-    "id": err.id,
-    "error": {"code": err.code, "message": err.message},
-  })
-  .to_string();
+  let mut error = json!({"code": err.code, "message": err.message});
+  if let Some(data) = &err.data {
+    error["data"] = data.clone();
+  }
+  let mut line = json!({"id": err.id, "error": error}).to_string();
   line.push('\n');
   line
 }

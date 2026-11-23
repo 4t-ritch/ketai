@@ -31,6 +31,7 @@ use crate::{
 
 const PLAYLIST_NOT_FOUND: i64 = 1005;
 const PLAYLIST_EXISTS: i64 = 1008;
+const ALREADY_IN_PLAYLIST: i64 = 1009;
 const INDEX_OUT_OF_RANGE: i64 = 1002;
 
 /// Carpeta de playlists: `[playlists] dir` de config.toml o, si no esta,
@@ -255,18 +256,36 @@ impl Worker {
         }
         "playlist.add" => {
           let name = p.name("name")?;
-          let new = p.uris()?;
+          let mut new = p.uris()?;
           let position = p.position()?;
+          // Que hacer con las que ya estan: preguntar (error 1009 con la
+          // lista, el cliente confirma), agregarlas igual u omitirlas.
+          let duplicates = match job.params.get("duplicates") {
+            None | Some(Value::Null) => "ask",
+            Some(v) => v.as_str().filter(|d| ["ask", "add", "skip"].contains(d)).ok_or_else(|| p.invalid("duplicates"))?,
+          };
           // Todo o nada: se valida cada URI antes de escribir.
           player::resolve(id, &new, self.ids.reserve(new.len()))?;
-          let count = new.len();
-          self.update(id, &[&name], |l| {
+          let count = self.update(id, &[&name], |l| {
             let uris = l[0].as_mut().ok_or_else(|| not_found(id))?;
             let at = insert_at(id, position, uris.len())?;
+            let mut repeated: Vec<&String> = new.iter().filter(|n| uris.contains(n)).collect();
+            repeated.dedup();
+            if !repeated.is_empty() && duplicates == "ask" {
+              return Err(
+                ErrorReply::new(Some(id), ALREADY_IN_PLAYLIST, "already in playlist").with_data(json!({"duplicates": repeated})),
+              );
+            }
+            if duplicates == "skip" {
+              new.retain(|n| !uris.contains(n));
+            }
+            let count = new.len();
             uris.splice(at..at, new);
-            Ok(())
+            Ok(count)
           })?;
-          changed.push(name);
+          if count > 0 {
+            changed.push(name);
+          }
           Ok(json!({"added": count}))
         }
         "playlist.remove" => {

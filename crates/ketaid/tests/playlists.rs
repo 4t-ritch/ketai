@@ -425,7 +425,7 @@ fn two_clients_adding_at_once_never_lose_a_track() {
       std::thread::spawn(move || {
         for i in 0..20 {
           let name = if (i + k) % 2 == 0 { "vorbis.ogg" } else { "opus.ogg" };
-          let r = c.request(100 + i, "playlist.add", json!({"name": "shared", "uris": [u(name)]}));
+          let r = c.request(100 + i, "playlist.add", json!({"name": "shared", "uris": [u(name)], "duplicates": "add"}));
           assert_eq!(r["result"], json!({"added": 1}), "{r}");
         }
       })
@@ -476,4 +476,24 @@ fn the_database_wins_over_files_edited_by_hand() {
   fs::remove_file(&file).unwrap();
   s.ok("playlist.list", json!({}));
   assert!(file.is_file());
+}
+
+#[test]
+fn adding_a_track_that_is_already_there_asks_first() {
+  let mut s = S::new();
+  s.create("mix", &["vorbis.ogg"]);
+  // Sin decir que hacer: no se agrega nada y el error dice cuales estan.
+  let r = s.raw("playlist.add", json!({"name": "mix", "uris": [u("opus.ogg"), u("vorbis.ogg")]}));
+  assert_eq!(r["error"]["code"], 1009, "{r}");
+  assert_eq!(r["error"]["data"], json!({"duplicates": [u("vorbis.ogg")]}));
+  assert_eq!(s.uris_of("mix"), [u("vorbis.ogg")], "nothing was added");
+  // El usuario decide: agregar de todos modos o solo las que faltan.
+  assert_eq!(s.ok("playlist.add", json!({"name": "mix", "uris": [u("opus.ogg"), u("vorbis.ogg")], "duplicates": "skip"})), json!({"added": 1}));
+  assert_eq!(s.uris_of("mix"), [u("vorbis.ogg"), u("opus.ogg")]);
+  assert_eq!(s.ok("playlist.add", json!({"name": "mix", "uris": [u("vorbis.ogg")], "duplicates": "add"})), json!({"added": 1}));
+  assert_eq!(s.uris_of("mix"), [u("vorbis.ogg"), u("opus.ogg"), u("vorbis.ogg")]);
+  assert_eq!(s.code("playlist.add", json!({"name": "mix", "uris": [u("opus.ogg")], "duplicates": "maybe"})), -32602);
+  // Sin repetidas sigue igual que antes.
+  s.create("new", &[]);
+  assert_eq!(s.ok("playlist.add", json!({"name": "new", "uris": [u("opus.ogg")]})), json!({"added": 1}));
 }

@@ -109,6 +109,8 @@ fn add_popup(f: &mut RFrame, app: &App) {
     put(buf, x + 4, pop.y + 5, "agregar de todos modos", t.text());
     put(buf, x, pop.y + 6, " n ", t.dim());
     put(buf, x + 4, pop.y + 6, "no agregar", t.text());
+    hit(Rect::new(x, pop.y + 5, 26, 1), Hit::Confirm(true));
+    hit(Rect::new(x, pop.y + 6, 26, 1), Hit::Confirm(false));
     return;
   }
   put(buf, x, pop.y + 1, "Agregar a una playlist", t.title());
@@ -244,6 +246,7 @@ fn folders(f: &mut RFrame, app: &App) {
     if y + 2 > pop.y + pop.height.saturating_sub(6) {
       break;
     }
+    hit(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), 2), Hit::PopupRow(i));
     let sel = i == app.folders_cursor;
     if sel {
       buf.set_style(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), 2).intersection(buf.area), Style::new().bg(t.row));
@@ -316,6 +319,7 @@ fn palette(f: &mut RFrame, app: &App) {
       if y + rows > pop.y + pop.height - 1 {
         break;
       }
+      hit(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), rows), Hit::PopupRow(i));
       let sel = i == app.palette_cursor;
       if sel {
         buf.set_style(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), rows), Style::new().bg(t.row));
@@ -464,12 +468,15 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
     let device = Line::from(vec![Span::styled(format!("{icon}  "), t.dim()), Span::styled(name, t.text())]);
     // Al lado del volumen si entra; si no, en la fila siguiente.
     let vw = volume.width() as u16 + 6;
-    if w >= vw + device.width() as u16 {
-      put_line(buf, x + vw, y, &device, w - vw);
+    let dw = device.width() as u16;
+    let dx = if w >= vw + dw {
+      x + vw
     } else {
       y += 1;
-      put_line(buf, x, y, &device, w);
-    }
+      x
+    };
+    put_line(buf, dx, y, &device, w);
+    hit(Rect::new(dx, y, dw, 1), Hit::Act(crate::keys::Action::Devices));
   }
   y += 2;
   let fav = app.now_favorite == Some(true);
@@ -741,6 +748,9 @@ fn playlists_column(buf: &mut Buffer, app: &App, area: Rect) -> Vec<(Rect, Optio
   let focused = app.lib_focus == crate::app::LibFocus::Playlists && app.tab == Tab::Library;
   for (i, p) in app.playlists.iter().enumerate() {
     let y = area.y + 4 + i as u16 * 4;
+    if app.tab == Tab::Library && i == 0 {
+      hit(Rect::new(area.x, area.y + 4, area.width, area.height.saturating_sub(4)), Hit::LibSideArea);
+    }
     if app.tab == Tab::Library {
       hit(Rect::new(area.x, y, area.width, 3), Hit::LibSide(i));
     }
@@ -829,6 +839,9 @@ fn status_right(buf: &mut Buffer, app: &App, area: Rect, y: u16, limit: u16) {
   let x = (area.x + area.width).saturating_sub(w + 2);
   if x > limit + 2 {
     put_line(buf, x, y, &status, w);
+    // Volumen: silenciar; salida: elegir otra; corazon: favorito.
+    use crate::keys::Action as A;
+    span_hits(x, y, &status, &[Some(A::Mute), Some(A::Devices), Some(A::Favorite)]);
   }
 }
 
@@ -888,8 +901,10 @@ fn view_chips(buf: &mut Buffer, app: &App, x: u16, y: u16, w: u16) {
     first += 1;
   }
   let mut cx = x;
+  let n = views.len();
   if first > 0 {
     put(buf, cx, y, "‹", t.accent());
+    hit(Rect::new(cx, y, 1, 1), Hit::LibView(views[(at + n - 1) % n]));
   }
   cx += 2;
   let mut last = first;
@@ -907,6 +922,7 @@ fn view_chips(buf: &mut Buffer, app: &App, x: u16, y: u16, w: u16) {
   }
   if last + 1 < views.len() {
     put(buf, cx, y, "›", t.accent());
+    hit(Rect::new(cx, y, 1, 1), Hit::LibView(views[(at + 1) % n]));
   }
   put(buf, x + w.saturating_sub(pos.chars().count() as u16), y, &pos, t.faint());
   put(buf, x + 2, y + 1, "h / l cambia de vista", t.faint());
@@ -929,6 +945,7 @@ fn groups_column(buf: &mut Buffer, app: &App, area: Rect) {
   put(buf, x, area.y, format!("{I_LIBRARY}  Tu biblioteca"), t.title());
   view_chips(buf, app, x, area.y + 2, area.width.saturating_sub(3));
   let focused = app.lib_focus == crate::app::LibFocus::Playlists;
+  hit(Rect::new(area.x, area.y + 4, area.width, area.height.saturating_sub(4)), Hit::LibSideArea);
   if app.lib_view == crate::app::LibView::All {
     put(buf, x, area.y + 4, format!("{} canciones", app.lib_total), t.dim());
     return;
@@ -977,6 +994,8 @@ fn track_table(buf: &mut Buffer, app: &App, area: Rect, rows_src: &[serde_json::
   for (cx, h) in heads {
     put(buf, cx, area.y, h, t.faint());
   }
+  // Toda la lista responde a la rueda; las filas, ademas, al clic.
+  hit(area, Hit::LibListArea);
   let playing_uri = app.player["track"]["uri"].as_str();
   let rows = (area.height.saturating_sub(2) / 3) as usize;
   let first = app.track_cursor.saturating_sub(rows.saturating_sub(1));

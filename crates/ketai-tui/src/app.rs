@@ -117,6 +117,12 @@ pub enum Hit {
   LibView(LibView),
   /// Fila de la columna izquierda de Biblioteca (playlist o grupo).
   LibSide(usize),
+  /// Toda la columna izquierda de Biblioteca (para la rueda).
+  LibSideArea,
+  /// Toda la lista de canciones de Biblioteca (para la rueda).
+  LibListArea,
+  /// Botones de la confirmacion de repetidas: agregar igual o no.
+  Confirm(bool),
   /// Fila de la lista de canciones de Biblioteca.
   LibTrack(usize),
   /// Filtro de Buscar (Todo, Canciones, ...).
@@ -242,6 +248,11 @@ pub struct App {
   pub hits: Vec<(Rect, Hit)>,
   /// Ultimo clic, para detectar doble clic.
   pub last_click: Option<(Hit, Instant)>,
+  /// Barra que se esta arrastrando (progreso o volumen).
+  pub dragging: Option<Hit>,
+  /// Posicion que muestra la barra mientras se arrastra el progreso; el
+  /// salto se pide al soltar.
+  pub seek_preview: Option<u64>,
   /// Aviso corto abajo (por ejemplo "Agregada a «rock»"); se borra con la
   /// proxima tecla.
   pub notice: Option<String>,
@@ -380,6 +391,8 @@ impl Default for App {
       naming: None,
       hits: Vec::new(),
       last_click: None,
+      dragging: None,
+      seek_preview: None,
       images: false,
       covers: Default::default(),
       outputs: Vec::new(),
@@ -466,11 +479,11 @@ impl App {
         let code = if ev.kind == MouseEventKind::ScrollUp { KeyCode::Up } else { KeyCode::Down };
         // La rueda mueve la lista bajo el puntero.
         match hit.map(|(_, h)| h) {
-          Some(Hit::LibTrack(_)) => {
+          Some(Hit::LibTrack(_) | Hit::LibListArea) => {
             self.lib_focus = LibFocus::Tracks;
             self.on_key(key(code))
           }
-          Some(Hit::LibSide(_)) => {
+          Some(Hit::LibSide(_) | Hit::LibSideArea) => {
             self.lib_focus = LibFocus::Playlists;
             self.on_key(key(code))
           }
@@ -478,6 +491,29 @@ impl App {
           _ => Vec::new(),
         }
       }
+      // Arrastrar una barra: sigue al puntero aunque salga de la barra.
+      MouseEventKind::Drag(MouseButton::Left) => match self.dragging {
+        Some(h @ Hit::Seek { .. }) => {
+          self.seek_preview = self.bar_value(h, ev.column);
+          Vec::new()
+        }
+        Some(h @ Hit::Volume { .. }) => self.set_volume_at(h, ev.column),
+        _ => Vec::new(),
+      },
+      MouseEventKind::Up(MouseButton::Left) => match self.dragging.take() {
+        Some(Hit::Seek { .. }) => match self.seek_preview.take() {
+          Some(ms) => {
+            // Hasta que llegue la posicion nueva del daemon, se muestra esta.
+            if let Some(obj) = self.player.as_object_mut() {
+              obj.insert("position_ms".into(), json!(ms));
+            }
+            self.pos_at = Instant::now();
+            vec![("player.seek".into(), json!({"position_ms": ms}))]
+          }
+          None => Vec::new(),
+        },
+        _ => Vec::new(),
+      },
       MouseEventKind::Down(MouseButton::Left) => {
         let Some((_, hit)) = hit else { return Vec::new() };
         let double = self.last_click.is_some_and(|(h, t)| h == hit && now.duration_since(t) <= DOUBLE_CLICK);
@@ -486,15 +522,18 @@ impl App {
         match hit {
           Hit::Tab(tab) => self.go_to(tab),
           Hit::Act(a) => self.do_action(a),
-          Hit::Seek { x, w } => {
-            let Some(dur) = self.player["track"]["duration_ms"].as_u64() else { return Vec::new() };
-            let frac = (ev.column.saturating_sub(x) as f64 / w.max(1) as f64).clamp(0.0, 1.0);
-            vec![("player.seek".into(), json!({"position_ms": (dur as f64 * frac) as u64}))]
+          // El progreso se arrastra: se salta al soltar.
+          Hit::Seek { .. } => {
+            self.dragging = Some(hit);
+            self.seek_preview = self.bar_value(hit, ev.column);
+            Vec::new()
           }
-          Hit::Volume { x, w } => {
-            let frac = (ev.column.saturating_sub(x) as f64 / w.saturating_sub(1).max(1) as f64).clamp(0.0, 1.0);
-            vec![("player.set_volume".into(), json!({"volume": (frac * 100.0).round() / 100.0}))]
+          Hit::Volume { .. } => {
+            self.dragging = Some(hit);
+            self.set_volume_at(hit, ev.column)
           }
+          Hit::LibSideArea | Hit::LibListArea => Vec::new(),
+          Hit::Confirm(yes) => self.on_key(key(KeyCode::Char(if yes { 'a' } else { 'n' }))),
           Hit::LibView(v) => self.set_lib_view(v),
           Hit::LibSide(i) => {
             self.lib_focus = LibFocus::Playlists;
@@ -523,7 +562,14 @@ impl App {
             if double { self.on_key(key(KeyCode::Enter)) } else { Vec::new() }
           }
           Hit::PopupRow(i) => {
-            if self.devices_open {
+            if self.folders_open {
+              // En Carpetas un clic elige; las acciones van con sus teclas.
+              self.folders_cursor = i;
+              return Vec::new();
+            }
+            if self.palette_open {
+              self.palette_cursor = i;
+            } else if self.devices_open {
               self.devices_cursor = i;
             } else if self.add_open {
               self.add_cursor = i;
@@ -544,6 +590,26 @@ impl App {
       }
       _ => Vec::new(),
     }
+  }
+
+  /// Posicion de una barra de progreso para la columna `col`.
+  fn bar_value(&self, bar: Hit, col: u16) -> Option<u64> {
+    let Hit::Seek { x, w } = bar else { return None };
+    let dur = self.player["track"]["duration_ms"].as_u64()?;
+    let frac = (col.saturating_sub(x) as f64 / w.max(1) as f64).clamp(0.0, 1.0);
+    Some((dur as f64 * frac) as u64)
+  }
+
+  /// Volumen para la columna `col` de la barra de volumen.
+  fn set_volume_at(&mut self, bar: Hit, col: u16) -> Vec<Command> {
+    let Hit::Volume { x, w } = bar else { return Vec::new() };
+    let frac = (col.saturating_sub(x) as f64 / w.saturating_sub(1).max(1) as f64).clamp(0.0, 1.0);
+    let v = (frac * 100.0).round() / 100.0;
+    // Se ve enseguida, sin esperar al daemon.
+    if let Some(obj) = self.player.as_object_mut() {
+      obj.insert("volume".into(), json!(v));
+    }
+    vec![("player.set_volume".into(), json!({"volume": v}))]
   }
 
   /// Ejecuta una accion global (de una tecla o de un clic).
@@ -1498,6 +1564,9 @@ impl App {
 
   /// Posicion actual: la ultima conocida mas lo que paso si esta sonando.
   pub fn position_ms(&self) -> u64 {
+    if let Some(p) = self.seek_preview {
+      return p;
+    }
     let mut ms = self.player["position_ms"].as_u64().unwrap_or(0);
     if self.playing() {
       ms += self.pos_at.elapsed().as_millis() as u64;

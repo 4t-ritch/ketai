@@ -116,15 +116,23 @@ Todo lo que se ve se puede usar con el mouse; hace lo mismo que su tecla.
 - Clic en una pestana, en los controles (aleatorio, anterior,
   reproducir o pausar, siguiente, repeticion), en Favorito o en Agregar a
   playlist.
-- Clic en la barra de progreso salta a ese punto; en la barra de volumen
-  pone ese volumen.
-- En Biblioteca: clic en una vista (Playlists, Canciones, Artistas...), en
+- La barra de progreso y la de volumen se arrastran: se aprieta, se mueve y
+  se suelta (un clic tambien sirve). El volumen cambia mientras se arrastra;
+  el progreso muestra el punto mientras se arrastra y salta al soltar.
+- En la barra de abajo, clic en el volumen silencia, en la salida abre la
+  lista de salidas y en el corazon marca favorita. En Reproduciendo, clic en
+  la salida tambien abre la lista.
+- En Biblioteca: clic en una vista (Playlists, Canciones, Artistas...) o en
+  las flechas `‹ ›`, en
   una playlist o grupo de la izquierda, o en una cancion. Un clic elige; doble
   clic reproduce (como `Enter`).
 - En Buscar: clic en un filtro o en un resultado; doble clic reproduce.
-- La rueda mueve la lista que esta bajo el puntero.
+- La rueda mueve la lista que esta bajo el puntero, en cualquier parte de
+  la lista.
 - Con un popup abierto, solo responde el popup: clic en una opcion la elige
-  y un clic afuera lo cierra.
+  (en Carpetas solo la marca; las acciones siguen con sus teclas), en la
+  confirmacion de repetidas los botones "agregar de todos modos" y "no
+  agregar", y un clic afuera lo cierra.
 
 Mientras ketai usa el mouse, la terminal no selecciona texto con un clic
 comun; la mayoria permite seleccionar igual con Shift + arrastrar.

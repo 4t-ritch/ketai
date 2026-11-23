@@ -1,0 +1,68 @@
+# Configuracion de ejemplo de ketai, con todas las secciones.
+#
+# Copia este archivo a ~/.config/ketai/config.toml y cambia lo que quieras.
+# Los cambios se aplican al guardar, sin cerrar ketai. Si algo esta mal
+# escrito, ketai lo muestra en la ultima fila de la pantalla y sigue con la
+# configuracion anterior hasta que lo corrijas.
+#
+# Mas detalle:
+#   colores ......... examples/theme/README.md
+#   atajos .......... examples/keys/README.md
+#   todas las claves  docs/config.md
+
+
+# --- Colores -----------------------------------------------------------
+
+[theme]
+# true: toda la interfaz toma los colores de la caratula que suena, y los
+# colores de abajo se ignoran. Cambia con cada cancion.
+# false: solo valen los colores de abajo.
+# Sin esta linea: cada color decide ("cover" o un color fijo).
+cover_color = true
+
+# Estos se usan con cover_color = false (o sin cover_color). "cover" toma el
+# color de la caratula; si no, un color fijo "#rrggbb".
+background = "cover"
+accent = "cover"
+foreground = "#ffffff"
+dim = "#c8d3e0"
+faint = "#7f8ea3"
+raised = "#1c2a3a"
+on_accent = "#04121f"
+row = "#16202e"
+ok = "#7ee787"
+error = "#ff7b8a"
+spectrum_top = "#ff7ab6"
+
+
+# --- Atajos ------------------------------------------------------------
+
+[keys]
+# Cada accion recibe una tecla o una lista. Lo que se configura reemplaza
+# las teclas por defecto de esa accion; las acciones que no estan aca quedan
+# con su tecla de siempre. Ctrl+C siempre sale.
+toggle = "space"
+next = ["n", "ctrl+right"]
+previous = ["p", "ctrl+left"]
+seek_forward = "right"
+seek_back = "left"
+volume_up = ["+", "="]
+volume_down = "-"
+mute = "m"
+shuffle = "s"
+repeat = "r"
+devices = "d"
+folders = "f"
+favorite = "*"
+add_to_playlist = "P"
+actions = ["ctrl+p", "ctrl+k", "/"]
+quit = "q"
+
+
+# --- Playlists ---------------------------------------------------------
+
+[playlists]
+# Carpeta donde ketai copia cada playlist como archivo .m3u8 (para usarlas
+# con otros reproductores). Por defecto: la carpeta de musica del sistema
+# (XDG_MUSIC_DIR) + /playlists. Se crea si no existe.
+dir = "~/music/playlists"

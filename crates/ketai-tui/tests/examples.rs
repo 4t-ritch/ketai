@@ -29,13 +29,25 @@ fn every_example_loads_without_errors_or_warnings() {
       }
     }
   }
-  assert!(n >= 8, "found {n} examples");
+  // El ejemplo general, en la raiz de examples/.
+  load("config.toml");
+  n += 1;
+  assert!(n >= 9, "found {n} examples");
 }
 
 #[test]
 fn the_defaults_examples_match_the_real_defaults() {
   assert_eq!(load("keys/defaults.toml").keys, Config::default().keys);
   assert_eq!(load("theme/defaults.toml").theme(None), Theme::default());
+}
+
+#[test]
+fn the_general_example_has_every_section() {
+  let text = fs::read_to_string(examples().join("config.toml")).unwrap();
+  for section in ["[theme]", "[keys]", "[playlists]"] {
+    assert!(text.contains(section), "missing {section}");
+  }
+  assert_eq!(load("config.toml").theme.cover_color, Some(true));
 }
 
 #[test]

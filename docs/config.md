@@ -2,7 +2,9 @@
 
 La TUI lee `$XDG_CONFIG_HOME/ketai/config.toml` (por defecto
 `~/.config/ketai/config.toml`). Si no existe, usa los valores por defecto.
-Hay un ejemplo comentado en `dist/config.toml`.
+Hay un ejemplo comentado en `dist/config.toml`, y guias con ejemplos por
+tema en `examples/` (`examples/keys/` para atajos, `examples/theme/` para
+colores).
 
 ## Formato
 

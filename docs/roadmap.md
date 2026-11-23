@@ -18,6 +18,19 @@ pistas remotas.
 - Evento `download.progress` (topico `cache`), ya reservado en el protocolo.
 - Letras y caratulas para pistas remotas.
 
+### Varios temas
+
+La v1 tiene un solo tema activo: la seccion `[theme]` de `config.toml`. Esta
+actualizacion permite tener varios guardados y elegir cual usar.
+
+- Temas en archivos propios (por ejemplo `~/.config/ketai/themes/<nombre>.toml`),
+  con las mismas claves que `[theme]`.
+- Elegir el tema activo desde `config.toml` y desde la TUI (por ejemplo, en
+  el popup de acciones), con recarga en vivo.
+- Temas incluidos con ketai y posibilidad de compartirlos.
+- Antes de empezar se define como conviven un tema elegido y `cover_color`
+  (por ejemplo, un tema que diga que colores toma de la caratula).
+
 ### Romanizacion automatica de letras
 
 Generar la letra romanizada cuando el origen no la trae.

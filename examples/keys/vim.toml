@@ -1,0 +1,13 @@
+# Estilo vim. h / j / k / l ya se usan para moverse dentro de las listas y
+# para cambiar de vista en Biblioteca, asi que los atajos globales van con
+# Alt. Ver examples/keys/README.md.
+
+[keys]
+seek_back = ["left", "alt+h"]
+seek_forward = ["right", "alt+l"]
+volume_down = ["-", "alt+j"]
+volume_up = ["+", "alt+k"]
+next = ["n", "alt+n"]
+previous = ["p", "alt+p"]
+actions = ["ctrl+p", ":"]
+quit = ["q", "alt+q"]

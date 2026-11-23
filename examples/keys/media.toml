@@ -1,0 +1,15 @@
+# Reproduccion con Ctrl, Alt y flechas, sin letras sueltas: util si escribis
+# mucho en Buscar o si no queres tocar la reproduccion por accidente.
+# Ver examples/keys/README.md.
+
+[keys]
+toggle = "alt+space"
+next = "ctrl+right"
+previous = "ctrl+left"
+seek_forward = "alt+right"
+seek_back = "alt+left"
+volume_up = "ctrl+up"
+volume_down = "ctrl+down"
+mute = "alt+m"
+shuffle = "alt+s"
+repeat = "alt+r"

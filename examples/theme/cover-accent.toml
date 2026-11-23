@@ -1,0 +1,9 @@
+# Fondo de la caratula y un acento fijo elegido por vos.
+# Sin cover_color: cada color decide. Con background = "cover" tambien salen
+# de la caratula los paneles, la fila elegida y los textos secundarios.
+# Ver examples/theme/README.md.
+
+[theme]
+background = "cover"
+accent = "#7cd4ff"
+on_accent = "#04121f"

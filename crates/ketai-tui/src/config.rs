@@ -158,15 +158,36 @@ impl Config {
       (Color::Fixed(c), _) => t.bg = c,
       (Color::Cover, Some(p)) => {
         t.bg = p.background;
-        if !self.theme.fixed.iter().any(|(k, _)| *k == "raised") {
+        // Lo que acompana al fondo tambien sale de la caratula, salvo que
+        // este fijado a mano.
+        let mine = |k: &str| self.theme.fixed.iter().any(|(f, _)| *f == k);
+        if !mine("raised") {
           t.raised = p.raised;
+        }
+        if !mine("row") {
+          t.row = p.row;
+        }
+        if !mine("dim") {
+          t.dim = p.dim;
+        }
+        if !mine("faint") {
+          t.faint = p.faint;
         }
       }
       (Color::Cover, None) => {}
     }
     match (self.theme.accent, cover) {
       (Color::Fixed(c), _) => t.accent = c,
-      (Color::Cover, Some(p)) => t.accent = p.accent,
+      (Color::Cover, Some(p)) => {
+        t.accent = p.accent;
+        let mine = |k: &str| self.theme.fixed.iter().any(|(f, _)| *f == k);
+        if !mine("on_accent") {
+          t.on_accent = p.on_accent;
+        }
+        if !mine("spectrum_top") {
+          t.spectrum_top = p.spectrum_top;
+        }
+      }
       (Color::Cover, None) => {}
     }
     t

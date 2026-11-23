@@ -148,14 +148,11 @@ fn dim(f: &mut RFrame, t: &Theme) {
   let _ = t;
 }
 
-/// Fondo de los popups.
-const POPUP: ratatui::style::Color = crate::theme::rgb(0x0b0f16);
-
 /// Recuadro redondeado con el borde en el color de acento.
 fn popup_frame(f: &mut RFrame, t: &Theme, area: Rect) {
   use ratatui::widgets::{Block, BorderType, Clear, Widget};
   Clear.render(area, f.buffer_mut());
-  Block::bordered().border_type(BorderType::Rounded).border_style(t.accent()).style(Style::new().bg(POPUP)).render(area, f.buffer_mut());
+  Block::bordered().border_type(BorderType::Rounded).border_style(t.accent()).style(Style::new().bg(t.popup())).render(area, f.buffer_mut());
 }
 
 /// Tipo de salida a partir del nombre del sink.
@@ -570,9 +567,6 @@ fn percent_decode(s: &str) -> String {
   String::from_utf8(out).unwrap_or_else(|_| s.to_string())
 }
 
-/// Color de las lineas que todavia no se cantan.
-const UPCOMING: ratatui::style::Color = crate::theme::rgb(0x6b7a90);
-const UPCOMING_SECONDARY: ratatui::style::Color = crate::theme::rgb(0x4f5d72);
 
 /// Tres lineas alrededor de la actual (en Reproduciendo).
 fn lyrics_preview(buf: &mut Buffer, app: &App, x: u16, y: u16, w: u16) {
@@ -605,7 +599,7 @@ fn sung_line(app: &App, line: &serde_json::Value, pos: u64) -> Line<'static> {
         } else if pos >= start {
           Style::new().fg(t.accent).add_modifier(bold | Modifier::UNDERLINED)
         } else {
-          Style::new().fg(UPCOMING).add_modifier(bold)
+          Style::new().fg(app.theme.upcoming()).add_modifier(bold)
         };
         Span::styled(text, style)
       })
@@ -670,12 +664,12 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
         let main = match cur {
           Some(c) if i == c => sung_line(app, line, pos),
           Some(c) if i < c => Line::styled(line["text"].as_str().unwrap_or("").to_string(), t.faint()),
-          _ => Line::styled(line["text"].as_str().unwrap_or("").to_string(), Style::new().fg(UPCOMING).add_modifier(Modifier::BOLD)),
+          _ => Line::styled(line["text"].as_str().unwrap_or("").to_string(), Style::new().fg(app.theme.upcoming()).add_modifier(Modifier::BOLD)),
         };
         center(f, y, main);
         for (k, id) in app.lyrics_secondary.iter().enumerate() {
           let Some(tr) = line["secondary"][id].as_str() else { continue };
-          let color = if cur == Some(i) { t.dim } else { UPCOMING_SECONDARY };
+          let color = if cur == Some(i) { t.dim } else { t.upcoming_secondary() };
           center(f, y + 1 + k as u16, Line::styled(tr.to_string(), Style::new().fg(color).add_modifier(Modifier::ITALIC)));
         }
       }

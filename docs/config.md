@@ -51,7 +51,13 @@ defecto.
 - `false`: solo valen los colores manuales; `"cover"` vale el color por
   defecto.
 - Sin la clave: cada color decide; `background` y `accent` pueden ser
-  `"cover"`.
+  `"cover"`. Con `background = "cover"` tambien salen de la caratula
+  `raised`, `row`, `dim` y `faint`; con `accent = "cover"`, `on_accent` y
+  `spectrum_top`. Un color fijado a mano siempre gana.
+
+Los popups, las lineas de letra que todavia no se cantan y el resto de la
+interfaz derivan de estos colores: nada tiene un color propio fijo. `ok` y
+`error` son colores de estado (conectado, error) y no siguen a la caratula.
 
 Con `"cover"`, los colores salen de la caratula que suena: el fondo es el
 color promedio oscurecido y el acento es el mismo tono, claro y saturado

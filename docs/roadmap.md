@@ -18,6 +18,21 @@ pistas remotas.
 - Evento `download.progress` (topico `cache`), ya reservado en el protocolo.
 - Letras y caratulas para pistas remotas.
 
+### Instalacion con gestores de paquetes
+
+Hoy ketai se compila desde el codigo fuente. Esta actualizacion lo deja
+instalable con un comando, con el daemon y la TUI juntos.
+
+- Paquetes para los gestores mas usados en Linux (por ejemplo un PKGBUILD
+  para el AUR, y paquetes para otras distribuciones a definir), con los
+  binarios, las unidades de systemd de usuario, la documentacion y los
+  ejemplos de configuracion.
+- Al instalar, el servicio queda listo para activarse
+  (`systemctl --user enable --now ketaid.socket`).
+- Binarios precompilados en cada release, para quien no quiera compilar.
+- Antes de empezar se revisa la licencia de FDK AAC para distribuir binarios
+  (ver [formatos.md](formatos.md#licencias)).
+
 ### Varios temas
 
 La v1 tiene un solo tema activo: la seccion `[theme]` de `config.toml`. Esta

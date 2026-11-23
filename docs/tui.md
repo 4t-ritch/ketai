@@ -93,8 +93,10 @@ ejecuta, `Tab` agrega a la cola, `Esc` cierra.
 
 ## Favoritos y agregar a una playlist
 
-En Reproduciendo, debajo del volumen se ven la salida activa, si la cancion
-es favorita y en cuantas playlists esta. `*` la marca o desmarca como
+En todas las vistas se ve el estado del reproductor activo: volumen,
+salida y si la cancion es favorita (en Biblioteca y Buscar, en la barra de
+abajo; en Letras, junto a los controles; en el modo mini, al lado del
+volumen). En Reproduciendo, ademas, en cuantas playlists esta. `*` la marca o desmarca como
 favorita (queda en la playlist Favoritos). `P` abre la lista de playlists
 (las que ya la tienen llevan una marca); `Enter` la agrega. Si ya estaba,
 ketaid avisa y ketai pregunta: `a` la agrega de todos modos, `n` no.

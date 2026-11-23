@@ -90,3 +90,28 @@ fn adding_to_a_playlist_asks_before_repeating() {
   assert!(!app.add_open);
   assert!(app.notice.as_deref().unwrap_or("").contains("rock"), "{:?}", app.notice);
 }
+
+fn text_at(app: &App, w: u16, h: u16) -> String {
+  let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+  term.draw(|f| ui::draw(f, app)).unwrap();
+  let buf = term.backend().buffer();
+  (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect()
+}
+
+#[test]
+fn every_view_shows_the_active_player_status() {
+  let (mut app, _) = playing();
+  reply(&mut app, "output.list", Ok(json!({"devices": [{"id": "bluez_output.x", "name": "Hisense HS2100", "is_default": true}]})));
+  reply(&mut app, "track.playlists", Ok(json!({"playlists": [], "favorite": true})));
+  for tab in ['2', '3', '4'] {
+    app.search_editing = false;
+    app.on_key(key(KeyCode::Char(tab)));
+    let t = text(&app);
+    for want in ["40%", "Hisense HS2100", ui::I_HEART] {
+      assert!(t.contains(want), "tab {tab} missing {want:?}\n{t}");
+    }
+  }
+  // Modo mini: el corazon junto a los controles.
+  let t = text_at(&app, 60, 12);
+  assert!(t.contains(ui::I_HEART) && t.contains("40%"), "{t}");
+}

@@ -653,12 +653,15 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
     Span::styled(format!("  {play}  "), Style::new().fg(t.on_accent).bg(t.fg)),
     Span::styled(format!("      {I_NEXT}"), t.text()),
   ]);
+  let cw = controls.width() as u16;
   center(f, area.y + area.height - 2, controls);
+  let end = area.x + (area.width + cw) / 2;
+  status_right(f.buffer_mut(), app, area, area.y + area.height - 2, end);
 }
 
 const I_LIBRARY: &str = "\u{f02d}";
-const I_HEART: &str = "\u{f004}";
-const I_HEART_EMPTY: &str = "\u{f08a}";
+pub const I_HEART: &str = "\u{f004}";
+pub const I_HEART_EMPTY: &str = "\u{f08a}";
 const I_FOLDER: &str = "\u{f07b}";
 const I_HEADPHONES: &str = "\u{f025}";
 const I_DEVICE: &str = "\u{f108}";
@@ -729,6 +732,36 @@ fn now_column(f: &mut RFrame, app: &App, area: Rect) {
   }
 }
 
+/// Estado del reproductor activo, para todas las vistas: volumen, salida y
+/// favorito.
+fn player_status(app: &App) -> Line<'static> {
+  let t = &app.theme;
+  let muted = app.player["muted"].as_bool().unwrap_or(false);
+  let vol = (app.player["volume"].as_f64().unwrap_or(1.0) * 100.0).round();
+  let mut spans = vec![Span::styled(format!("{} {vol}%", if muted { I_MUTE } else { I_VOLUME }), t.faint())];
+  if let Some(out) = &app.output_active {
+    let name = app.outputs.iter().find(|d| d["id"] == out.as_str()).and_then(|d| d["name"].as_str()).unwrap_or(out);
+    let icon = if out.starts_with("bluez") { I_HEADPHONES } else { I_DEVICE };
+    spans.push(Span::styled(format!("   {icon} {name}"), t.faint()));
+  }
+  if app.player["track"].is_object() {
+    let fav = app.now_favorite == Some(true);
+    spans.push(Span::styled(format!("   {}", if fav { I_HEART } else { I_HEART_EMPTY }), if fav { t.accent() } else { t.faint() }));
+  }
+  Line::from(spans)
+}
+
+/// Pone el estado del reproductor a la derecha de `y`, si entra antes de
+/// `limit` (la columna donde termina lo que ya esta en esa fila).
+fn status_right(buf: &mut Buffer, app: &App, area: Rect, y: u16, limit: u16) {
+  let status = player_status(app);
+  let w = status.width() as u16;
+  let x = (area.x + area.width).saturating_sub(w + 2);
+  if x > limit + 2 {
+    put_line(buf, x, y, &status, w);
+  }
+}
+
 /// Barra de reproduccion de abajo, en las vistas de navegacion.
 fn player_bar(f: &mut RFrame, app: &App, area: Rect) {
   let t = &app.theme;
@@ -750,6 +783,15 @@ fn player_bar(f: &mut RFrame, app: &App, area: Rect) {
     putn(buf, area.x + 10, area.y + 1, track["artist"].as_str().unwrap_or(""), tw, t.dim());
   }
   put_line(buf, start, area.y, &controls, area.width);
+  // Volumen, salida y favorito a la derecha (o en la fila de abajo si no
+  // entran al lado de los controles).
+  let end = start + controls.width() as u16;
+  let status_w = player_status(app).width() as u16;
+  if (area.x + area.width).saturating_sub(status_w + 2) > end + 2 {
+    status_right(buf, app, area, area.y, end);
+  } else {
+    status_right(buf, app, area, area.y + 1, area.x + area.width / 2);
+  }
   let pw = 70.min(area.width.saturating_sub(70)).max(controls.width() as u16 + 12);
   progress(buf, t, cx.saturating_sub(pw / 2), area.y + 2, pw, app.position_ms(), track["duration_ms"].as_u64());
 }
@@ -1208,7 +1250,8 @@ fn mini(f: &mut RFrame, app: &App, area: Rect) {
   if let Some(y) = row(prog_row + 2) {
     let play = if app.playing() { I_PAUSE } else { I_PLAY };
     let vol = (app.player["volume"].as_f64().unwrap_or(1.0) * 100.0).round();
-    let controls = format!("{I_SHUFFLE}  {I_PREV}  {play}  {I_NEXT}  {I_REPEAT}    {I_VOLUME} {vol}%");
+    let heart = if app.now_favorite == Some(true) { I_HEART } else { I_HEART_EMPTY };
+    let controls = format!("{I_SHUFFLE}  {I_PREV}  {play}  {I_NEXT}  {I_REPEAT}    {I_VOLUME} {vol}%  {heart}");
     putn(buf, x, y, controls, text_w as usize, t.text());
   }
   if viz_w > 0 && app.playing() && area.height >= 6 {

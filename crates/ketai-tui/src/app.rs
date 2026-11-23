@@ -3,7 +3,10 @@
 
 use std::{collections::HashMap, time::Instant};
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::{
+  crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+  layout::Rect,
+};
 use serde_json::{Value, json};
 
 use crate::{
@@ -43,6 +46,102 @@ pub enum LibFocus {
   Playlists,
   Tracks,
 }
+
+/// Vista de Biblioteca: playlists, todas las canciones o agrupadas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LibView {
+  #[default]
+  Playlists,
+  All,
+  Artists,
+  Albums,
+  Folders,
+  Years,
+  Genres,
+}
+
+impl LibView {
+  pub const ALL: [LibView; 7] =
+    [LibView::Playlists, LibView::All, LibView::Artists, LibView::Albums, LibView::Folders, LibView::Years, LibView::Genres];
+
+  pub fn label(self) -> &'static str {
+    match self {
+      LibView::Playlists => "Playlists",
+      LibView::All => "Canciones",
+      LibView::Artists => "Artistas",
+      LibView::Albums => "Álbumes",
+      LibView::Folders => "Carpetas",
+      LibView::Years => "Años",
+      LibView::Genres => "Géneros",
+    }
+  }
+
+  /// `by` de `library.groups` / `library.tracks`.
+  pub fn by(self) -> Option<&'static str> {
+    match self {
+      LibView::Artists => Some("artist"),
+      LibView::Albums => Some("album"),
+      LibView::Folders => Some("folder"),
+      LibView::Years => Some("year"),
+      LibView::Genres => Some("genre"),
+      _ => None,
+    }
+  }
+}
+
+/// Desde donde se crea una playlist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameFor {
+  /// Popup "Agregar a una playlist": se crea y se agrega la que suena.
+  Add,
+  /// Biblioteca: solo se crea.
+  Library,
+}
+
+/// Nombre valido de playlist (el mismo control que hace ketaid).
+fn valid_playlist_name(name: &str) -> bool {
+  !name.is_empty() && !name.starts_with('.') && !name.contains('/')
+}
+
+/// Algo clickeable de la pantalla. Lo registra el dibujo (`ui::take_hits`),
+/// asi el mouse siempre coincide con lo que se ve.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Hit {
+  Tab(Tab),
+  /// Una accion global (controles, favorito, agregar).
+  Act(crate::keys::Action),
+  /// Barra de progreso: columna donde empieza y ancho.
+  Seek { x: u16, w: u16 },
+  /// Barra de volumen.
+  Volume { x: u16, w: u16 },
+  LibView(LibView),
+  /// Fila de la columna izquierda de Biblioteca (playlist o grupo).
+  LibSide(usize),
+  /// Toda la columna izquierda de Biblioteca (para la rueda).
+  LibSideArea,
+  /// Toda la lista de canciones de Biblioteca (para la rueda).
+  LibListArea,
+  /// Botones de la confirmacion de repetidas: agregar igual o no.
+  Confirm(bool),
+  /// Fila de la lista de canciones de Biblioteca.
+  LibTrack(usize),
+  /// Filtro de Buscar (Todo, Canciones, ...).
+  SearchFilter(usize),
+  /// Fila de resultados de Buscar.
+  SearchRow(usize),
+  /// Fila de un popup (salidas o agregar a playlist).
+  PopupRow(usize),
+  /// Dentro de un popup, fuera de sus filas: no hace nada.
+  Popup,
+  /// Fuera de un popup abierto: lo cierra.
+  Backdrop,
+}
+
+/// Tiempo maximo entre dos clics para que sean doble clic.
+pub const DOUBLE_CLICK: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// Pistas por pedido en las vistas de biblioteca.
+pub const LIB_LIMIT: u64 = 5000;
 
 /// Pantalla principal o la de servicio (cuando no hay daemon).
 #[derive(Debug, Clone, PartialEq)]
@@ -101,6 +200,15 @@ pub struct App {
   pub lib_open: Option<String>,
   /// Resultado de `playlist.get`.
   pub playlist: Value,
+  pub lib_view: LibView,
+  /// Grupos de la vista (`library.groups`).
+  pub lib_groups: Vec<Value>,
+  /// Pistas de la vista o del grupo elegido (`library.tracks`).
+  pub lib_tracks: Vec<Value>,
+  pub lib_total: u64,
+  /// Pedidos en vuelo: solo cuenta la respuesta del ultimo.
+  pub lib_groups_inflight: u32,
+  pub lib_tracks_inflight: u32,
   pub track_cursor: usize,
   /// Texto de la pestana Buscar.
   pub search_query: String,
@@ -123,12 +231,44 @@ pub struct App {
   pub palette_cursor: usize,
   /// Selector de salida de audio abierto.
   pub devices_open: bool,
+  /// La pista que suena es favorita (`track.playlists`), si ya se sabe.
+  pub now_favorite: Option<bool>,
+  /// Playlists donde esta la pista que suena.
+  pub now_playlists: Vec<String>,
+  /// Popup "Agregar a una playlist".
+  pub add_open: bool,
+  pub add_cursor: usize,
+  /// Playlist del `playlist.add` en vuelo.
+  pub add_pending: Option<String>,
+  /// Playlist del `playlist.remove` en vuelo (para el aviso).
+  pub remove_pending: Option<String>,
+  /// El daemon dijo que ya estaba (1009): se espera la decision.
+  pub add_confirm: Option<String>,
+  /// Nombre de una playlist nueva que se esta escribiendo, y desde donde.
+  pub naming: Option<(String, NameFor)>,
+  /// Milisegundos desde que arranco la TUI, para animar texto largo
+  /// (`marquee`). Lo pone el loop antes de dibujar.
+  pub anim_ms: u64,
+  /// Lo clickeable del ultimo cuadro (ver `Hit`).
+  pub hits: Vec<(Rect, Hit)>,
+  /// Ultimo clic, para detectar doble clic.
+  pub last_click: Option<(Hit, Instant)>,
+  /// Barra que se esta arrastrando (progreso o volumen).
+  pub dragging: Option<Hit>,
+  /// Posicion que muestra la barra mientras se arrastra el progreso; el
+  /// salto se pide al soltar.
+  pub seek_preview: Option<u64>,
+  /// Aviso corto abajo (por ejemplo "Agregada a «rock»"); se borra con la
+  /// proxima tecla.
+  pub notice: Option<String>,
   /// La terminal muestra imagenes (protocolo kitty).
   pub images: bool,
   pub covers: crate::covers::CoverCache,
   /// `output.list` / `output.changed`: dispositivos del servidor de sonido.
   pub outputs: Vec<Value>,
   pub outputs_loaded: bool,
+  /// Ya se pidio `output.list` (para no repetirlo en cada estado).
+  pub outputs_asked: bool,
   /// Eleccion del usuario; `None` sigue el default del sistema.
   pub output_active: Option<String>,
   pub devices_cursor: usize,
@@ -149,7 +289,14 @@ pub struct App {
   pub config: crate::config::Config,
   /// Error del ultimo intento de leer config.toml (se mantiene la anterior).
   pub config_error: Option<String>,
+  /// Busqueda pendiente: se manda cuando pasa la espera sin teclas nuevas.
+  pub search_due: Option<Instant>,
+  pub palette_due: Option<Instant>,
 }
+
+/// Espera despues de la ultima tecla antes de buscar: no se busca (ni se
+/// piden caratulas) por cada letra intermedia.
+pub const SEARCH_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// Acciones de la busqueda rapida.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,6 +366,12 @@ impl Default for App {
       lib_cursor: 0,
       lib_focus: LibFocus::Playlists,
       lib_open: None,
+      lib_view: LibView::Playlists,
+      lib_groups: Vec::new(),
+      lib_tracks: Vec::new(),
+      lib_total: 0,
+      lib_groups_inflight: 0,
+      lib_tracks_inflight: 0,
       playlist: Value::Null,
       track_cursor: 0,
       search_query: String::new(),
@@ -233,10 +386,25 @@ impl Default for App {
       palette_results: Vec::new(),
       palette_cursor: 0,
       devices_open: false,
+      now_favorite: None,
+      now_playlists: Vec::new(),
+      add_open: false,
+      add_cursor: 0,
+      add_pending: None,
+      add_confirm: None,
+      remove_pending: None,
+      notice: None,
+      naming: None,
+      anim_ms: 0,
+      hits: Vec::new(),
+      last_click: None,
+      dragging: None,
+      seek_preview: None,
       images: false,
       covers: Default::default(),
       outputs: Vec::new(),
       outputs_loaded: false,
+      outputs_asked: false,
       output_active: None,
       devices_cursor: 0,
       folders_open: false,
@@ -248,6 +416,8 @@ impl Default for App {
       scan: None,
       config: Default::default(),
       config_error: None,
+      search_due: None,
+      palette_due: None,
     }
   }
 }
@@ -261,26 +431,28 @@ impl App {
     if self.folders_open {
       return self.folders_key(key);
     }
+    self.notice = None;
+    if self.naming.is_some() {
+      return self.naming_key(key);
+    }
     if self.devices_open {
       return self.devices_key(key);
+    }
+    if self.add_open {
+      return self.add_key(key);
     }
     if self.palette_open {
       return self.palette_key(key);
     }
     let typing = self.tab == Tab::Search && self.search_editing;
-    if key.code == KeyCode::Char('d') && !typing {
-      return self.open_devices();
-    }
-    if key.code == KeyCode::Char('f') && !typing {
-      return self.open_folders();
-    }
-    let ctrl_k = key.code == KeyCode::Char('k') && key.modifiers.contains(KeyModifiers::CONTROL);
-    if ctrl_k || (key.code == KeyCode::Char('/') && self.tab != Tab::Search) {
-      self.palette_open = true;
-      self.palette_query.clear();
-      self.palette_results.clear();
-      self.palette_cursor = 0;
-      return Vec::new();
+    use crate::keys::Action as A;
+    let action = self.config.keys.action(&key, typing);
+    // Popups y busqueda rapida: antes que las teclas de cada vista. En
+    // Buscar, "/" vuelve a escribir (lo maneja la vista).
+    let early = matches!(action, Some(A::Devices | A::Favorite | A::AddToPlaylist | A::Folders))
+      || (action == Some(A::Actions) && !(self.tab == Tab::Search && key.code == KeyCode::Char('/')));
+    if let (true, Some(a)) = (early, action) {
+      return self.do_action(a);
     }
     if self.tab == Tab::Search
       && let Some(cmds) = self.search_key(key)
@@ -297,33 +469,207 @@ impl App {
     {
       return cmds;
     }
-    let cmd = |m: &str| vec![(m.to_string(), json!({}))];
-    match key.code {
-      KeyCode::Char('q') => self.quit = true,
-      KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
-      KeyCode::Char(c @ '1'..='4') => return self.go_to(Tab::ALL[c as usize - '1' as usize]),
-      KeyCode::Tab => return self.go_to(Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()]),
-      KeyCode::BackTab => return self.go_to(Tab::ALL[(self.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]),
-      KeyCode::Char(' ') => return cmd("player.toggle"),
-      KeyCode::Char('n') => return cmd("player.next"),
-      KeyCode::Char('p') => return cmd("player.previous"),
-      KeyCode::Right => return vec![("player.seek_relative".into(), json!({"offset_ms": 5000}))],
-      KeyCode::Left => return vec![("player.seek_relative".into(), json!({"offset_ms": -5000}))],
-      KeyCode::Char(c @ ('+' | '=' | '-')) => {
-        let step = if c == '-' { -0.05 } else { 0.05 };
-        let v = self.player["volume"].as_f64().unwrap_or(1.0) + step;
-        let v = (v.clamp(0.0, 1.0) * 100.0).round() / 100.0;
-        return vec![("player.set_volume".into(), json!({"volume": v}))];
+    match action {
+      Some(a) => self.do_action(a),
+      None => Vec::new(),
+    }
+  }
+
+  /// Evento del mouse. Usa lo registrado en el ultimo cuadro: lo de arriba
+  /// (un popup) gana sobre lo de atras.
+  pub fn on_mouse(&mut self, ev: MouseEvent, now: Instant) -> Vec<Command> {
+    let at = |r: &Rect| ev.column >= r.x && ev.column < r.x + r.width && ev.row >= r.y && ev.row < r.y + r.height;
+    let hit = self.hits.iter().rev().find(|(r, _)| at(r)).map(|(r, h)| (*r, *h));
+    let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
+    match ev.kind {
+      MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+        let code = if ev.kind == MouseEventKind::ScrollUp { KeyCode::Up } else { KeyCode::Down };
+        // La rueda mueve la lista bajo el puntero.
+        match hit.map(|(_, h)| h) {
+          Some(Hit::LibTrack(_) | Hit::LibListArea) => {
+            self.lib_focus = LibFocus::Tracks;
+            self.on_key(key(code))
+          }
+          Some(Hit::LibSide(_) | Hit::LibSideArea) => {
+            self.lib_focus = LibFocus::Playlists;
+            self.on_key(key(code))
+          }
+          Some(Hit::PopupRow(_) | Hit::Popup) => self.on_key(key(code)),
+          _ => Vec::new(),
+        }
       }
-      KeyCode::Char('m') => {
+      // Arrastrar una barra: sigue al puntero aunque salga de la barra.
+      MouseEventKind::Drag(MouseButton::Left) => match self.dragging {
+        Some(h @ Hit::Seek { .. }) => {
+          self.seek_preview = self.bar_value(h, ev.column);
+          Vec::new()
+        }
+        Some(h @ Hit::Volume { .. }) => self.set_volume_at(h, ev.column),
+        _ => Vec::new(),
+      },
+      MouseEventKind::Up(MouseButton::Left) => match self.dragging.take() {
+        Some(Hit::Seek { .. }) => match self.seek_preview.take() {
+          Some(ms) => {
+            // Hasta que llegue la posicion nueva del daemon, se muestra esta.
+            if let Some(obj) = self.player.as_object_mut() {
+              obj.insert("position_ms".into(), json!(ms));
+            }
+            self.pos_at = Instant::now();
+            vec![("player.seek".into(), json!({"position_ms": ms}))]
+          }
+          None => Vec::new(),
+        },
+        _ => Vec::new(),
+      },
+      MouseEventKind::Down(MouseButton::Left) => {
+        let Some((_, hit)) = hit else { return Vec::new() };
+        let double = self.last_click.is_some_and(|(h, t)| h == hit && now.duration_since(t) <= DOUBLE_CLICK);
+        self.last_click = if double { None } else { Some((hit, now)) };
+        self.notice = None;
+        match hit {
+          Hit::Tab(tab) => self.go_to(tab),
+          Hit::Act(a) => self.do_action(a),
+          // El progreso se arrastra: se salta al soltar.
+          Hit::Seek { .. } => {
+            self.dragging = Some(hit);
+            self.seek_preview = self.bar_value(hit, ev.column);
+            Vec::new()
+          }
+          Hit::Volume { .. } => {
+            self.dragging = Some(hit);
+            self.set_volume_at(hit, ev.column)
+          }
+          Hit::LibSideArea | Hit::LibListArea => Vec::new(),
+          Hit::Confirm(yes) => self.on_key(key(KeyCode::Char(if yes { 'a' } else { 'n' }))),
+          Hit::LibView(v) => self.set_lib_view(v),
+          Hit::LibSide(i) => {
+            self.lib_focus = LibFocus::Playlists;
+            self.lib_cursor = i;
+            let cmds = if self.lib_view == LibView::Playlists { self.open_selected() } else { self.open_group() };
+            if double {
+              self.lib_focus = LibFocus::Tracks;
+            }
+            cmds
+          }
+          Hit::LibTrack(i) => {
+            self.lib_focus = LibFocus::Tracks;
+            self.track_cursor = i;
+            // Doble clic: como Enter.
+            if double { self.on_key(key(KeyCode::Enter)) } else { Vec::new() }
+          }
+          Hit::SearchFilter(i) => {
+            self.search_editing = false;
+            self.search_filter = i;
+            self.search_cursor = 0;
+            Vec::new()
+          }
+          Hit::SearchRow(i) => {
+            self.search_editing = false;
+            self.search_cursor = i;
+            if double { self.on_key(key(KeyCode::Enter)) } else { Vec::new() }
+          }
+          Hit::PopupRow(i) => {
+            if self.folders_open {
+              // En Carpetas un clic elige; las acciones van con sus teclas.
+              self.folders_cursor = i;
+              return Vec::new();
+            }
+            if self.palette_open {
+              self.palette_cursor = i;
+            } else if self.devices_open {
+              self.devices_cursor = i;
+            } else if self.add_open {
+              self.add_cursor = i;
+            }
+            self.on_key(key(KeyCode::Enter))
+          }
+          Hit::Popup => Vec::new(),
+          Hit::Backdrop => {
+            self.devices_open = false;
+            self.add_open = false;
+            self.add_confirm = None;
+            self.naming = None;
+            self.folders_open = false;
+            self.palette_open = false;
+            Vec::new()
+          }
+        }
+      }
+      _ => Vec::new(),
+    }
+  }
+
+  /// Posicion de una barra de progreso para la columna `col`.
+  fn bar_value(&self, bar: Hit, col: u16) -> Option<u64> {
+    let Hit::Seek { x, w } = bar else { return None };
+    let dur = self.player["track"]["duration_ms"].as_u64()?;
+    let frac = (col.saturating_sub(x) as f64 / w.max(1) as f64).clamp(0.0, 1.0);
+    Some((dur as f64 * frac) as u64)
+  }
+
+  /// Volumen para la columna `col` de la barra de volumen.
+  fn set_volume_at(&mut self, bar: Hit, col: u16) -> Vec<Command> {
+    let Hit::Volume { x, w } = bar else { return Vec::new() };
+    let frac = (col.saturating_sub(x) as f64 / w.saturating_sub(1).max(1) as f64).clamp(0.0, 1.0);
+    let v = (frac * 100.0).round() / 100.0;
+    // Se ve enseguida, sin esperar al daemon.
+    if let Some(obj) = self.player.as_object_mut() {
+      obj.insert("volume".into(), json!(v));
+    }
+    vec![("player.set_volume".into(), json!({"volume": v}))]
+  }
+
+  /// Ejecuta una accion global (de una tecla o de un clic).
+  pub fn do_action(&mut self, action: crate::keys::Action) -> Vec<Command> {
+    use crate::keys::Action as A;
+    let cmd = |m: &str| vec![(m.to_string(), json!({}))];
+    let volume = |app: &App, step: f64| {
+      let v = app.player["volume"].as_f64().unwrap_or(1.0) + step;
+      let v = (v.clamp(0.0, 1.0) * 100.0).round() / 100.0;
+      vec![("player.set_volume".into(), json!({"volume": v}))]
+    };
+    match action {
+      A::Devices => return self.open_devices(),
+      A::Favorite => return self.toggle_favorite(),
+      A::AddToPlaylist if self.now_uri().is_some() => {
+        self.add_open = true;
+        self.add_cursor = 0;
+        self.add_confirm = None;
+        if !self.playlists_loaded {
+          return vec![("playlist.list".into(), json!({}))];
+        }
+      }
+      A::AddToPlaylist => {}
+      A::Folders => return self.open_folders(),
+      A::Actions => {
+        self.palette_open = true;
+        self.palette_query.clear();
+        self.palette_results.clear();
+        self.palette_cursor = 0;
+      }
+      A::Quit => self.quit = true,
+      A::TabNowPlaying => return self.go_to(Tab::NowPlaying),
+      A::TabLyrics => return self.go_to(Tab::Lyrics),
+      A::TabLibrary => return self.go_to(Tab::Library),
+      A::TabSearch => return self.go_to(Tab::Search),
+      A::NextTab => return self.go_to(Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()]),
+      A::PrevTab => return self.go_to(Tab::ALL[(self.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]),
+      A::Toggle => return cmd("player.toggle"),
+      A::Next => return cmd("player.next"),
+      A::Previous => return cmd("player.previous"),
+      A::SeekForward => return vec![("player.seek_relative".into(), json!({"offset_ms": 5000}))],
+      A::SeekBack => return vec![("player.seek_relative".into(), json!({"offset_ms": -5000}))],
+      A::VolumeUp => return volume(self, 0.05),
+      A::VolumeDown => return volume(self, -0.05),
+      A::Mute => {
         let muted = self.player["muted"].as_bool().unwrap_or(false);
         return vec![("player.set_muted".into(), json!({"muted": !muted}))];
       }
-      KeyCode::Char('s') => {
+      A::Shuffle => {
         let on = self.player["shuffle"].as_bool().unwrap_or(false);
         return vec![("player.set_shuffle".into(), json!({"shuffle": !on}))];
       }
-      KeyCode::Char('r') => {
+      A::Repeat => {
         let next = match self.player["repeat"].as_str() {
           Some("off") | None => "track",
           Some("track") => "queue",
@@ -331,7 +677,6 @@ impl App {
         };
         return vec![("player.set_repeat".into(), json!({"repeat": next}))];
       }
-      _ => {}
     }
     Vec::new()
   }
@@ -415,15 +760,38 @@ impl App {
     }
   }
 
+  /// Cambio el texto de Buscar: la busqueda sale despues de la espera.
   fn search(&mut self) -> Vec<Command> {
     self.search_done = false;
     self.search_cursor = 0;
     if self.search_query.trim().is_empty() {
       self.search_results.clear();
+      self.search_due = None;
       return Vec::new();
     }
-    self.search_inflight.push_back((false, self.search_query.clone()));
-    vec![("library.search".into(), json!({"query": self.search_query, "limit": SEARCH_LIMIT}))]
+    self.search_due = Some(Instant::now() + SEARCH_DELAY);
+    Vec::new()
+  }
+
+  /// Busquedas cuya espera ya paso. El loop principal lo llama seguido.
+  pub fn tick(&mut self, now: Instant) -> Vec<Command> {
+    let mut cmds = Vec::new();
+    if self.search_due.is_some_and(|d| now >= d) {
+      self.search_due = None;
+      self.search_inflight.push_back((false, self.search_query.clone()));
+      cmds.push(("library.search".into(), json!({"query": self.search_query, "limit": SEARCH_LIMIT})));
+    }
+    if self.palette_due.is_some_and(|d| now >= d) {
+      self.palette_due = None;
+      self.search_inflight.push_back((true, self.palette_query.clone()));
+      cmds.push(("library.search".into(), json!({"query": self.palette_query, "limit": PALETTE_LIMIT})));
+    }
+    cmds
+  }
+
+  /// Hay una busqueda esperando (el loop despierta antes).
+  pub fn search_pending(&self) -> bool {
+    self.search_due.is_some() || self.palette_due.is_some()
   }
 
   /// Canciones que muestra Buscar con el filtro actual.
@@ -527,6 +895,16 @@ impl App {
   }
 
   /// Nombre del dispositivo que suena: el elegido o el default.
+  /// Nombre de la salida para mostrar: nunca vacio. "Default" si se sigue
+  /// al default y todavia no se sabe su nombre; "No device" si no hay
+  /// ninguna salida disponible.
+  pub fn output_label(&self) -> String {
+    if self.outputs_loaded && self.outputs.is_empty() {
+      return "No device".into();
+    }
+    self.output_name().unwrap_or_else(|| "Default".into())
+  }
+
   pub fn output_name(&self) -> Option<String> {
     let found = match &self.output_active {
       Some(id) => self.outputs.iter().find(|d| d["id"] == id.as_str()),
@@ -613,6 +991,109 @@ impl App {
     if self.outputs_loaded { Vec::new() } else { vec![("output.list".into(), json!({}))] }
   }
 
+  /// URI de la pista que suena.
+  pub fn now_uri(&self) -> Option<String> {
+    self.player["track"]["uri"].as_str().map(str::to_string)
+  }
+
+  fn toggle_favorite(&mut self) -> Vec<Command> {
+    let Some(uri) = self.now_uri() else { return Vec::new() };
+    let favorite = !self.now_favorite.unwrap_or(false);
+    // Se muestra enseguida; el daemon confirma con playlist.changed.
+    self.now_favorite = Some(favorite);
+    vec![("favorites.set".into(), json!({"uri": uri, "favorite": favorite}))]
+  }
+
+  /// Playlists a las que se puede agregar (sin Favoritos, que va con `*`).
+  pub fn add_targets(&self) -> Vec<String> {
+    self.playlists.iter().filter(|p| p["kind"].is_null()).filter_map(|p| p["name"].as_str().map(str::to_string)).collect()
+  }
+
+  /// Escribiendo el nombre de una playlist nueva: las letras son texto.
+  fn naming_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    let Some((name, from)) = self.naming.as_mut() else { return Vec::new() };
+    match key.code {
+      KeyCode::Char(c) => name.push(c),
+      KeyCode::Backspace => {
+        name.pop();
+      }
+      KeyCode::Esc => self.naming = None,
+      KeyCode::Enter => {
+        let (name, from) = (name.trim().to_string(), *from);
+        if !valid_playlist_name(&name) {
+          self.notice = Some("Nombre inválido: no puede estar vacío, empezar con . ni tener /".into());
+          return Vec::new();
+        }
+        self.naming = None;
+        let exists = self.playlists.iter().any(|p| p["name"] == name.as_str());
+        // playlist.save reemplaza: una que ya existe no se toca.
+        let mut cmds = Vec::new();
+        if exists {
+          self.notice = Some(format!("Ya existe «{name}»"));
+        } else {
+          cmds.push(("playlist.save".into(), json!({"name": name, "from_queue": false})));
+        }
+        match from {
+          NameFor::Add => {
+            if let Some(uri) = self.now_uri() {
+              self.add_pending = Some(name.clone());
+              cmds.push(("playlist.add".into(), json!({"name": name, "uris": [uri]})));
+            }
+          }
+          NameFor::Library if !exists => self.notice = Some(format!("Playlist «{name}» creada")),
+          NameFor::Library => {}
+        }
+        return cmds;
+      }
+      _ => {}
+    }
+    Vec::new()
+  }
+
+  fn add_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    // Esperando la decision: ya estaba en la playlist.
+    if let Some(name) = self.add_confirm.clone() {
+      match key.code {
+        KeyCode::Char('a') | KeyCode::Enter => {
+          self.add_confirm = None;
+          self.add_pending = Some(name.clone());
+          let Some(uri) = self.now_uri() else { return Vec::new() };
+          return vec![("playlist.add".into(), json!({"name": name, "uris": [uri], "duplicates": "add"}))];
+        }
+        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+          self.add_confirm = None;
+          self.add_open = false;
+        }
+        _ => {}
+      }
+      return Vec::new();
+    }
+    let targets = self.add_targets();
+    match key.code {
+      KeyCode::Char('c') => self.naming = Some((String::new(), NameFor::Add)),
+      // Quitar la que suena de la playlist elegida (si esta ahi).
+      KeyCode::Char('x') => {
+        if let (Some(name), Some(uri)) = (targets.get(self.add_cursor), self.now_uri())
+          && self.now_playlists.contains(name)
+        {
+          self.remove_pending = Some(name.clone());
+          return vec![("playlist.remove".into(), json!({"name": name, "uris": [uri]}))];
+        }
+      }
+      KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('P') => self.add_open = false,
+      KeyCode::Up | KeyCode::Char('k') => self.add_cursor = self.add_cursor.saturating_sub(1),
+      KeyCode::Down | KeyCode::Char('j') => self.add_cursor = (self.add_cursor + 1).min(targets.len().saturating_sub(1)),
+      KeyCode::Enter => {
+        if let (Some(name), Some(uri)) = (targets.get(self.add_cursor), self.now_uri()) {
+          self.add_pending = Some(name.clone());
+          return vec![("playlist.add".into(), json!({"name": name, "uris": [uri]}))];
+        }
+      }
+      _ => {}
+    }
+    Vec::new()
+  }
+
   fn devices_key(&mut self, key: KeyEvent) -> Vec<Command> {
     let rows = self.device_rows();
     match key.code {
@@ -667,11 +1148,8 @@ impl App {
         }
         self.palette_cursor = 0;
         self.palette_results.clear();
-        if self.palette_query.trim().is_empty() {
-          return Vec::new();
-        }
-        self.search_inflight.push_back((true, self.palette_query.clone()));
-        return vec![("library.search".into(), json!({"query": self.palette_query, "limit": PALETTE_LIMIT}))];
+        self.palette_due = if self.palette_query.trim().is_empty() { None } else { Some(Instant::now() + SEARCH_DELAY) };
+        return Vec::new();
       }
       KeyCode::Tab => {
         if let Some(PaletteItem::Song(t)) = selected
@@ -728,25 +1206,76 @@ impl App {
     vec![("playlist.get".into(), json!({"name": name}))]
   }
 
+  /// Pistas que muestra Biblioteca: las de la playlist abierta o las de la
+  /// vista.
+  pub fn lib_rows(&self) -> &[Value] {
+    if self.lib_view == LibView::Playlists {
+      self.playlist["tracks"].as_array().map(Vec::as_slice).unwrap_or(&[])
+    } else {
+      &self.lib_tracks
+    }
+  }
+
+  /// Cambia de vista y pide lo que necesita.
+  fn set_lib_view(&mut self, view: LibView) -> Vec<Command> {
+    self.lib_view = view;
+    self.lib_cursor = 0;
+    self.track_cursor = 0;
+    self.lib_focus = LibFocus::Playlists;
+    self.lib_groups.clear();
+    self.lib_tracks.clear();
+    self.lib_total = 0;
+    match view {
+      LibView::Playlists => {
+        self.lib_open = None;
+        vec![("playlist.list".into(), json!({}))]
+      }
+      LibView::All => vec![("library.tracks".into(), json!({"limit": LIB_LIMIT}))],
+      _ => vec![("library.groups".into(), json!({"by": view.by()}))],
+    }
+  }
+
+  /// Pide las pistas del grupo elegido.
+  fn open_group(&mut self) -> Vec<Command> {
+    let (Some(by), Some(group)) = (self.lib_view.by(), self.lib_groups.get(self.lib_cursor)) else { return Vec::new() };
+    self.track_cursor = 0;
+    vec![("library.tracks".into(), json!({"by": by, "name": group["name"], "limit": LIB_LIMIT}))]
+  }
+
   /// Teclas de Biblioteca. `None` si la tecla no es suya.
   fn library_key(&mut self, key: KeyEvent) -> Option<Vec<Command>> {
     let up = matches!(key.code, KeyCode::Up | KeyCode::Char('k'));
     let down = matches!(key.code, KeyCode::Down | KeyCode::Char('j'));
+    // h / l: vista anterior o siguiente.
+    if let KeyCode::Char(c @ ('h' | 'l')) = key.code {
+      let views = LibView::ALL;
+      let at = views.iter().position(|v| *v == self.lib_view).unwrap_or(0);
+      let next = if c == 'l' { (at + 1) % views.len() } else { (at + views.len() - 1) % views.len() };
+      return Some(self.set_lib_view(views[next]));
+    }
+    if key.code == KeyCode::Char('c') && self.lib_view == LibView::Playlists {
+      self.naming = Some((String::new(), NameFor::Library));
+      return Some(Vec::new());
+    }
     match self.lib_focus {
       LibFocus::Playlists => {
-        if up || down {
-          let max = self.playlists.len().saturating_sub(1);
-          self.lib_cursor = if up { self.lib_cursor.saturating_sub(1) } else { (self.lib_cursor + 1).min(max) };
-          return Some(self.open_selected());
+        let side = match self.lib_view {
+          LibView::Playlists => self.playlists.len(),
+          LibView::All => 0,
+          _ => self.lib_groups.len(),
+        };
+        if (up || down) && side > 0 {
+          self.lib_cursor = if up { self.lib_cursor.saturating_sub(1) } else { (self.lib_cursor + 1).min(side - 1) };
+          return Some(if self.lib_view == LibView::Playlists { self.open_selected() } else { self.open_group() });
         }
-        if key.code == KeyCode::Enter && !self.playlists.is_empty() {
+        if key.code == KeyCode::Enter && !self.lib_rows().is_empty() {
           self.lib_focus = LibFocus::Tracks;
           return Some(Vec::new());
         }
         None
       }
       LibFocus::Tracks => {
-        let tracks = self.playlist["tracks"].as_array().map(|t| t.len()).unwrap_or(0);
+        let tracks = self.lib_rows().len();
         if up || down {
           self.track_cursor = if up { self.track_cursor.saturating_sub(1) } else { (self.track_cursor + 1).min(tracks.saturating_sub(1)) };
           return Some(Vec::new());
@@ -756,17 +1285,33 @@ impl App {
             self.lib_focus = LibFocus::Playlists;
             Some(Vec::new())
           }
-          KeyCode::Enter if tracks > 0 => {
+          KeyCode::Enter if tracks > 0 && self.lib_view == LibView::Playlists => {
             let name = self.lib_open.clone()?;
             Some(vec![
               ("playlist.load".into(), json!({"name": name, "replace": true})),
               ("queue.jump".into(), json!({"index": self.track_cursor})),
             ])
           }
+          // La lista entera pasa a la cola, desde la cancion elegida.
+          KeyCode::Enter if tracks > 0 => {
+            let uris: Vec<Value> = self.lib_tracks.iter().map(|t| t["uri"].clone()).collect();
+            Some(vec![
+              ("queue.clear".into(), json!({})),
+              ("queue.add".into(), json!({"uris": uris})),
+              ("queue.jump".into(), json!({"index": self.track_cursor})),
+            ])
+          }
           KeyCode::Char('a') => {
-            let uri = self.playlist["tracks"][self.track_cursor]["uri"].as_str()?.to_string();
+            let uri = self.lib_rows().get(self.track_cursor)?["uri"].as_str()?.to_string();
             Some(vec![("queue.add".into(), json!({"uris": [uri]}))])
           }
+          // Quitar de la playlist abierta (solo en la vista Playlists).
+          KeyCode::Char('x') if self.lib_view == LibView::Playlists && tracks > 0 => {
+            let name = self.lib_open.clone()?;
+            self.remove_pending = Some(name.clone());
+            Some(vec![("playlist.remove".into(), json!({"name": name, "indexes": [self.track_cursor]}))])
+          }
+          KeyCode::Char('x') => Some(Vec::new()),
           _ => None,
         }
       }
@@ -806,10 +1351,17 @@ impl App {
     self.lyrics_primary = "original".into();
     self.lyrics_secondary.clear();
     self.lyrics_chosen = false;
-    match id {
+    self.now_favorite = None;
+    self.now_playlists.clear();
+    let mut cmds = match id {
       Some(id) => vec![("lyrics.layers".into(), json!({"track_id": id})), self.lyrics_get(&id)],
       None => Vec::new(),
+    };
+    // Si es favorita y en que playlists esta.
+    if let Some(uri) = self.now_uri() {
+      cmds.push(("track.playlists".into(), json!({"uri": uri})));
     }
+    cmds
   }
 
   /// Linea actual de la letra: la ultima que ya empezo.
@@ -821,6 +1373,11 @@ impl App {
 
   /// Se envio la peticion `id`: su respuesta se reconoce por el metodo.
   pub fn sent(&mut self, id: u64, method: &str) {
+    match method {
+      "library.groups" => self.lib_groups_inflight += 1,
+      "library.tracks" => self.lib_tracks_inflight += 1,
+      _ => {}
+    }
     self.pending.insert(id, method.to_string());
   }
 
@@ -833,7 +1390,13 @@ impl App {
           self.output_active = data["output"].as_str().map(str::to_string);
           self.player = data;
           self.pos_at = Instant::now();
-          return self.track_changed();
+          let mut cmds = self.track_changed();
+          // La salida se muestra en todas las vistas: la lista se pide una vez.
+          if !self.outputs_loaded && !self.outputs_asked {
+            self.outputs_asked = true;
+            cmds.push(("output.list".into(), json!({})));
+          }
+          return cmds;
         }
         "player.position" => {
           if let (Some(obj), Some(pos)) = (self.player.as_object_mut(), data.get("position_ms")) {
@@ -865,6 +1428,9 @@ impl App {
         }
         "playlist.changed" => {
           let mut cmds = vec![("playlist.list".into(), json!({}))];
+          if let Some(uri) = self.now_uri() {
+            cmds.push(("track.playlists".into(), json!({"uri": uri})));
+          }
           if let Some(open) = &self.lib_open
             && data["name"] == open.as_str()
           {
@@ -883,10 +1449,44 @@ impl App {
       },
       DaemonMsg::Reply { id, result } => {
         let method = self.pending.remove(&id).unwrap_or_default();
+        // Solo la ultima respuesta de cada vista cuenta: una vieja (de otro
+        // grupo) se descarta.
+        let latest = match method.as_str() {
+          "library.groups" => {
+            self.lib_groups_inflight = self.lib_groups_inflight.saturating_sub(1);
+            self.lib_groups_inflight == 0
+          }
+          "library.tracks" => {
+            self.lib_tracks_inflight = self.lib_tracks_inflight.saturating_sub(1);
+            self.lib_tracks_inflight == 0
+          }
+          _ => true,
+        };
         // Una letra que no se puede leer (1006) se muestra como sin letra.
         if method == "lyrics.get" && result.is_err() {
           self.lyrics = Value::Null;
           self.lyrics_loaded = true;
+        }
+        if method == "playlist.remove" && let Some(name) = self.remove_pending.take() {
+          self.notice = Some(match &result {
+            Ok(_) => format!("Quitada de «{name}»"),
+            Err(e) => format!("No se pudo quitar: {}", e["message"].as_str().unwrap_or("error")),
+          });
+        }
+        if method == "playlist.add" && self.add_pending.is_some() {
+          let name = self.add_pending.take().unwrap_or_default();
+          match &result {
+            Ok(_) => {
+              self.add_open = false;
+              self.notice = Some(format!("Agregada a «{name}»"));
+            }
+            // Ya estaba: se pregunta al usuario.
+            Err(e) if e["code"] == 1009 => self.add_confirm = Some(name),
+            Err(e) => {
+              self.add_open = false;
+              self.notice = Some(format!("No se pudo agregar: {}", e["message"].as_str().unwrap_or("error")));
+            }
+          }
         }
         // Errores de la pantalla de carpetas: se muestran en ella.
         if let (Err(e), "library.add_folder" | "library.remove_folder" | "library.scan") = (&result, method.as_str()) {
@@ -946,8 +1546,26 @@ impl App {
             "playlist.list" => {
               self.playlists = v["playlists"].as_array().cloned().unwrap_or_default();
               self.playlists_loaded = true;
-              self.lib_cursor = self.lib_cursor.min(self.playlists.len().saturating_sub(1));
-              return self.open_selected();
+              // En otras vistas el cursor es de los grupos.
+              if self.lib_view == LibView::Playlists {
+                self.lib_cursor = self.lib_cursor.min(self.playlists.len().saturating_sub(1));
+                return self.open_selected();
+              }
+            }
+            "track.playlists" => {
+              self.now_favorite = v["favorite"].as_bool();
+              self.now_playlists =
+                v["playlists"].as_array().map(|l| l.iter().filter_map(|n| n.as_str().map(str::to_string)).collect()).unwrap_or_default();
+            }
+            "library.groups" if latest => {
+              self.lib_groups = v["groups"].as_array().cloned().unwrap_or_default();
+              self.lib_cursor = self.lib_cursor.min(self.lib_groups.len().saturating_sub(1));
+              return self.open_group();
+            }
+            "library.tracks" if latest => {
+              self.lib_tracks = v["tracks"].as_array().cloned().unwrap_or_default();
+              self.lib_total = v["total"].as_u64().unwrap_or(self.lib_tracks.len() as u64);
+              self.track_cursor = self.track_cursor.min(self.lib_tracks.len().saturating_sub(1));
             }
             // Solo cuenta la respuesta de la playlist que sigue abierta.
             "playlist.get" if v["name"].as_str() == self.lib_open.as_deref() => {
@@ -975,6 +1593,9 @@ impl App {
 
   /// Posicion actual: la ultima conocida mas lo que paso si esta sonando.
   pub fn position_ms(&self) -> u64 {
+    if let Some(p) = self.seek_preview {
+      return p;
+    }
     let mut ms = self.player["position_ms"].as_u64().unwrap_or(0);
     if self.playing() {
       ms += self.pos_at.elapsed().as_millis() as u64;

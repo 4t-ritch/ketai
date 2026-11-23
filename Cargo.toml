@@ -33,3 +33,9 @@ directories = "6.0.0"
 # Menos info de debug en desarrollo: reduce mucho el tamano de target/.
 [profile.dev]
 debug = "line-tables-only"
+
+# Las dependencias (decodificar imagenes y audio) compiladas con
+# optimizacion aun en debug: sin esto `cargo run` decodifica una caratula en
+# ~200 ms en vez de ~12 ms. El codigo propio sigue en debug.
+[profile.dev.package."*"]
+opt-level = 2

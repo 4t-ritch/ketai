@@ -1,0 +1,435 @@
+//! Base de datos de ketai (SQLite, `XDG_DATA_HOME/ketai/library.db`).
+//!
+//! Guarda las carpetas de la biblioteca, las pistas indexadas (con su texto
+//! de busqueda ya plegado), las playlists y los favoritos. Cada area tiene un
+//! solo thread del daemon con su conexion, y todo cambio es una transaccion:
+//! dos clientes que cambian algo al mismo tiempo quedan en fila, nunca se
+//! pisan, y un corte a mitad de un cambio no deja la base a medias.
+//!
+//! La base manda sobre las playlists: los archivos `.m3u8` de la carpeta de
+//! playlists son copias que escribe ketai (ver `playlists`).
+//!
+//! El esquema tiene version (`PRAGMA user_version`); cada version nueva se
+//! aplica una vez al abrir.
+
+use std::path::{Path, PathBuf};
+
+use ketai_core::{
+  library::{self, Entry},
+  metadata::TrackInfo,
+};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
+
+/// Pasos del esquema, en orden. El indice + 1 es la version.
+const MIGRATIONS: &[&str] = &[
+  // 1: carpetas y pistas.
+  "CREATE TABLE folders (path TEXT PRIMARY KEY NOT NULL);
+   CREATE TABLE tracks (
+     path TEXT PRIMARY KEY NOT NULL,
+     title TEXT, artist TEXT, album TEXT, album_artist TEXT, genre TEXT,
+     year INTEGER, track_number INTEGER, disc_number INTEGER,
+     duration_ms INTEGER, has_cover INTEGER NOT NULL DEFAULT 0,
+     codec TEXT, sample_rate INTEGER, channels INTEGER,
+     search_text TEXT NOT NULL
+   );",
+  // 2: playlists y favoritos. Una cancion puede estar en varias playlists
+  // (y varias veces en la misma). `file_stamp` es la marca del archivo
+  // copia que escribio ketai, para notar ediciones a mano.
+  "CREATE TABLE playlists (
+     id INTEGER PRIMARY KEY,
+     name TEXT NOT NULL UNIQUE,
+     kind TEXT NOT NULL DEFAULT 'user',
+     file_stamp TEXT
+   );
+   CREATE TABLE playlist_items (
+     playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+     position INTEGER NOT NULL,
+     uri TEXT NOT NULL,
+     PRIMARY KEY (playlist_id, position)
+   );
+   CREATE INDEX playlist_items_uri ON playlist_items(uri);",
+  // 3: datos sueltos (por ejemplo, si ya se importo el indice viejo).
+  "CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT);",
+  // 4: carpeta de cada pista, para agrupar (se completa al migrar).
+  "ALTER TABLE tracks ADD COLUMN folder TEXT;
+   CREATE INDEX tracks_folder ON tracks(folder);",
+];
+
+/// Agrupaciones de la biblioteca: nombre en el protocolo y expresion SQL.
+pub const GROUPS: &[(&str, &str)] = &[
+  ("artist", "artist"),
+  ("album", "album"),
+  ("folder", "folder"),
+  ("year", "CAST(year AS TEXT)"),
+  ("genre", "genre"),
+];
+
+/// Grupo: nombre (None si las pistas no tienen ese dato) y cantidad.
+pub type Group = (Option<String>, u64);
+
+fn group_expr(by: &str) -> Option<&'static str> {
+  GROUPS.iter().find(|(name, _)| *name == by).map(|(_, expr)| *expr)
+}
+
+/// Nombre de la playlist de favoritos.
+/// Ruta de la base: `XDG_DATA_HOME/ketai/library.db`.
+pub fn default_path() -> Option<std::path::PathBuf> {
+  crate::library::data_dir().map(|d| d.join("library.db"))
+}
+
+/// Base por defecto, o una en memoria si no hay carpeta de datos o no se
+/// puede abrir (el daemon sigue funcionando, sin guardar).
+pub fn open_default() -> Store {
+  default_path()
+    .and_then(|p| Store::open(&p).map_err(|e| eprintln!("ketaid: could not open library.db: {e}")).ok())
+    .unwrap_or_else(|| Store::open(Path::new(":memory:")).expect("in-memory database"))
+}
+
+pub const FAVORITES: &str = "Favoritos";
+
+/// Playlist de la lista: nombre, tipo y cantidad de pistas.
+pub struct PlaylistInfo {
+  pub name: String,
+  pub kind: String,
+  pub count: u64,
+}
+
+pub struct Store {
+  conn: Connection,
+}
+
+impl Store {
+  /// Abre (o crea) la base. La pueden abrir varios threads del daemon, cada
+  /// uno con su conexion: SQLite ordena las escrituras y el timeout espera
+  /// a que termine la otra.
+  pub fn open(path: &Path) -> rusqlite::Result<Self> {
+    // Abrir y migrar, de a un thread por vez: pasar a WAL no espera el
+    // timeout y fallaba con "database is locked" si dos threads abrian a la
+    // vez.
+    static OPENING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = OPENING.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(dir) = path.parent() {
+      let _ = std::fs::create_dir_all(dir);
+    }
+    let conn = Connection::open(path)?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    // WAL: un lector nunca bloquea al que escribe.
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "foreign_keys", true)?;
+    let mut store = Self { conn };
+    store.migrate()?;
+    Ok(store)
+  }
+
+  /// Importa el indice de versiones anteriores (`library.json`) una sola
+  /// vez; ese archivo nunca se borra.
+  pub fn import_legacy_once(&mut self, entries: &[Entry], folders: &[PathBuf]) -> rusqlite::Result<()> {
+    let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let done = tx.query_row("SELECT 1 FROM meta WHERE key = 'legacy_imported'", [], |_| Ok(())).optional()?.is_some();
+    if !done {
+      for f in folders {
+        tx.execute("INSERT OR IGNORE INTO folders (path) VALUES (?1)", [path_text(f)])?;
+      }
+      for e in entries {
+        upsert(&tx, e)?;
+      }
+      tx.execute("INSERT INTO meta (key, value) VALUES ('legacy_imported', '1')", [])?;
+    }
+    tx.commit()
+  }
+
+  /// Aplica las migraciones pendientes. Devuelve true si la base es nueva.
+  fn migrate(&mut self) -> rusqlite::Result<()> {
+    // Immediate: si dos threads abren a la vez, uno espera al otro y despues
+    // ve la version ya aplicada.
+    let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let version: usize = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    for (i, step) in MIGRATIONS.iter().enumerate().skip(version) {
+      tx.execute_batch(step)?;
+      tx.pragma_update(None, "user_version", i + 1)?;
+    }
+    if version < 4 {
+      let paths: Vec<String> = {
+        let mut st = tx.prepare("SELECT path FROM tracks")?;
+        st.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+      };
+      for p in paths {
+        tx.execute("UPDATE tracks SET folder = ?2 WHERE path = ?1", params![p, folder_of(Path::new(&p))])?;
+      }
+    }
+    // Una base de antes de `meta` ya habia importado el indice viejo.
+    if (1..3).contains(&version) {
+      tx.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('legacy_imported', '1')", [])?;
+    }
+    tx.commit()
+  }
+
+  pub fn folders(&self) -> rusqlite::Result<Vec<PathBuf>> {
+    let mut st = self.conn.prepare_cached("SELECT path FROM folders ORDER BY rowid")?;
+    st.query_map([], |r| r.get::<_, String>(0).map(PathBuf::from))?.collect()
+  }
+
+  /// Agrega una carpeta; si ya estaba no hace nada.
+  pub fn add_folder(&self, folder: &Path) -> rusqlite::Result<()> {
+    self.conn.execute("INSERT OR IGNORE INTO folders (path) VALUES (?1)", [path_text(folder)])?;
+    Ok(())
+  }
+
+  /// Quita una carpeta y sus pistas, todo junto. False si no estaba.
+  pub fn remove_folder(&mut self, folder: &Path) -> rusqlite::Result<bool> {
+    let tx = self.conn.transaction()?;
+    let removed = tx.execute("DELETE FROM folders WHERE path = ?1", [path_text(folder)])? > 0;
+    if removed {
+      delete_under(&tx, folder)?;
+    }
+    tx.commit()?;
+    Ok(removed)
+  }
+
+  /// Cantidad de pistas bajo `folder`.
+  pub fn count_under(&self, folder: &Path) -> rusqlite::Result<u64> {
+    let (lo, hi) = range(folder);
+    self.conn.query_row("SELECT count(*) FROM tracks WHERE path >= ?1 AND path < ?2", params![lo, hi], |r| r.get(0))
+  }
+
+  /// Guarda una tanda de pistas de un escaneo en curso, en una
+  /// transaccion. Si el escaneo se corta, lo guardado queda.
+  pub fn save_batch(&mut self, entries: &[Entry]) -> rusqlite::Result<()> {
+    let tx = self.conn.transaction()?;
+    for e in entries {
+      upsert(&tx, e)?;
+    }
+    tx.commit()
+  }
+
+  /// Fin de un escaneo: borra lo indexado bajo `roots` que ya no aparecio
+  /// (archivos borrados o que dejaron de poder leerse).
+  pub fn finish_scan(&mut self, roots: &[PathBuf], seen: &std::collections::HashSet<PathBuf>) -> rusqlite::Result<()> {
+    let tx = self.conn.transaction()?;
+    for r in roots {
+      let (lo, hi) = range(r);
+      let stale: Vec<String> = {
+        let mut st = tx.prepare("SELECT path FROM tracks WHERE path >= ?1 AND path < ?2")?;
+        let rows = st.query_map(params![lo, hi], |row| row.get::<_, String>(0))?;
+        rows.filter_map(Result::ok).filter(|p| !seen.contains(Path::new(p))).collect()
+      };
+      for p in stale {
+        tx.execute("DELETE FROM tracks WHERE path = ?1", [p])?;
+      }
+    }
+    tx.commit()
+  }
+
+  /// Grupos de la biblioteca por `by` (ver `GROUPS`), con su cantidad. Las
+  /// pistas sin ese dato forman el grupo `None`, que va primero.
+  pub fn groups(&self, by: &str) -> Option<rusqlite::Result<Vec<Group>>> {
+    let expr = group_expr(by)?;
+    let sql = format!("SELECT {expr} AS g, count(*) FROM tracks GROUP BY g ORDER BY g");
+    Some((|| {
+      let mut st = self.conn.prepare(&sql)?;
+      st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect()
+    })())
+  }
+
+  /// Una pagina de pistas, de toda la biblioteca o de un grupo, y el total.
+  /// Dentro de un album van por disco y numero de pista.
+  pub fn tracks(&self, group: Option<(&str, Option<&str>)>, offset: u64, limit: u64) -> Option<rusqlite::Result<(Vec<Entry>, u64)>> {
+    let (filter, order, value) = match group {
+      None => (String::from("1"), "path", None),
+      Some((by, value)) => {
+        let order = if by == "album" { "disc_number, track_number, path" } else { "path" };
+        (format!("{} IS ?1", group_expr(by)?), order, value)
+      }
+    };
+    Some((|| {
+      let args: Vec<&dyn rusqlite::ToSql> = if group.is_some() { vec![&value] } else { vec![] };
+      let total = self.conn.query_row(&format!("SELECT count(*) FROM tracks WHERE {filter}"), args.as_slice(), |r| r.get(0))?;
+      let sql = format!("SELECT * FROM tracks WHERE {filter} ORDER BY {order} LIMIT {limit} OFFSET {offset}");
+      let mut st = self.conn.prepare(&sql)?;
+      let rows = st.query_map(args.as_slice(), entry_from_row)?.collect::<rusqlite::Result<_>>()?;
+      Ok((rows, total))
+    })())
+  }
+
+  pub fn playlists(&self) -> rusqlite::Result<Vec<PlaylistInfo>> {
+    let mut st = self.conn.prepare_cached(
+      "SELECT name, kind, (SELECT count(*) FROM playlist_items i WHERE i.playlist_id = p.id) FROM playlists p ORDER BY name",
+    )?;
+    st.query_map([], |r| Ok(PlaylistInfo { name: r.get(0)?, kind: r.get(1)?, count: r.get(2)? }))?.collect()
+  }
+
+  /// URIs de una playlist, en orden. None si no existe.
+  pub fn items(&self, name: &str) -> rusqlite::Result<Option<Vec<String>>> {
+    items(&self.conn, name)
+  }
+
+  /// Marca del archivo copia que se escribio por ultima vez.
+  pub fn file_stamp(&self, name: &str) -> rusqlite::Result<Option<String>> {
+    Ok(self.conn.query_row("SELECT file_stamp FROM playlists WHERE name = ?1", [name], |r| r.get(0)).optional()?.flatten())
+  }
+
+  pub fn set_file_stamp(&self, name: &str, stamp: Option<&str>) -> rusqlite::Result<()> {
+    self.conn.execute("UPDATE playlists SET file_stamp = ?2 WHERE name = ?1", params![name, stamp])?;
+    Ok(())
+  }
+
+  /// Cambia varias playlists juntas, en una transaccion que toma la base
+  /// para escribir desde el principio: lo que lee `change` no puede cambiar
+  /// por otro lado antes de guardar. `change` recibe las playlists pedidas
+  /// (None si no existe) y deja el contenido nuevo; si devuelve error no se
+  /// guarda nada.
+  pub fn update<T, E>(
+    &mut self,
+    names: &[&str],
+    change: impl FnOnce(&mut Vec<Option<Vec<String>>>) -> Result<T, E>,
+  ) -> Result<Result<T, E>, rusqlite::Error> {
+    let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let mut lists = names.iter().map(|n| items(&tx, n)).collect::<rusqlite::Result<Vec<_>>>()?;
+    let before: Vec<bool> = lists.iter().map(Option::is_some).collect();
+    let out = match change(&mut lists) {
+      Ok(v) => v,
+      Err(e) => return Ok(Err(e)),
+    };
+    for ((name, list), existed) in names.iter().zip(&lists).zip(before) {
+      match list {
+        Some(uris) => {
+          if !existed {
+            tx.execute("INSERT INTO playlists (name, kind) VALUES (?1, ?2)", params![name, kind_of(name)])?;
+          }
+          let pid: i64 = tx.query_row("SELECT id FROM playlists WHERE name = ?1", [name], |r| r.get(0))?;
+          tx.execute("DELETE FROM playlist_items WHERE playlist_id = ?1", [pid])?;
+          let mut st = tx.prepare_cached("INSERT INTO playlist_items (playlist_id, position, uri) VALUES (?1, ?2, ?3)")?;
+          for (i, uri) in uris.iter().enumerate() {
+            st.execute(params![pid, i as i64, uri])?;
+          }
+        }
+        None if existed => {
+          tx.execute("DELETE FROM playlists WHERE name = ?1", [name])?;
+        }
+        None => {}
+      }
+    }
+    tx.commit()?;
+    Ok(Ok(out))
+  }
+
+  /// Cambia el nombre. False si `from` no existe; error de unicidad si `to`
+  /// ya existe.
+  pub fn rename(&self, from: &str, to: &str) -> rusqlite::Result<bool> {
+    Ok(self.conn.execute("UPDATE playlists SET name = ?2, file_stamp = NULL WHERE name = ?1", params![from, to])? > 0)
+  }
+
+  /// Playlists (sin favoritos) que tienen la URI, y si es favorita.
+  pub fn memberships(&self, uri: &str) -> rusqlite::Result<(Vec<String>, bool)> {
+    let mut st = self.conn.prepare_cached(
+      "SELECT DISTINCT p.name, p.kind FROM playlists p JOIN playlist_items i ON i.playlist_id = p.id WHERE i.uri = ?1 ORDER BY p.name",
+    )?;
+    let mut names = Vec::new();
+    let mut favorite = false;
+    for row in st.query_map([uri], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+      let (name, kind) = row?;
+      if kind == "favorites" {
+        favorite = true;
+      } else {
+        names.push(name);
+      }
+    }
+    Ok((names, favorite))
+  }
+
+  /// Pistas cuyo texto contiene todas las palabras (ya plegadas), ordenadas
+  /// por ruta.
+  pub fn search(&self, words: &[String], limit: u64) -> rusqlite::Result<Vec<Entry>> {
+    let mut sql = String::from("SELECT * FROM tracks WHERE 1");
+    for i in 0..words.len() {
+      sql.push_str(&format!(" AND instr(search_text, ?{}) > 0", i + 1));
+    }
+    sql.push_str(&format!(" ORDER BY path LIMIT {limit}"));
+    let mut st = self.conn.prepare(&sql)?;
+    st.query_map(rusqlite::params_from_iter(words), entry_from_row)?.collect()
+  }
+}
+
+fn kind_of(name: &str) -> &'static str {
+  if name == FAVORITES { "favorites" } else { "user" }
+}
+
+fn items(conn: &Connection, name: &str) -> rusqlite::Result<Option<Vec<String>>> {
+  let Some(pid) = conn.query_row("SELECT id FROM playlists WHERE name = ?1", [name], |r| r.get::<_, i64>(0)).optional()? else {
+    return Ok(None);
+  };
+  let mut st = conn.prepare_cached("SELECT uri FROM playlist_items WHERE playlist_id = ?1 ORDER BY position")?;
+  Ok(Some(st.query_map([pid], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?))
+}
+
+fn folder_of(p: &Path) -> Option<String> {
+  p.parent().map(path_text)
+}
+
+fn path_text(p: &Path) -> String {
+  p.to_string_lossy().into_owned()
+}
+
+/// Rango de rutas que cuelgan de `folder` (`folder/` hasta `folder0`, el
+/// caracter siguiente a `/`). Asi `/m/a` no incluye a `/m/ab`.
+fn range(folder: &Path) -> (String, String) {
+  let base = path_text(folder).trim_end_matches('/').to_string();
+  (format!("{base}/"), format!("{base}0"))
+}
+
+fn delete_under(tx: &Transaction, folder: &Path) -> rusqlite::Result<()> {
+  let (lo, hi) = range(folder);
+  tx.execute("DELETE FROM tracks WHERE path >= ?1 AND path < ?2", params![lo, hi])?;
+  Ok(())
+}
+
+fn upsert(tx: &Transaction, e: &Entry) -> rusqlite::Result<()> {
+  let i = &e.info;
+  tx.prepare_cached(
+    "INSERT OR REPLACE INTO tracks (path, title, artist, album, album_artist, genre, year, track_number, disc_number,
+       duration_ms, has_cover, codec, sample_rate, channels, search_text, folder)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+  )?
+  .execute(params![
+    path_text(&e.path),
+    i.title,
+    i.artist,
+    i.album,
+    i.album_artist,
+    i.genre,
+    i.year,
+    i.track_number,
+    i.disc_number,
+    i.duration_ms,
+    i.has_cover,
+    i.codec,
+    i.sample_rate,
+    i.channels,
+    library::search_text(e),
+    folder_of(&e.path),
+  ])?;
+  Ok(())
+}
+
+fn entry_from_row(r: &rusqlite::Row) -> rusqlite::Result<Entry> {
+  Ok(Entry {
+    path: PathBuf::from(r.get::<_, String>("path")?),
+    info: TrackInfo {
+      title: r.get("title")?,
+      artist: r.get("artist")?,
+      album: r.get("album")?,
+      album_artist: r.get("album_artist")?,
+      genre: r.get("genre")?,
+      year: r.get("year")?,
+      track_number: r.get("track_number")?,
+      disc_number: r.get("disc_number")?,
+      duration_ms: r.get("duration_ms")?,
+      has_cover: r.get("has_cover")?,
+      codec: r.get("codec")?,
+      sample_rate: r.get("sample_rate")?,
+      channels: r.get("channels")?,
+    },
+  })
+}
+

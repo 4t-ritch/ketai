@@ -18,6 +18,35 @@ pistas remotas.
 - Evento `download.progress` (topico `cache`), ya reservado en el protocolo.
 - Letras y caratulas para pistas remotas.
 
+### Varios temas
+
+La v1 tiene un solo tema activo: la seccion `[theme]` de `config.toml`. Esta
+actualizacion permite tener varios guardados y elegir cual usar.
+
+- Temas en archivos propios (por ejemplo `~/.config/ketai/themes/<nombre>.toml`),
+  con las mismas claves que `[theme]`.
+- Elegir el tema activo desde `config.toml` y desde la TUI (por ejemplo, en
+  el popup de acciones), con recarga en vivo.
+- Temas incluidos con ketai y posibilidad de compartirlos.
+- Antes de empezar se define como conviven un tema elegido y `cover_color`
+  (por ejemplo, un tema que diga que colores toma de la caratula).
+
+### Varios idiomas en la interfaz
+
+La v1 muestra la interfaz en espanol (con algunos textos en ingles, como
+"Default" y "No device" en la salida de audio). Esta actualizacion permite
+elegir el idioma.
+
+- Todos los textos de la TUI salen de un catalogo por idioma, en vez de
+  estar escritos en el codigo.
+- El idioma se elige en `config.toml` (por ejemplo `[ui] language = "en"`)
+  o se toma del sistema (`LANG`), con recarga en vivo.
+- Idiomas iniciales: espanol e ingles. Agregar uno nuevo es sumar un
+  catalogo.
+- Antes de empezar se define que pasa con los mensajes del daemon (errores
+  del protocolo): hoy estan en ingles y los clientes podrian traducirlos por
+  codigo de error.
+
 ### Romanizacion automatica de letras
 
 Generar la letra romanizada cuando el origen no la trae.

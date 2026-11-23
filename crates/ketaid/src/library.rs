@@ -7,6 +7,7 @@
 //! lo guarda en `$XDG_DATA_HOME/ketai/library.json`.
 
 use std::{
+  collections::HashSet,
   fs,
   io::Write,
   os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
@@ -24,7 +25,10 @@ use ketai_core::{
 use ketai_protocol::{ErrorReply, Request, codes};
 use serde_json::{Map, Value, json};
 
-use crate::server::{ClientId, Message};
+use crate::{
+  server::{ClientId, Message},
+  store::Store,
+};
 
 const DEFAULT_LIMIT: u64 = 50;
 /// Limite de la cache que se informa (las descargas llegan en una version
@@ -32,6 +36,8 @@ const DEFAULT_LIMIT: u64 = 50;
 const CACHE_LIMIT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const INDEX_VERSION: u64 = 1;
 /// Cada cuanto se informa el progreso de un escaneo como maximo.
+/// Pistas por tanda de guardado durante un escaneo.
+const BATCH: usize = 200;
 const PROGRESS_EVERY: Duration = Duration::from_millis(200);
 
 /// Pista de la cola a la que se refiere `track.cover`.
@@ -42,8 +48,10 @@ pub struct TrackRef {
 
 enum Job {
   Request { client: ClientId, request_id: u64, method: String, params: Map<String, Value>, track: Option<TrackRef> },
-  /// Un escaneo termino: reemplazar lo indexado bajo cada carpeta.
-  Indexed { job: String, roots: Vec<PathBuf>, entries: Vec<Entry>, total: u64 },
+  /// Tanda de un escaneo en curso: se guarda enseguida.
+  Batch(Vec<Entry>),
+  /// Un escaneo termino: se borra lo que ya no aparecio bajo cada carpeta.
+  Indexed { job: String, roots: Vec<PathBuf>, seen: HashSet<PathBuf>, total: u64 },
 }
 
 pub struct Done {
@@ -87,10 +95,14 @@ impl LibraryService {
                 return;
               }
             }
-            Job::Indexed { job, roots, entries, total } => {
-              // Si fallara, el worker sigue vivo para atender pedidos.
-              if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.replace(&roots, entries))).is_err() {
-                eprintln!("ketaid: library index update failed");
+            Job::Batch(entries) => {
+              if let Err(e) = worker.store.save_batch(&entries) {
+                eprintln!("ketaid: could not save library index: {e}");
+              }
+            }
+            Job::Indexed { job, roots, seen, total } => {
+              if let Err(e) = worker.store.finish_scan(&roots, &seen) {
+                eprintln!("ketaid: could not save library index: {e}");
               }
               // El ultimo progreso sale despues de actualizar el indice: quien
               // busque al verlo ya encuentra las pistas nuevas.
@@ -141,10 +153,8 @@ impl LibraryService {
 }
 
 struct Worker {
-  index: Vec<Entry>,
-  /// Carpetas de la biblioteca (`library.add_folder`).
-  folders: Vec<PathBuf>,
-  index_path: Option<PathBuf>,
+  /// Carpetas y pistas (`library.db`). Sin carpeta de datos, en memoria.
+  store: Store,
   tx: Sender<Message>,
   jobs: Sender<Job>,
   next_job: u64,
@@ -152,22 +162,30 @@ struct Worker {
 
 impl Worker {
   fn load(tx: Sender<Message>, jobs: Sender<Job>) -> Self {
-    let index_path = data_dir().map(|d| d.join("library.json"));
-    let (index, folders) = index_path.as_deref().map(load_index).unwrap_or_default();
-    Self { index, folders, index_path, tx, jobs, next_job: 0 }
+    let mut store = crate::store::open_default();
+    // El indice de versiones anteriores se importa la primera vez.
+    if let Some(d) = data_dir() {
+      let (entries, folders) = load_index(&d.join("library.json"));
+      if let Err(e) = store.import_legacy_once(&entries, &folders) {
+        eprintln!("ketaid: could not import library.json: {e}");
+      }
+    }
+    Self { store, tx, jobs, next_job: 0 }
   }
 
   fn run(&mut self, id: u64, method: &str, params: &Map<String, Value>, track: Option<&TrackRef>) -> Result<Value, ErrorReply> {
     let invalid = |msg: &str| ErrorReply::new(Some(id), codes::INVALID_PARAMS, msg.to_string());
+    let db = |e: rusqlite::Error| ErrorReply::new(Some(id), codes::INTERNAL_ERROR, format!("library database: {e}"));
     match method {
       "library.scan" => {
         // Sin path: todas las carpetas de la biblioteca.
         let roots = match params.get("path") {
           None | Some(Value::Null) => {
-            if self.folders.is_empty() {
+            let folders = self.store.folders().map_err(db)?;
+            if folders.is_empty() {
               return Err(invalid("there are no library folders: add one with library.add_folder"));
             }
-            self.folders.clone()
+            folders
           }
           Some(p) => vec![existing_folder(p).ok_or_else(|| invalid("path must be an existing absolute folder"))?],
         };
@@ -177,28 +195,23 @@ impl Worker {
         Ok(json!({"job": job}))
       }
       "library.folders" => {
-        let folders: Vec<Value> = self
-          .folders
-          .iter()
-          .map(|f| json!({"path": f, "tracks": self.index.iter().filter(|e| e.path.starts_with(f)).count()}))
-          .collect();
+        let mut folders = Vec::new();
+        for f in self.store.folders().map_err(db)? {
+          folders.push(json!({"path": f, "tracks": self.store.count_under(&f).map_err(db)?}));
+        }
         Ok(json!({"folders": folders}))
       }
       "library.add_folder" => {
         let folder = params.get("path").and_then(existing_folder).ok_or_else(|| invalid("path must be an existing absolute folder"))?;
-        if !self.folders.contains(&folder) {
-          self.folders.push(folder);
-          self.save();
-        }
+        self.store.add_folder(&folder).map_err(db)?;
         Ok(json!({}))
       }
       "library.remove_folder" => {
-        let folder = params.get("path").and_then(Value::as_str).map(PathBuf::from);
-        let at = folder.as_ref().and_then(|f| self.folders.iter().position(|x| x == f)).ok_or_else(|| invalid("path is not a library folder"))?;
-        let folder = self.folders.remove(at);
+        let folder = params.get("path").and_then(Value::as_str).map(PathBuf::from).ok_or_else(|| invalid("path is not a library folder"))?;
         // Sus canciones dejan de ser parte de la biblioteca.
-        self.index.retain(|e| !e.path.starts_with(&folder));
-        self.save();
+        if !self.store.remove_folder(&folder).map_err(db)? {
+          return Err(invalid("path is not a library folder"));
+        }
         Ok(json!({}))
       }
       "library.search" => {
@@ -208,9 +221,37 @@ impl Worker {
           Some(v) => v.as_u64().filter(|&n| n >= 1).ok_or_else(|| invalid("limit must be a positive integer"))?,
         };
         let words = library::words(query);
-        let tracks: Vec<Value> =
-          self.index.iter().filter(|e| library::matches(e, &words)).take(limit as usize).map(track_json).collect();
+        let tracks: Vec<Value> = self.store.search(&words, limit).map_err(db)?.iter().map(track_json).collect();
         Ok(json!({"tracks": tracks}))
+      }
+      "library.groups" => {
+        let by = params.get("by").and_then(Value::as_str).unwrap_or_default();
+        let groups = self.store.groups(by).ok_or_else(|| invalid("by must be artist, album, folder, year or genre"))?.map_err(db)?;
+        let groups: Vec<Value> = groups.into_iter().map(|(name, count)| json!({"name": name, "count": count})).collect();
+        Ok(json!({"groups": groups}))
+      }
+      "library.tracks" => {
+        let number = |k: &str, default: u64| match params.get(k) {
+          None | Some(Value::Null) => Ok(default),
+          Some(v) => v.as_u64().ok_or_else(|| invalid(&format!("{k} must be a non-negative integer"))),
+        };
+        let (offset, limit) = (number("offset", 0)?, number("limit", 200)?.clamp(1, 5000));
+        let group = match params.get("by") {
+          None | Some(Value::Null) => None,
+          Some(by) => {
+            let by = by.as_str().ok_or_else(|| invalid("by must be a string"))?;
+            // Un grupo necesita `name` (null es el grupo sin dato).
+            let name = match params.get("name") {
+              None => return Err(invalid("name is required with by")),
+              Some(Value::Null) => None,
+              Some(v) => Some(v.as_str().ok_or_else(|| invalid("name must be a string or null"))?),
+            };
+            Some((by, name))
+          }
+        };
+        let (tracks, total) =
+          self.store.tracks(group, offset, limit).ok_or_else(|| invalid("by must be artist, album, folder, year or genre"))?.map_err(db)?;
+        Ok(json!({"tracks": tracks.iter().map(track_json).collect::<Vec<_>>(), "total": total}))
       }
       "track.cover" => {
         let track = track.ok_or_else(|| invalid("track_id or uri is required"))?;
@@ -249,13 +290,19 @@ impl Worker {
       progress(0);
       let mut last = Instant::now();
       let mut entries = Vec::new();
+      let mut seen = HashSet::new();
       for (i, path) in files.into_iter().enumerate() {
         // Un archivo que no se puede reproducir no entra al indice.
         // Un archivo que hace fallar al decoder se salta: el escaneo siempre
         // termina y siempre llega el progreso final.
         let probed = std::panic::catch_unwind(|| metadata::probe(&path));
         if let Ok(Ok(info)) = probed {
+          seen.insert(path.clone());
           entries.push(Entry { path, info });
+        }
+        // Se guarda por tandas: un corte a mitad no pierde lo ya leido.
+        if entries.len() >= BATCH {
+          let _ = jobs.send(Job::Batch(std::mem::take(&mut entries)));
         }
         let done = i as u64 + 1;
         if done < total && last.elapsed() >= PROGRESS_EVERY {
@@ -264,27 +311,11 @@ impl Worker {
         }
       }
       // El progreso final lo manda el worker, despues de indexar.
-      let _ = jobs.send(Job::Indexed { job, roots, entries, total });
-    });
-  }
-
-  fn replace(&mut self, roots: &[PathBuf], entries: Vec<Entry>) {
-    self.index.retain(|e| !roots.iter().any(|r| e.path.starts_with(r)));
-    self.index.extend(entries);
-    self.index.sort_by(|a, b| a.path.cmp(&b.path));
-    self.index.dedup_by(|a, b| a.path == b.path);
-    self.save();
-  }
-
-  /// Guarda indice y carpetas en `library.json`.
-  fn save(&self) {
-    if let Some(path) = &self.index_path {
-      let tracks: Vec<Value> = self.index.iter().map(index_json).collect();
-      let content = json!({"version": INDEX_VERSION, "folders": self.folders, "tracks": tracks}).to_string();
-      if let Err(e) = crate::session::write_atomic(path, content.as_bytes()) {
-        eprintln!("ketaid: could not save library index: {e}");
+      if !entries.is_empty() {
+        let _ = jobs.send(Job::Batch(entries));
       }
-    }
+      let _ = jobs.send(Job::Indexed { job, roots, seen, total });
+    });
   }
 }
 
@@ -296,7 +327,7 @@ fn xdg(var: &str, home_rel: &str) -> Option<PathBuf> {
     .map(|b| b.join("ketai"))
 }
 
-fn data_dir() -> Option<PathBuf> {
+pub fn data_dir() -> Option<PathBuf> {
   xdg("XDG_DATA_HOME", ".local/share")
 }
 
@@ -318,22 +349,12 @@ fn track_json(e: &Entry) -> Value {
     "codec": i.codec,
     "sample_rate": i.sample_rate,
     "channels": i.channels,
+    "album_artist": i.album_artist,
+    "genre": i.genre,
+    "year": i.year,
+    "track_number": i.track_number,
+    "disc_number": i.disc_number,
     "bitrate_kbps": null,
-  })
-}
-
-fn index_json(e: &Entry) -> Value {
-  let i = &e.info;
-  json!({
-    "path": e.path,
-    "title": i.title,
-    "artist": i.artist,
-    "album": i.album,
-    "duration_ms": i.duration_ms,
-    "has_cover": i.has_cover,
-    "codec": i.codec,
-    "sample_rate": i.sample_rate,
-    "channels": i.channels,
   })
 }
 
@@ -343,9 +364,9 @@ fn existing_folder(v: &Value) -> Option<PathBuf> {
   (p.is_absolute() && p.is_dir()).then_some(p)
 }
 
-/// Indice y carpetas guardados. Si no existe o no se entiende, se arranca
-/// vacio (se reconstruye con un escaneo). Un indice sin `folders` (anterior
-/// a las carpetas) se lee con la lista vacia.
+/// Indice y carpetas de versiones anteriores (`library.json`), para
+/// importarlos a la base la primera vez. Si no existe o no se entiende,
+/// queda vacio. Un indice sin `folders` se lee con la lista vacia.
 fn load_index(path: &Path) -> (Vec<Entry>, Vec<PathBuf>) {
   let Ok(text) = fs::read_to_string(path) else { return Default::default() };
   let Ok(v) = serde_json::from_str::<Value>(&text) else { return Default::default() };
@@ -371,6 +392,7 @@ fn load_index(path: &Path) -> (Vec<Entry>, Vec<PathBuf>) {
               codec: s(t, "codec"),
               sample_rate: t["sample_rate"].as_u64().and_then(|n| u32::try_from(n).ok()),
               channels: t["channels"].as_u64().and_then(|n| u16::try_from(n).ok()),
+              ..Default::default()
             },
           })
         })

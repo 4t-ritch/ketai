@@ -1,0 +1,14 @@
+# Tema oscuro fijo: no toma nada de la caratula.
+# Ver examples/theme/README.md.
+
+[theme]
+cover_color = false
+background = "#101418"
+accent = "#e0a458"
+foreground = "#f2efe9"
+dim = "#c9c3b8"
+faint = "#8a847a"
+raised = "#1d232a"
+on_accent = "#1a1206"
+row = "#1a2026"
+spectrum_top = "#f07b5a"

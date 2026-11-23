@@ -20,6 +20,11 @@ pub enum Color {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThemeConfig {
+  /// `cover_color`: `Some(true)` toda la UI sale de la caratula y los
+  /// colores manuales se ignoran; `Some(false)` solo valen los manuales;
+  /// sin la clave, cada color decide (`background`/`accent` pueden ser
+  /// "cover").
+  pub cover_color: Option<bool>,
   pub background: Color,
   pub accent: Color,
   /// Colores fijos opcionales; `None` deja el valor por defecto.
@@ -29,13 +34,18 @@ pub struct ThemeConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
   pub theme: ThemeConfig,
+  /// Atajos globales (`[keys]`).
+  pub keys: crate::keys::Keymap,
   /// Claves que no se reconocen (no frenan la carga).
   pub warnings: Vec<String>,
 }
 
 impl Default for Config {
   fn default() -> Self {
-    Self { theme: ThemeConfig { background: Color::Cover, accent: Color::Cover, fixed: Vec::new() }, warnings: Vec::new() }
+    Self { theme: ThemeConfig { cover_color: None, background: Color::Cover, accent: Color::Cover, fixed: Vec::new() },
+      keys: crate::keys::Keymap::default(),
+      warnings: Vec::new(),
+    }
   }
 }
 
@@ -62,6 +72,10 @@ impl Config {
           let theme = value.as_table().ok_or("theme: tiene que ser una sección [theme]")?;
           for (k, v) in theme {
             let name = format!("theme.{k}");
+            if k == "cover_color" {
+              config.theme.cover_color = Some(v.as_bool().ok_or_else(|| format!("{name}: tiene que ser true o false"))?);
+              continue;
+            }
             let text = v.as_str().ok_or_else(|| format!("{name}: tiene que ser un texto como \"#rrggbb\""))?;
             match k.as_str() {
               "background" | "accent" => {
@@ -86,6 +100,29 @@ impl Config {
             }
           }
         }
+        "keys" => {
+          let keys = value.as_table().ok_or("keys: tiene que ser una sección [keys]")?;
+          for (k, v) in keys {
+            let name = format!("keys.{k}");
+            let Some(action) = crate::keys::action_named(k) else {
+              config.warnings.push(format!("{name}: acción desconocida, se ignora"));
+              continue;
+            };
+            let specs: Vec<&str> = match v {
+              toml::Value::String(s) => vec![s.as_str()],
+              toml::Value::Array(a) => {
+                a.iter().map(|x| x.as_str().ok_or_else(|| format!("{name}: la lista tiene que ser de textos"))).collect::<Result<_, _>>()?
+              }
+              _ => return Err(format!("{name}: tiene que ser una tecla como \"ctrl+p\" o una lista")),
+            };
+            let mut parsed = Vec::new();
+            for spec in specs {
+              parsed.push(crate::keys::Key::parse(spec).ok_or_else(|| format!("{name}: tecla inválida \"{spec}\""))?);
+            }
+            config.keys.set(action, parsed);
+          }
+          config.warnings.extend(config.keys.conflicts());
+        }
         // La lee el daemon (carpeta de playlists).
         "playlists" => {}
         other => config.warnings.push(format!("{other}: sección desconocida, se ignora")),
@@ -106,6 +143,30 @@ impl Config {
   /// Tema final. `cover` son los colores de la caratula que suena (acento,
   /// fondo, fondo elevado), si hay.
   pub fn theme(&self, cover: Option<CoverPalette>) -> Theme {
+    match self.theme.cover_color {
+      // Toda la UI de la caratula; los manuales no cuentan.
+      Some(true) => {
+        let mut t = Theme::default();
+        if let Some(p) = cover {
+          t.bg = p.background;
+          t.raised = p.raised;
+          t.row = p.row;
+          t.accent = p.accent;
+          t.on_accent = p.on_accent;
+          t.dim = p.dim;
+          t.faint = p.faint;
+          t.spectrum_top = p.spectrum_top;
+        }
+        return t;
+      }
+      // Solo los manuales: "cover" vale el color por defecto.
+      Some(false) => return self.manual_theme(None),
+      None => {}
+    }
+    self.manual_theme(cover)
+  }
+
+  fn manual_theme(&self, cover: Option<CoverPalette>) -> Theme {
     let mut t = Theme::default();
     for (key, c) in &self.theme.fixed {
       match *key {
@@ -125,15 +186,36 @@ impl Config {
       (Color::Fixed(c), _) => t.bg = c,
       (Color::Cover, Some(p)) => {
         t.bg = p.background;
-        if !self.theme.fixed.iter().any(|(k, _)| *k == "raised") {
+        // Lo que acompana al fondo tambien sale de la caratula, salvo que
+        // este fijado a mano.
+        let mine = |k: &str| self.theme.fixed.iter().any(|(f, _)| *f == k);
+        if !mine("raised") {
           t.raised = p.raised;
+        }
+        if !mine("row") {
+          t.row = p.row;
+        }
+        if !mine("dim") {
+          t.dim = p.dim;
+        }
+        if !mine("faint") {
+          t.faint = p.faint;
         }
       }
       (Color::Cover, None) => {}
     }
     match (self.theme.accent, cover) {
       (Color::Fixed(c), _) => t.accent = c,
-      (Color::Cover, Some(p)) => t.accent = p.accent,
+      (Color::Cover, Some(p)) => {
+        t.accent = p.accent;
+        let mine = |k: &str| self.theme.fixed.iter().any(|(f, _)| *f == k);
+        if !mine("on_accent") {
+          t.on_accent = p.on_accent;
+        }
+        if !mine("spectrum_top") {
+          t.spectrum_top = p.spectrum_top;
+        }
+      }
       (Color::Cover, None) => {}
     }
     t
@@ -146,6 +228,14 @@ pub struct CoverPalette {
   pub accent: RColor,
   pub background: RColor,
   pub raised: RColor,
+  /// Fila bajo el cursor.
+  pub row: RColor,
+  /// Texto sobre el acento.
+  pub on_accent: RColor,
+  /// Textos secundarios, del tono de la caratula.
+  pub dim: RColor,
+  pub faint: RColor,
+  pub spectrum_top: RColor,
 }
 
 /// `$XDG_CONFIG_HOME/ketai/config.toml` o `~/.config/ketai/config.toml`.

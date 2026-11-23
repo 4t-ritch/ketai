@@ -71,6 +71,20 @@ impl Theme {
     Style::new().fg(self.fg).add_modifier(Modifier::BOLD)
   }
 
+  /// Fondo de los popups: el fondo, un poco mas oscuro.
+  pub fn popup(&self) -> Color {
+    lerp(self.bg, rgb(0x000000), 0.35)
+  }
+
+  /// Lineas de letra que todavia no se cantan (y su traduccion, mas tenue).
+  pub fn upcoming(&self) -> Color {
+    lerp(self.faint, self.bg, 0.15)
+  }
+
+  pub fn upcoming_secondary(&self) -> Color {
+    lerp(self.faint, self.bg, 0.4)
+  }
+
   pub fn accent(&self) -> Style {
     Style::new().fg(self.accent)
   }

@@ -50,34 +50,59 @@ pub fn transmit(id: u32, png: &[u8]) -> String {
   out
 }
 
-/// Borra todas las ubicaciones (los datos de las imagenes quedan).
-pub const DELETE_PLACEMENTS: &str = "\x1b_Ga=d,d=a,q=2\x1b\\";
-/// Borra ubicaciones y datos (al salir).
-pub const DELETE_ALL: &str = "\x1b_Ga=d,d=A,q=2\x1b\\";
+/// Borra imagenes propias, con sus datos (al salir). Nunca se borra todo:
+/// otro ketai en la misma terminal (por ejemplo en otro panel de herdr)
+/// perderia sus caratulas.
+pub fn delete_images(ids: &[u32]) -> String {
+  ids.iter().map(|i| format!("\x1b_Ga=d,d=I,i={i},q=2\x1b\\")).collect()
+}
 
 /// Lo que hay que mandar para pasar de `old` a `new`. Vacio si no cambio
 /// nada (redibujar las imagenes en cada cuadro haria parpadear la pantalla).
-pub fn update(old: &[Placement], new: &[Placement]) -> String {
-  if old == new {
-    return String::new();
-  }
-  let mut out = String::from(DELETE_PLACEMENTS);
-  for p in new {
+/// Vuelve a poner las mismas ubicaciones, sin borrar: con los mismos ids
+/// reemplazan en el lugar. Para cuando el multiplexor las perdio sin avisar.
+pub fn refresh(placements: &[Placement]) -> String {
+  place_all(placements)
+}
+
+/// Ubica cada imagen: cursor en la celda (1-based) y ubicacion sin moverlo
+/// (C=1), con su propio id de ubicacion.
+fn place_all(new: &[Placement]) -> String {
+  let mut out = String::new();
+  for (n, p) in new.iter().enumerate() {
     let a = p.area;
     if a.width == 0 || a.height == 0 {
       continue;
     }
-    // Cursor en la celda (1-based) y ubicacion sin moverlo (C=1).
     let _ = write!(
       out,
-      "\x1b[{};{}H\x1b_Ga=p,i={},p=1,c={},r={},C=1,z={Z_BELOW_BACKGROUND},q=2\x1b\\",
+      "\x1b[{};{}H\x1b_Ga=p,i={},p={},c={},r={},C=1,z={Z_BELOW_BACKGROUND},q=2\x1b\\",
       a.y + 1,
       a.x + 1,
       p.image,
+      n + 1,
       a.width,
       a.height
     );
   }
+  out
+}
+
+pub fn update(old: &[Placement], new: &[Placement]) -> String {
+  if old == new {
+    return String::new();
+  }
+  // Solo se quitan las ubicaciones propias (los datos quedan).
+  let mut out = String::new();
+  let mut gone: Vec<u32> = Vec::new();
+  for p in old {
+    if !gone.contains(&p.image) {
+      gone.push(p.image);
+      let _ = write!(out, "\x1b_Ga=d,d=i,i={},q=2\x1b\\", p.image);
+    }
+  }
+  // Cada ubicacion con su propio id: la misma caratula puede verse dos veces.
+  out.push_str(&place_all(new));
   out
 }
 

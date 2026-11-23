@@ -19,6 +19,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 libc = "0.2"
 toml = "0.8"
 ratatui = "0.29"
+unicode-width = "0.2"
 serde_json.workspace = true
 
 [dev-dependencies]

@@ -26,6 +26,9 @@ use serde_json::json;
 enum Input {
   Key(event::KeyEvent),
   Resize,
+  Mouse(ratatui::crossterm::event::MouseEvent),
+  /// El panel recupero el foco.
+  Focus,
   Daemon(DaemonMsg),
   /// Resultado de buscar el servicio.
   Observed(Observed),
@@ -33,8 +36,10 @@ enum Input {
   ActionDone(Result<(), String>),
   /// Frame de `viz.sock`.
   Viz(Vec<f32>),
-  /// Caratula decodificada (o `None` si no se pudo leer).
-  Cover(String, Option<image::RgbImage>),
+  /// Caratula preparada en otro thread (o `None` si no se pudo leer).
+  Cover(String, Option<covers::Prepared>),
+  /// Version atenuada de una caratula, lista para transmitir.
+  CoverDim(String, String),
   /// config.toml cambio en disco.
   Config(Result<Config, String>),
 }
@@ -67,6 +72,21 @@ fn kitty_supported() -> bool {
     }
   }
   kitty::supported_reply(&reply)
+}
+
+/// Caratulas que la terminal guarda como mucho. Pocas pantallas muestran mas
+/// de una docena; el resto se borra y se vuelve a mandar si reaparece.
+const KEEP_COVERS: usize = 48;
+/// Cada cuanto se vuelven a poner las ubicaciones de las imagenes.
+const REFRESH_PLACEMENTS: Duration = Duration::from_secs(2);
+/// Caratulas que ketai guarda en memoria (~300 KB cada una, ~36 MB en total).
+const KEEP_IN_MEMORY: usize = 120;
+
+/// Trabajo para el thread de caratulas.
+enum Prep {
+  File(String, std::path::PathBuf, u32),
+  Image(String, image::RgbImage, u32),
+  Dimmed(String, image::RgbImage, u32),
 }
 
 /// Escribe secuencias de la capa de imagenes sin perder el cursor.
@@ -150,9 +170,16 @@ fn main() -> io::Result<()> {
   }
   app.refresh_theme();
   let mut terminal = ratatui::init();
+  // Avisos de foco, para reenviar las caratulas al volver al panel.
+  let _ = ratatui::crossterm::execute!(
+    io::stdout(),
+    ratatui::crossterm::event::EnableFocusChange,
+    ratatui::crossterm::event::EnableMouseCapture
+  );
   // La pregunta se hace antes de leer teclas: la respuesta llega por stdin.
   let no_images = std::env::var_os("KETAI_NO_IMAGES").is_some_and(|v| v == "1");
   app.images = !no_images && kitty_supported();
+  app.covers = covers::CoverCache::with_base(covers::CoverCache::process_base());
   if !no_images && !app.images {
     ratatui::restore();
     eprintln!("{NEEDS_KITTY}");
@@ -170,7 +197,26 @@ fn main() -> io::Result<()> {
     loop {
       let input = match event::read() {
         Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => Input::Key(k),
-        Ok(Event::Resize(..)) => Input::Resize,
+        Ok(Event::Resize(w, h)) => {
+          ketai_tui::log::log(format_args!("resize {w}x{h}"));
+          Input::Resize
+        }
+        // Al volver al panel o a la pestana (herdr, tmux) algunas terminales
+        // perdieron las imagenes y lo dibujado.
+        Ok(Event::FocusGained) => {
+          ketai_tui::log::log("focus gained");
+          Input::Focus
+        }
+        Ok(Event::FocusLost) => {
+          ketai_tui::log::log("focus lost");
+          continue;
+        }
+        Ok(Event::Mouse(m)) => {
+          if !matches!(m.kind, event::MouseEventKind::Moved) {
+            ketai_tui::log::log(format_args!("mouse {:?} at {},{}", m.kind, m.column, m.row));
+          }
+          Input::Mouse(m)
+        }
         Ok(_) => continue,
         Err(_) => return,
       };
@@ -180,12 +226,35 @@ fn main() -> io::Result<()> {
     }
   })?;
 
+  // Un solo thread prepara las caratulas (decodificar, PNG, base64), en
+  // orden. Con un thread por caratula, cientos a la vez cargaban el sistema.
+  let (prep, prep_rx) = std::sync::mpsc::channel::<Prep>();
+  {
+    let tx = tx.clone();
+    thread::Builder::new().name("ketai-covers".into()).spawn(move || {
+      for job in prep_rx {
+        let input = match job {
+          Prep::File(uri, path, id) => Input::Cover(uri, covers::prepare(&path, id)),
+          Prep::Image(uri, img, id) => Input::Cover(uri, Some(covers::prepare_image(img, id))),
+          Prep::Dimmed(uri, img, id) => Input::CoverDim(uri, covers::dimmed_transmit(&img, id)),
+        };
+        if tx.send(input).is_err() {
+          return;
+        }
+      }
+    })?;
+  }
+
   let mut last_retry = Instant::now();
+  let mut last_refresh = Instant::now();
+  let started = Instant::now();
   // Imagenes ubicadas en el ultimo cuadro.
   let mut placed: Vec<kitty::Placement> = Vec::new();
   let result = (|| -> io::Result<()> {
     loop {
+      app.anim_ms = started.elapsed().as_millis() as u64;
       terminal.draw(|f| ui::draw(f, &app))?;
+      app.hits = ui::take_hits();
       if app.images {
         let frame = ui::take_frame(&app);
         for uri in frame.wanted {
@@ -195,10 +264,50 @@ fn main() -> io::Result<()> {
             app.covers.sent(id, &uri);
           }
         }
-        emit(&kitty::update(&placed, &frame.placements));
+        for uri in frame.wanted_dimmed {
+          if let Some((img, id)) = app.covers.want_dimmed(&uri) {
+            let _ = prep.send(Prep::Dimmed(uri, img, id));
+          }
+        }
+        // Las que la terminal pudo haber perdido se mandan al dibujarse.
+        for uri in frame.resend {
+          if let Some((img, id)) = app.covers.restage(&uri) {
+            ketai_tui::log::log(format_args!("resend {uri}"));
+            let _ = prep.send(Prep::Image(uri, img, id));
+          }
+        }
+        let update = kitty::update(&placed, &frame.placements);
+        if !update.is_empty() {
+          ketai_tui::log::log(format_args!("place {} images", frame.placements.len()));
+        }
+        emit(&update);
         placed = frame.placements;
+        // Si el multiplexor perdio las ubicaciones sin avisar, se vuelven a
+        // poner cada tanto (pocos bytes, sin parpadeo).
+        if !update.is_empty() {
+          last_refresh = Instant::now();
+        } else if !placed.is_empty() && last_refresh.elapsed() >= REFRESH_PLACEMENTS {
+          emit(&kitty::refresh(&placed));
+          last_refresh = Instant::now();
+        }
+        // Las que no se usan hace rato se borran de la terminal.
+        let mut in_use: Vec<String> = frame.on_screen;
+        in_use.extend(frame.keep);
+        app.covers.touch(&in_use);
+        let evicted = app.covers.evict(KEEP_COVERS);
+        app.covers.forget(KEEP_IN_MEMORY);
+        if !evicted.is_empty() {
+          ketai_tui::log::log("evicted old covers");
+          emit(&evicted);
+        }
       }
-      let input = rx.recv_timeout(Duration::from_millis(250)).ok();
+      // Con una busqueda esperando, se despierta seguido para mandarla a
+      // tiempo.
+      let wait = if app.search_pending() { 30 } else { 250 };
+      let input = rx.recv_timeout(Duration::from_millis(wait)).ok();
+      for (method, params) in app.tick(Instant::now()) {
+        send(&mut client, &mut app, &method, params);
+      }
 
       // Desde la pantalla de servicio se reintenta conectar cada tanto.
       if matches!(app.screen, Screen::Service { busy: false, .. }) && last_retry.elapsed() >= RETRY {
@@ -211,8 +320,31 @@ fn main() -> io::Result<()> {
 
       match input {
         None => {}
-        // Al cambiar el tamano se vuelven a ubicar todas las imagenes.
-        Some(Input::Resize) => placed.clear(),
+        // Al cambiar el tamano se vuelven a mandar y ubicar todas las
+        // imagenes: algunas terminales (herdr) las pierden.
+        Some(input @ (Input::Resize | Input::Focus)) => {
+          placed.clear();
+          // Al recuperar el foco se redibuja todo: el multiplexor pudo haber
+          // borrado el panel y ratatui solo dibuja lo que cambio.
+          if matches!(input, Input::Focus) {
+            let _ = terminal.clear();
+          }
+          // Solo se marcan: cada una se manda cuando se vuelve a dibujar.
+          if app.images {
+            app.covers.invalidate_all();
+            ketai_tui::log::log("covers marked stale");
+          }
+        }
+        Some(Input::Mouse(m)) if matches!(app.screen, Screen::Main) => {
+          if ketai_tui::log::enabled() && !matches!(m.kind, event::MouseEventKind::Moved) {
+            let found = app.hits.iter().rev().find(|(r, _)| m.column >= r.x && m.column < r.x + r.width && m.row >= r.y && m.row < r.y + r.height);
+            ketai_tui::log::log(format_args!("  hit {:?}", found.map(|(_, h)| h)));
+          }
+          for (method, params) in app.on_mouse(m, Instant::now()) {
+            send(&mut client, &mut app, &method, params);
+          }
+        }
+        Some(Input::Mouse(_)) => {}
         Some(Input::Key(k)) => {
           if let Screen::Service { observed, .. } = &app.screen {
             let observed = observed.clone();
@@ -244,11 +376,8 @@ fn main() -> io::Result<()> {
           show_service(&mut app, &tx);
         }
         Some(Input::Daemon(DaemonMsg::Reply { id, result })) if app.covers.owns(id) => {
-          if let Some((uri, path)) = app.covers.on_reply(id, result) {
-            let tx = tx.clone();
-            thread::spawn(move || {
-              let _ = tx.send(Input::Cover(uri, covers::decode(&path)));
-            });
+          if let Some(job) = app.covers.on_reply(id, result) {
+            let _ = prep.send(Prep::File(job.uri, job.path, job.id));
           }
         }
         Some(Input::Config(result)) => {
@@ -262,8 +391,14 @@ fn main() -> io::Result<()> {
           }
           app.refresh_theme();
         }
-        Some(Input::Cover(uri, img)) => {
-          emit(&app.covers.decoded(&uri, img));
+        Some(Input::CoverDim(uri, seq)) => {
+          emit(&seq);
+          app.covers.dimmed_ready(&uri);
+        }
+        Some(Input::Cover(uri, prepared)) => {
+          let seq = app.covers.ready(&uri, prepared);
+          ketai_tui::log::log(format_args!("cover sent {} bytes {uri}", seq.len()));
+          emit(&seq);
           // Si es la caratula que suena, el tema toma sus colores.
           app.refresh_theme();
         }
@@ -296,8 +431,13 @@ fn main() -> io::Result<()> {
     }
   })();
   if app.images {
-    emit(kitty::DELETE_ALL);
+    emit(&kitty::delete_images(&app.covers.ids()));
   }
+  let _ = ratatui::crossterm::execute!(
+    io::stdout(),
+    ratatui::crossterm::event::DisableMouseCapture,
+    ratatui::crossterm::event::DisableFocusChange
+  );
   ratatui::restore();
   result
 }

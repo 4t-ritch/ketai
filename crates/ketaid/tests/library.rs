@@ -324,3 +324,155 @@ fn scanning_everything_needs_at_least_one_folder() {
   let mut s = S::new();
   assert_eq!(s.code("library.scan", json!({})), -32602);
 }
+
+#[test]
+fn search_ignores_accents_and_case_in_both_directions() {
+  let mut s = S::new();
+  s.put("vorbis.ogg", "Canción de niño.ogg");
+  s.put("opus.ogg", "cafe tacuba.ogg");
+  s.scan(&s.music());
+  assert_eq!(titles(&s.search("cancion nino")), ["Canci%C3%B3n%20de%20ni%C3%B1o.ogg"]);
+  assert_eq!(titles(&s.search("CANCIÓN")).len(), 1);
+  assert_eq!(titles(&s.search("café")), ["cafe%20tacuba.ogg"]);
+  assert_eq!(titles(&s.search("de ni")).len(), 1, "partial words anywhere");
+}
+
+#[test]
+fn results_carry_genre_year_numbers_and_album_artist_and_search_them() {
+  let mut s = S::new();
+  s.put("full_tags.ogg", "jp/full.ogg");
+  s.put("vorbis.ogg", "jp/plain.ogg");
+  s.scan(&s.music());
+  let hits = s.search("j-pop 2021");
+  assert_eq!(hits.len(), 1, "{hits:?}");
+  let t = &hits[0];
+  assert_eq!(t["genre"], "J-Pop");
+  assert_eq!(t["year"], 2021);
+  assert_eq!((t["track_number"].clone(), t["disc_number"].clone()), (json!(3), json!(1)));
+  assert_eq!(t["album_artist"], "Varios");
+  assert_eq!(s.search("varios").len(), 1, "album artist is searchable");
+}
+
+#[test]
+fn the_index_lives_in_a_database_and_imports_the_old_index_once() {
+  let mut s = S::new();
+  let song = s.put("vorbis.ogg", "old/song.ogg");
+  let folder = s.music().join("old");
+  // Indice de una version anterior (library.json), sin base todavia.
+  let data = s.dir.join("data/ketai");
+  s.daemon = None;
+  for f in ["library.db", "library.db-wal", "library.db-shm"] {
+    let _ = fs::remove_file(data.join(f));
+  }
+  fs::create_dir_all(&data).unwrap();
+  let old = json!({"version": 1, "folders": [folder], "tracks": [{"path": song, "title": "From JSON", "artist": "Old", "album": null, "duration_ms": 2000, "has_cover": false, "codec": "vorbis", "sample_rate": 44100, "channels": 2}]});
+  fs::write(data.join("library.json"), old.to_string()).unwrap();
+  s.restart();
+  let hits = s.search("json");
+  assert_eq!(titles(&hits), ["song.ogg"]);
+  assert_eq!(hits[0]["title"], "From JSON");
+  assert_eq!(s.ok("library.folders", json!({}))["folders"][0]["path"], json!(folder));
+  assert!(data.join("library.db").is_file());
+  assert!(data.join("library.json").is_file(), "the old index is never deleted");
+  // Se importa una sola vez: lo que cambie despues no se pisa.
+  assert_eq!(s.ok("library.remove_folder", json!({"path": folder})), json!({}));
+  s.restart();
+  assert!(s.search("json").is_empty());
+}
+
+#[test]
+fn two_clients_changing_folders_at_once_both_count() {
+  let s = S::new();
+  let dirs: Vec<PathBuf> = (0..8).map(|i| s.music().join(format!("f{i}"))).collect();
+  for d in &dirs {
+    fs::create_dir_all(d).unwrap();
+  }
+  let handles: Vec<_> = dirs
+    .chunks(4)
+    .map(|chunk| {
+      let mut c = s.daemon.as_ref().unwrap().connect();
+      let chunk = chunk.to_vec();
+      std::thread::spawn(move || {
+        for (i, d) in chunk.iter().enumerate() {
+          let r = c.request(10 + i as u64, "library.add_folder", json!({"path": d}));
+          assert_eq!(r["result"], json!({}), "{r}");
+        }
+      })
+    })
+    .collect();
+  for h in handles {
+    h.join().unwrap();
+  }
+  let mut s = s;
+  let folders = s.ok("library.folders", json!({}));
+  assert_eq!(folders["folders"].as_array().unwrap().len(), 8, "{folders}");
+  s.restart();
+  assert_eq!(s.ok("library.folders", json!({}))["folders"].as_array().unwrap().len(), 8);
+}
+
+#[test]
+fn a_scan_cut_halfway_keeps_what_it_already_read() {
+  let mut s = S::new();
+  let first = s.put("vorbis.ogg", "many/0000.ogg");
+  for i in 1..3000 {
+    fs::hard_link(&first, s.music().join(format!("many/{i:04}.ogg"))).unwrap();
+  }
+  let mut w = s.daemon.as_ref().unwrap().connect();
+  w.request(1, "events.subscribe", json!({"topics": ["library"]}));
+  s.ok("library.scan", json!({"path": s.music()}));
+  let deadline = Instant::now() + Duration::from_secs(20);
+  loop {
+    assert!(Instant::now() < deadline);
+    let m = w.read_message().expect("event");
+    let done = m["data"]["done"].as_u64().unwrap_or(0);
+    if m["event"] == "library.progress" && done >= 1200 {
+      assert!(done < 3000, "the scan finished before it could be cut; use more files");
+      break;
+    }
+  }
+  // Corte de golpe (SIGKILL), sin cerrar nada.
+  let mut d = s.daemon.take().unwrap();
+  d.child.kill().unwrap();
+  d.child.wait().unwrap();
+  drop(d);
+  s.restart();
+  let kept = s.ok("library.search", json!({"query": "", "limit": 5000}))["tracks"].as_array().unwrap().len();
+  assert!(kept >= 200, "only {kept} tracks survived the cut");
+}
+
+#[test]
+fn browse_groups_and_pages_the_whole_library() {
+  let mut s = S::new();
+  s.put("full_tags.ogg", "jp/a/full.ogg");
+  s.put("tagged_cover.mp3", "rock/red.mp3");
+  s.put("vorbis.ogg", "rock/plain.ogg");
+  s.scan(&s.music());
+  // Todas, por pagina, ordenadas por ruta.
+  let all = s.ok("library.tracks", json!({"offset": 0, "limit": 2}));
+  assert_eq!(all["total"], 3);
+  assert_eq!(titles(all["tracks"].as_array().unwrap()), ["full.ogg", "plain.ogg"]);
+  let rest = s.ok("library.tracks", json!({"offset": 2, "limit": 2}));
+  assert_eq!(titles(rest["tracks"].as_array().unwrap()), ["red.mp3"]);
+  // Grupos con su cantidad; sin dato queda en un grupo null.
+  assert_eq!(
+    s.ok("library.groups", json!({"by": "genre"})),
+    json!({"groups": [{"name": null, "count": 2}, {"name": "J-Pop", "count": 1}]})
+  );
+  assert_eq!(s.ok("library.groups", json!({"by": "year"}))["groups"][1], json!({"name": "2021", "count": 1}));
+  let folders = s.ok("library.groups", json!({"by": "folder"}));
+  assert_eq!(folders["groups"], json!([{"name": s.music().join("jp/a"), "count": 1}, {"name": s.music().join("rock"), "count": 2}]));
+  assert_eq!(s.ok("library.groups", json!({"by": "artist"}))["groups"].as_array().unwrap().len(), 3);
+  assert_eq!(s.ok("library.groups", json!({"by": "album"}))["groups"].as_array().unwrap().len(), 3);
+  // Canciones de un grupo.
+  let rock = s.ok("library.tracks", json!({"by": "folder", "name": s.music().join("rock")}));
+  assert_eq!(titles(rock["tracks"].as_array().unwrap()), ["plain.ogg", "red.mp3"]);
+  let none = s.ok("library.tracks", json!({"by": "genre", "name": null}));
+  assert_eq!(none["total"], 2);
+  let band = s.ok("library.tracks", json!({"by": "artist", "name": "Test Band"}));
+  assert_eq!(titles(band["tracks"].as_array().unwrap()), ["red.mp3"]);
+  for bad in [json!({"by": "mood"}), json!({})] {
+    assert_eq!(s.code("library.groups", bad), -32602);
+  }
+  assert_eq!(s.code("library.tracks", json!({"by": "nope", "name": "x"})), -32602);
+  assert_eq!(s.code("library.tracks", json!({"by": "artist"})), -32602, "a group needs a name (null is allowed)");
+}

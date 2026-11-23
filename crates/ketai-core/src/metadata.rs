@@ -21,6 +21,13 @@ pub struct TrackInfo {
   pub codec: Option<String>,
   pub sample_rate: Option<u32>,
   pub channels: Option<u16>,
+  pub album_artist: Option<String>,
+  pub genre: Option<String>,
+  /// Ano: los primeros cuatro digitos de la fecha.
+  pub year: Option<u32>,
+  /// Numero de pista y de disco (de "3/12" queda 3).
+  pub track_number: Option<u32>,
+  pub disc_number: Option<u32>,
 }
 
 /// Lee los metadatos y comprueba que exista un decoder para el track.
@@ -196,6 +203,18 @@ fn clean_tag(value: &str) -> Option<String> {
   (!v.is_empty()).then(|| v.to_string())
 }
 
+/// Numero del principio de un tag ("3/12" -> 3).
+fn leading_number(v: &str) -> Option<u32> {
+  let digits: String = v.trim().chars().take_while(char::is_ascii_digit).collect();
+  digits.parse().ok().filter(|&n| n > 0)
+}
+
+/// Ano de una fecha ("2021-05-03" -> 2021).
+fn year(v: &str) -> Option<u32> {
+  let digits: String = v.trim().chars().take(4).collect();
+  digits.parse().ok().filter(|&y| (1000..=9999).contains(&y))
+}
+
 fn apply_tags(info: &mut TrackInfo, rev: &MetadataRevision) {
   for tag in rev.tags() {
     let Some(value) = clean_tag(&tag.value.to_string()) else { continue };
@@ -203,6 +222,13 @@ fn apply_tags(info: &mut TrackInfo, rev: &MetadataRevision) {
       Some(StandardTagKey::TrackTitle) => info.title = Some(value),
       Some(StandardTagKey::Artist) => info.artist = Some(value),
       Some(StandardTagKey::Album) => info.album = Some(value),
+      Some(StandardTagKey::AlbumArtist) => info.album_artist = Some(value),
+      Some(StandardTagKey::Genre) => info.genre = Some(value),
+      Some(StandardTagKey::Date | StandardTagKey::OriginalDate | StandardTagKey::ReleaseDate) => {
+        info.year = info.year.or_else(|| year(&value));
+      }
+      Some(StandardTagKey::TrackNumber) => info.track_number = leading_number(&value),
+      Some(StandardTagKey::DiscNumber) => info.disc_number = leading_number(&value),
       _ => {}
     }
   }
@@ -218,6 +244,15 @@ mod tests {
 
   fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+  }
+
+  #[test]
+  fn reads_genre_year_numbers_and_album_artist() {
+    let info = probe(&fixture("full_tags.ogg")).unwrap();
+    assert_eq!(info.title.as_deref(), Some("Canci\u{f3}n"));
+    assert_eq!(info.album_artist.as_deref(), Some("Varios"));
+    assert_eq!(info.genre.as_deref(), Some("J-Pop"));
+    assert_eq!((info.year, info.track_number, info.disc_number), (Some(2021), Some(3), Some(1)));
   }
 
   #[test]

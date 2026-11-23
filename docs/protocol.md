@@ -40,6 +40,8 @@ son parte del contrato.
 {"id": 1, "result": {}}
 {"id": 1, "error": {"code": -32601, "message": "method not found"}}
 ```
+Algunos errores traen `error.data` con el detalle (por ejemplo `1009`); los
+clientes que no lo usan lo ignoran.
 
 **Evento** (daemon -> cliente, sin `id`, solo despues de `events.subscribe`):
 ```json
@@ -76,10 +78,18 @@ son parte del contrato.
   "codec": "vorbis",
   "sample_rate": 44100,
   "channels": 2,
+  "album_artist": "Various",
+  "genre": "J-Pop",
+  "year": 2021,
+  "track_number": 3,
+  "disc_number": 1,
   "bitrate_kbps": 192
 }
 ```
 - `source`: `"local"` | `"remote"`.
+- `album_artist`, `genre`, `year`, `track_number` y `disc_number` vienen de
+  los tags (por ahora solo en resultados de biblioteca). `year` son los
+  primeros cuatro digitos de la fecha; de "3/12" queda `3`.
 - Los campos desconocidos valen `null`. Los clientes deben ignorar claves desconocidas.
 
 **PlayerState**
@@ -258,25 +268,53 @@ Reglas del reproductor:
 | `playlist.delete` | `{"name": "chill"}`                     | `{}` |
 | `playlist.load`   | `{"name": "chill", "replace": true}`    | `{}` |
 | `playlist.rename` | `{"name": "chill", "new_name": "relax"}` | `{}` |
-| `playlist.add`    | `{"name": "chill", "uris": ["file:///a.ogg", "file:///b.ogg"], "position": null}` | `{"added": 2}` |
+| `playlist.add`    | `{"name": "chill", "uris": ["file:///a.ogg", "file:///b.ogg"], "position": null, "duplicates": "ask"}` | `{"added": 2}` |
 | `playlist.remove` | `{"name": "chill", "indexes": [3, 5]}`  | `{"removed": 2}` |
+| `playlist.remove` | `{"name": "chill", "uris": ["file:///a.ogg"]}` | `{"removed": 1}` |
 | `playlist.move`   | `{"name": "chill", "from": 3, "to": 0}` | `{}` |
 | `playlist.transfer` | `{"from_name": "rock", "indexes": [2, 5, 7], "to_name": "metal", "position": null, "mode": "move"}` | `{"transferred": 3}` |
+| `favorites.set`   | `{"uri": "file:///a.ogg", "favorite": true}` | `{}` |
+| `track.playlists` | `{"uri": "file:///a.ogg"}`              | `{"playlists": ["chill", "rock"], "favorite": true}` |
 
-- Cada playlist es un archivo `.m3u8` en la carpeta de playlists,
-  compatible con otros reproductores. La carpeta es `[playlists] dir` de
+- Las playlists viven en la base de ketai (`library.db`, ver biblioteca),
+  que manda. Cada cambio es una transaccion y pasa por un solo thread: dos
+  clientes que agregan a la misma playlist al mismo tiempo nunca pierden
+  pistas. Una cancion puede estar en varias playlists, y varias veces en la
+  misma.
+- Favoritos es una playlist mas, llamada `Favoritos`, que en
+  `playlist.list` trae `"kind": "favorites"` (las demas no traen `kind`). Se
+  crea con el primer `favorites.set`. `favorites.set` con `favorite: true`
+  la agrega si no estaba; con `false` la quita. `uri` y `favorite` son
+  obligatorios (`-32602`). Emite `playlist.changed` con `Favoritos`.
+- `playlist.add` con pistas que ya estan en la playlist: `duplicates`
+  decide. `"ask"` (o sin el campo) no agrega nada y devuelve el error
+  `1009` con `data: {"duplicates": [uris]}`, para que el cliente pregunte
+  al usuario; `"add"` las agrega igual; `"skip"` agrega solo las que
+  faltan (`added` cuenta las agregadas). Otro valor devuelve `-32602`.
+- `playlist.remove` quita por posicion (`indexes`) o por cancion (`uris`:
+  todas las copias de cada una); hay que dar uno de los dos (`-32602` si
+  no, o si vienen ambos). `removed` cuenta las pistas quitadas; con `uris`
+  que no estan, `removed: 0` y no cambia nada.
+- `track.playlists` dice en que playlists esta una URI (sin Favoritos, por
+  orden de nombre) y si es favorita.
+- Cada playlist tiene una copia `.m3u8` en la carpeta de playlists,
+  compatible con otros reproductores, que escribe ketai. La carpeta es `[playlists] dir` de
   `config.toml` (ver `docs/config.md`) o, si no esta, `XDG_MUSIC_DIR/playlists`
   (`XDG_MUSIC_DIR` del entorno, de `~/.config/user-dirs.dirs` o `~/music`).
   Se resuelve en cada operacion, asi un cambio en `config.toml` se aplica sin
   reiniciar, y se crea si no existe. `playlist.get` devuelve en `path` la
   ruta del archivo. Las pistas locales se guardan como rutas absolutas. Un
-  `.m3u8` copiado a esa carpeta aparece como playlist; al leerlo se aceptan
-  rutas absolutas, rutas relativas a la carpeta y URIs.
+  `.m3u8` nuevo copiado a esa carpeta se importa como playlist; al leerlo se
+  aceptan rutas absolutas, rutas relativas a la carpeta y URIs. Un archivo
+  de una playlist que ya existe, editado o borrado a mano, se vuelve a
+  escribir desde la base. Si cambia la carpeta, todas las playlists se
+  copian a la nueva. La primera vez, las playlists que ya estaban en la
+  carpeta se importan.
 - Al modificar una playlist se reescribe el archivo solo con las rutas: se
   pierden comentarios y lineas `#EXTINF` que tuviera un `.m3u8` creado por
   otro programa.
 - Solo se reconocen archivos con extension `.m3u8` en minusculas.
-- El nombre es el nombre del archivo: no puede estar vacio, empezar con `.`
+- El nombre es tambien el del archivo: no puede estar vacio, empezar con `.`
   ni contener `/`. Un nombre invalido devuelve `-32602`.
 - `playlist.save` crea la playlist o reemplaza la existente. Con
   `from_queue: false` queda vacia.
@@ -349,6 +387,8 @@ Ver la seccion 4 para los tipos y la seccion 11 para las reglas.
 | `library.add_folder` | `{"path": "/home/u/Music"}`   | `{}` |
 | `library.remove_folder` | `{"path": "/home/u/Music"}` | `{}` |
 | `library.search` | `{"query": "illit", "limit": 50}` | `{"tracks": [Track]}` |
+| `library.groups` | `{"by": "artist"}` | `{"groups": [{"name": "ILLIT", "count": 12}]}` |
+| `library.tracks` | `{"by": "artist", "name": "ILLIT", "offset": 0, "limit": 200}` | `{"tracks": [Track], "total": 12}` |
 
 ### Cache
 | Metodo        | Params | Resultado |
@@ -383,10 +423,30 @@ Reglas de biblioteca, caratulas y cache (v1, solo archivos locales):
   y al final con `done == total`. El evento final llega cuando el indice ya
   esta actualizado: una busqueda hecha al recibirlo ya ve las pistas.
 - Volver a escanear una carpeta reemplaza todo lo indexado bajo ella (lo
-  borrado desaparece). El indice se guarda en
-  `$XDG_DATA_HOME/ketai/library.json` y sobrevive a reinicios.
-- `library.search`: `query` es obligatorio. Cada palabra debe aparecer, sin
-  distinguir mayusculas, en el titulo, artista, album o nombre de archivo.
+  borrado desaparece al terminar). Lo leido se guarda por tandas de 200
+  pistas mientras escanea: si el daemon se corta a mitad, lo guardado
+  queda. El indice y las carpetas se guardan en una base
+  SQLite, `$XDG_DATA_HOME/ketai/library.db`, y sobreviven a reinicios.
+  Cada cambio es una transaccion y los pedidos de todos los clientes pasan
+  por un solo thread: dos clientes al mismo tiempo nunca se pisan. Si
+  existe un `library.json` de una version anterior, se importa la primera
+  vez que se crea la base (el archivo no se borra).
+- `library.groups` agrupa la biblioteca por `artist`, `album`, `folder`
+  (carpeta de cada archivo), `year` (como texto) o `genre`, en orden. Las
+  pistas sin ese dato forman el grupo `name: null`, que va primero. Otro
+  `by` devuelve `-32602`.
+- `library.tracks` devuelve una pagina de pistas y el `total`. Sin `by`, de
+  toda la biblioteca, por ruta. Con `by`, `name` es obligatorio (`null` es
+  el grupo sin dato); en un album van por disco y numero de pista.
+  `offset` arranca en 0 y `limit` va de 1 a 5000 (200 por defecto).
+- `library.search`: `query` es obligatorio. Cada palabra debe aparecer, en
+  cualquier parte (no solo al principio), en el titulo, artista, album, artista
+  del album, genero, ano o nombre de archivo. No importan las mayusculas ni las marcas: "cancion"
+  encuentra el titulo con la o acentuada y "nino" el que tiene enie, y al
+  reves (acentos, dieresis, virgulilla, cedilla; ademas U+00DF = ss,
+  U+00E6 = ae, U+0153 = oe, U+00F8 = o, U+0142 = l, U+0111 = d). Las marcas de
+  otras escrituras se respetan porque cambian la palabra (el dakuten
+  japones, U+3099: "ga" no es "ka").
   `""` devuelve todo. `limit` (por defecto 50) debe ser un entero positivo.
   Los resultados van ordenados por ruta y su `id` es `null`: no son pistas
   de la cola (se agregan con `queue.add` usando su `uri`).
@@ -518,6 +578,7 @@ Detalles de v1:
 | -32600  | Peticion invalida (forma incorrecta, linea demasiado larga) |
 | -32601  | Metodo no encontrado |
 | -32602  | Params invalidos |
+| -32603  | Error interno (por ejemplo, la base de datos de la biblioteca fallo) |
 | 1000    | Version de protocolo incompatible |
 | 1001    | Nada que reproducir / cola vacia |
 | 1002    | Indice fuera de rango |
@@ -527,6 +588,7 @@ Detalles de v1:
 | 1006    | Letra invalida (no se pudo parsear) |
 | 1007    | Capa de letra no encontrada |
 | 1008    | Ya existe una playlist con ese nombre |
+| 1009    | La pista ya esta en la playlist (`data.duplicates`) |
 
 ## 9. Reglas de compatibilidad
 

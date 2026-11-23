@@ -36,11 +36,11 @@ fn open_with(query: &str) -> App {
   for c in query.chars() {
     sent.extend(app.on_key(key(KeyCode::Char(c))));
   }
+  // Mientras se escribe no se busca: una sola busqueda despues de la espera.
+  assert!(sent.is_empty());
   if !query.is_empty() {
-    assert_eq!(sent.last().unwrap(), &("library.search".to_string(), json!({"query": query, "limit": 5})));
-    for _ in 1..query.len() {
-      reply(&mut app, "library.search", json!({"tracks": []}));
-    }
+    let later = std::time::Instant::now() + std::time::Duration::from_millis(200);
+    assert_eq!(app.tick(later), vec![("library.search".to_string(), json!({"query": query, "limit": 5}))]);
     reply(&mut app, "library.search", burn());
   }
   app

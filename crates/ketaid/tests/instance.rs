@@ -156,10 +156,17 @@ fn orphan_of_same_session_is_closed() {
   fs::remove_file(dir.join("ctl.sock")).unwrap();
 
   let mut owner = spawn_in(&orphan.runtime_dir);
+  // El plazo para cerrar al huerfano cuenta desde que el dueno nuevo esta
+  // listo: con la maquina cargada, arrancar puede tardar y no debe comerse
+  // el margen (TERM_GRACE 5 s + KILL_WAIT 2 s).
+  let t0 = Instant::now();
+  let ready = wait_until(Duration::from_secs(20), || std::os::unix::net::UnixStream::connect(dir.join("ctl.sock")).is_ok());
+  let ready_after = t0.elapsed();
   let closed = wait_until(Duration::from_secs(10), || {
     let _ = orphan.child.try_wait();
     !alive(orphan_pid)
   });
+  let orphan_state = fs::read_to_string(format!("/proc/{orphan_pid}/stat")).unwrap_or_else(|_| "gone".into());
   let owner_alive = alive(owner.id());
   // Al apagarse, el huerfano no debe borrar los sockets del dueno nuevo,
   // que ocupan las mismas rutas.
@@ -168,7 +175,8 @@ fn orphan_of_same_session_is_closed() {
   let viz_ok = std::os::unix::net::UnixStream::connect(dir.join("viz.sock")).is_ok();
   let _ = owner.kill();
   let _ = owner.wait();
-  assert!(closed, "orphan must be closed by the new owner");
+  assert!(ready, "the new owner never became ready ({ready_after:?})");
+  assert!(closed, "orphan must be closed by the new owner; owner ready after {ready_after:?}, orphan: {orphan_state}");
   assert!(owner_alive, "the owner must keep running");
   assert!(ctl_ok, "the owner's ctl.sock must survive the orphan's exit");
   assert!(viz_ok, "the owner's viz.sock must survive the orphan's exit");

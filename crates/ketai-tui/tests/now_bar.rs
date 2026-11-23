@@ -56,7 +56,7 @@ fn the_bar_shows_volume_device_favorite_and_add() {
   reply(&mut app, "output.list", Ok(json!({"devices": [{"id": "bluez_output.x", "name": "Hisense HS2100", "is_default": true}]})));
   reply(&mut app, "track.playlists", Ok(json!({"playlists": ["rock", "chill"], "favorite": true})));
   let t = text(&app);
-  for want in ["40%", "Hisense HS2100", "Favorito", "En 2 playlists", "* favorito", "P agregar"] {
+  for want in ["40%", "Hisense HS2100", "Favorito  * ", "Agregar a playlist  P ", "En 2 playlists"] {
     assert!(t.contains(want), "missing {want:?}\n{t}");
   }
 }
@@ -114,4 +114,74 @@ fn every_view_shows_the_active_player_status() {
   // Modo mini: el corazon junto a los controles.
   let t = text_at(&app, 60, 12);
   assert!(t.contains(ui::I_HEART) && t.contains("40%"), "{t}");
+}
+
+fn type_text(app: &mut App, s: &str) {
+  for c in s.chars() {
+    assert!(app.on_key(key(KeyCode::Char(c))).is_empty(), "typing {c:?} is text, not a shortcut");
+  }
+}
+
+#[test]
+fn a_new_playlist_can_be_created_from_the_add_popup() {
+  let (mut app, _) = playing();
+  reply(&mut app, "playlist.list", Ok(json!({"playlists": []})));
+  app.on_key(key(KeyCode::Char('P')));
+  assert!(text(&app).contains("c nueva playlist"));
+  app.on_key(key(KeyCode::Char('c')));
+  type_text(&mut app, "mi mix");
+  assert!(text(&app).contains("mi mix"));
+  assert_eq!(
+    app.on_key(key(KeyCode::Enter)),
+    vec![
+      ("playlist.save".to_string(), json!({"name": "mi mix", "from_queue": false})),
+      ("playlist.add".to_string(), json!({"name": "mi mix", "uris": [URI]}))
+    ]
+  );
+  reply(&mut app, "playlist.save", Ok(json!({})));
+  reply(&mut app, "playlist.add", Ok(json!({"added": 1})));
+  assert!(!app.add_open);
+}
+
+#[test]
+fn the_header_no_longer_repeats_the_output() {
+  let (mut app, _) = playing();
+  reply(&mut app, "output.list", Ok(json!({"devices": [{"id": "bluez_output.x", "name": "Hisense HS2100", "is_default": true}]})));
+  let t = text(&app);
+  let header: String = t.lines().take(3).collect();
+  assert!(!header.contains("Hisense"), "{header}");
+  assert!(t.contains("Hisense"), "still in the player");
+}
+
+#[test]
+fn now_playing_puts_the_details_above_progress_and_controls() {
+  let (mut app, _) = playing();
+  reply(&mut app, "track.playlists", Ok(json!({"playlists": [], "favorite": false})));
+  let t = text(&app);
+  let row = |needle: &str| t.lines().position(|l| l.contains(needle)).unwrap_or_else(|| panic!("missing {needle:?}\n{t}"));
+  assert!(row("40%") < row("3:21"), "details first, then progress\n{t}");
+  assert!(row(ui::I_HEART_EMPTY) < row("3:21"));
+  assert!(row("3:21") < row(ui::I_NEXT), "controls under the progress");
+}
+
+#[test]
+fn titles_from_file_names_are_decoded() {
+  let track = json!({"uri": "file:///m/ANIMATR%C3%93NICOS%20RAP%20Freddy%27s.mp3", "title": null});
+  assert_eq!(ui::track_title(&track), "ANIMATR\u{d3}NICOS RAP Freddy's.mp3");
+}
+
+#[test]
+fn the_output_is_never_blank() {
+  // Sin la lista todavia: se sigue al default.
+  let mut app = App { connected: true, ..App::default() };
+  let cmds = app.on_daemon(DaemonMsg::Event {
+    name: "player.state".into(),
+    data: json!({"status": "paused", "volume": 0.35, "output": null, "track": {"id": "t_1", "uri": URI, "title": "x", "duration_ms": 1000}}),
+  });
+  assert!(cmds.contains(&("output.list".to_string(), json!({}))), "the list is asked once: {cmds:?}");
+  app.on_key(key(KeyCode::Char('3')));
+  assert!(text(&app).contains("Default"), "{}", text(&app));
+  // Sin ninguna salida disponible.
+  reply(&mut app, "output.list", Ok(json!({"devices": []})));
+  assert!(text(&app).contains("No device"), "{}", text(&app));
 }

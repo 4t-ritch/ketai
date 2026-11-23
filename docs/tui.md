@@ -69,6 +69,7 @@ Biblioteca:
 | `a` | agregar la cancion a la cola |
 | `Esc` | volver a la lista de la izquierda |
 | `h` / `l` | vista anterior / siguiente: Playlists, Canciones, Artistas, Albumes, Carpetas, Anos, Generos |
+| `c` | en Playlists, crear una playlist nueva |
 
 En Canciones y en los grupos, la lista va en columnas (numero, titulo y
 artista, album, ano y duracion). `Enter` sobre una cancion pone en la cola
@@ -96,9 +97,13 @@ ejecuta, `Tab` agrega a la cola, `Esc` cierra.
 En todas las vistas se ve el estado del reproductor activo: volumen,
 salida y si la cancion es favorita (en Biblioteca y Buscar, en la barra de
 abajo; en Letras, junto a los controles; en el modo mini, al lado del
-volumen). En Reproduciendo, ademas, en cuantas playlists esta. `*` la marca o desmarca como
+volumen). En Reproduciendo, ademas, en cuantas playlists esta. La salida
+nunca queda en blanco: "Default" si se sigue al dispositivo por defecto y
+todavia no se sabe su nombre, "No device" si no hay ninguna disponible. La
+cabecera ya no repite la salida. `*` la marca o desmarca como
 favorita (queda en la playlist Favoritos). `P` abre la lista de playlists
-(las que ya la tienen llevan una marca); `Enter` la agrega. Si ya estaba,
+(las que ya la tienen llevan una marca); `Enter` la agrega y `c` crea una
+playlist nueva (se escribe el nombre) y la agrega ahi. Si ya estaba,
 ketaid avisa y ketai pregunta: `a` la agrega de todos modos, `n` no.
 
 ## Modo mini

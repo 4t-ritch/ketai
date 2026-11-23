@@ -111,6 +111,10 @@ fn add_popup(f: &mut RFrame, app: &App) {
   }
   put(buf, x, pop.y + 1, "Agregar a una playlist", t.title());
   put(buf, pop.x + pop.width.saturating_sub(9), pop.y + 1, "esc ✕", t.faint());
+  if app.naming.is_some() {
+    name_field(buf, app, x, pop.y + 3, pop.width.saturating_sub(6));
+    return;
+  }
   let mut y = pop.y + 3;
   if targets.is_empty() {
     put(buf, x, y, if app.playlists_loaded { "No hay playlists" } else { "Cargando…" }, t.faint());
@@ -127,7 +131,7 @@ fn add_popup(f: &mut RFrame, app: &App) {
     putn(buf, x, y, format!("{name}{mark}"), iw, t.text());
     y += 2;
   }
-  put(buf, x, pop.y + pop.height - 2, "⏎ agregar · ↑↓ elegir · esc cerrar", t.faint());
+  putn(buf, x, pop.y + pop.height - 2, "⏎ agregar · ↑↓ elegir · c nueva playlist · esc cerrar", iw, t.faint());
 }
 
 /// Atenua todo lo dibujado (fondo de un popup modal).
@@ -434,63 +438,80 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   putn(buf, x, y, s("artist"), w as usize, t.text());
   putn(buf, x, y + 1, s("album"), w as usize, t.faint());
   y += if roomy { 4 } else { 3 };
-  progress(buf, t, x, y, w, app.position_ms(), track["duration_ms"].as_u64());
+  // Detalles: volumen y salida, favorito y agregar, formato. Cada fila con
+  // aire; despues la letra y lo que sigue, y abajo progreso y controles.
+  let keycap = |k: &str| Span::styled(format!(" {k} "), Style::new().fg(t.fg).bg(t.raised));
+  let muted = app.player["muted"].as_bool().unwrap_or(false);
+  let vol = app.player["volume"].as_f64().unwrap_or(1.0);
+  let filled = (vol * 14.0).round() as usize;
+  let volume = Line::from(vec![
+    Span::styled(format!("{}  ", if muted { I_MUTE } else { I_VOLUME }), t.dim()),
+    Span::styled("━".repeat(filled), t.dim()),
+    Span::styled("●", t.text()),
+    Span::styled("━".repeat(14 - filled.min(14)), Style::new().fg(t.raised)),
+    Span::styled(format!("  {}%", (vol * 100.0).round()), t.text()),
+  ]);
+  put_line(buf, x, y, &volume, w);
+  {
+    let name = app.output_label();
+    let icon = if app.output_active.as_deref().is_some_and(|o| o.starts_with("bluez")) { I_HEADPHONES } else { I_DEVICE };
+    let device = Line::from(vec![Span::styled(format!("{icon}  "), t.dim()), Span::styled(name, t.text())]);
+    // Al lado del volumen si entra; si no, en la fila siguiente.
+    let vw = volume.width() as u16 + 6;
+    if w >= vw + device.width() as u16 {
+      put_line(buf, x + vw, y, &device, w - vw);
+    } else {
+      y += 1;
+      put_line(buf, x, y, &device, w);
+    }
+  }
   y += 2;
+  let fav = app.now_favorite == Some(true);
+  let mine = vec![
+    Span::styled(format!("{} Favorito ", if fav { I_HEART } else { I_HEART_EMPTY }), if fav { t.accent() } else { t.dim() }),
+    keycap("*"),
+    Span::raw("     "),
+    Span::styled("+ Agregar a playlist ", t.dim()),
+    keycap("P"),
+  ];
+  put_line(buf, x, y, &Line::from(mine), w);
+  y += 2;
+  // Formato y en cuantas playlists esta.
+  let mut info = Vec::new();
+  let codec = s("codec");
+  if !codec.is_empty() {
+    let rate = track["sample_rate"].as_u64().map(|r| format!(" · {}", fmt_rate(r))).unwrap_or_default();
+    info.push(format!("{codec}{rate}"));
+  }
+  let n = app.now_playlists.len();
+  if n > 0 {
+    info.push(format!("En {n} {}", if n == 1 { "playlist" } else { "playlists" }));
+  }
+  putn(buf, x, y, info.join("   ·   "), w as usize, t.faint());
+  y += 2;
+  // Con poco alto se omiten la letra y lo que sigue.
+  if roomy {
+    lyrics_preview(buf, app, x, y, w);
+    y += 5;
+    if let Some(next) = app.next_track() {
+      let line = Line::from(vec![
+        Span::styled("Siguiente  ", t.faint()),
+        Span::styled(next["title"].as_str().unwrap_or("").to_string(), t.text()),
+        Span::styled(format!(" · {}", next["artist"].as_str().unwrap_or("")), t.faint()),
+      ]);
+      put_line(buf, x, y, &line, w);
+    }
+    y += 2;
+  }
+  // Progreso y controles al pie de la columna.
+  let py = y.max((area.y + top_h).saturating_sub(3));
+  progress(buf, t, x, py, w, app.position_ms(), track["duration_ms"].as_u64());
   let mut controls = controls(app, false, true);
   if controls.width() as u16 > w {
     controls = self::controls(app, true, true);
   }
   let cw = controls.width() as u16;
-  put_line(buf, x + w.saturating_sub(cw) / 2, y, &controls, w);
-  y += 3;
-  // Con poco alto se omiten la letra y lo que sigue.
-  if roomy {
-    lyrics_preview(buf, app, x, y, w);
-    y += 5;
-  }
-  if let Some(next) = app.next_track().filter(|_| roomy) {
-    let line = Line::from(vec![
-      Span::styled("Siguiente  ", t.faint()),
-      Span::styled(next["title"].as_str().unwrap_or("").to_string(), t.text()),
-      Span::styled(format!(" · {}", next["artist"].as_str().unwrap_or("")), t.faint()),
-    ]);
-    put_line(buf, x, y, &line, w);
-  }
-  y += if roomy { 1 } else { 0 };
-  let muted = app.player["muted"].as_bool().unwrap_or(false);
-  let vol = app.player["volume"].as_f64().unwrap_or(1.0);
-  let filled = (vol * 18.0).round() as usize;
-  let mut details = vec![
-    Span::styled(format!("{} ", if muted { I_MUTE } else { I_VOLUME }), t.faint()),
-    Span::styled("━".repeat(filled), t.dim()),
-    Span::styled("●", t.dim()),
-    Span::styled("━".repeat(18 - filled.min(18)), Style::new().fg(t.raised)),
-    Span::styled(format!("  {}%", (vol * 100.0).round()), t.faint()),
-  ];
-  // Dispositivo activo, con su nombre si ya se conoce la lista.
-  if let Some(out) = &app.output_active {
-    let name = app.outputs.iter().find(|d| d["id"] == out.as_str()).and_then(|d| d["name"].as_str()).unwrap_or(out);
-    let icon = if out.starts_with("bluez") { I_HEADPHONES } else { I_DEVICE };
-    details.push(Span::styled(format!("   {icon} {name}"), t.faint()));
-  }
-  put_line(buf, x, y, &Line::from(details), w);
-  // Favorito, playlists donde esta y como agregarla.
-  let fav = app.now_favorite == Some(true);
-  let mut mine = vec![Span::styled(
-    if fav { format!("{I_HEART} Favorito") } else { format!("{I_HEART_EMPTY} No es favorito") },
-    if fav { t.accent() } else { t.faint() },
-  )];
-  let n = app.now_playlists.len();
-  if n > 0 {
-    mine.push(Span::styled(format!("   En {n} {}", if n == 1 { "playlist" } else { "playlists" }), t.faint()));
-  }
-  mine.push(Span::styled("   * favorito · P agregar", t.faint()));
-  put_line(buf, x, y + 1, &Line::from(mine), w);
-  let codec = s("codec");
-  if !codec.is_empty() {
-    let rate = track["sample_rate"].as_u64().map(|r| format!(" · {}", fmt_rate(r))).unwrap_or_default();
-    putn(buf, x, y + 2, format!("{codec}{rate}"), w as usize, t.faint());
-  }
+  put_line(buf, x + w.saturating_sub(cw) / 2, py + 2, &controls, w);
 
   if app.playing() {
     let viz = Rect::new(area.x + 2, area.y + area.height - viz_h - 1, area.width.saturating_sub(4), viz_h);
@@ -523,9 +544,30 @@ pub fn track_title(track: &serde_json::Value) -> String {
     None => {
       let uri = track["uri"].as_str().unwrap_or("");
       let name = uri.rsplit('/').next().unwrap_or(uri);
-      name.replace("%20", " ")
+      percent_decode(name)
     }
   }
+}
+
+/// Decodifica los `%XX` de una URI (UTF-8). Lo que no es valido queda igual.
+fn percent_decode(s: &str) -> String {
+  let b = s.as_bytes();
+  let mut out = Vec::with_capacity(b.len());
+  let mut i = 0;
+  while i < b.len() {
+    let hex = |c: u8| (c as char).to_digit(16);
+    if b[i] == b'%'
+      && i + 2 < b.len()
+      && let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2]))
+    {
+      out.push((h * 16 + l) as u8);
+      i += 3;
+      continue;
+    }
+    out.push(b[i]);
+    i += 1;
+  }
+  String::from_utf8(out).unwrap_or_else(|_| s.to_string())
 }
 
 /// Color de las lineas que todavia no se cantan.
@@ -674,7 +716,11 @@ fn playlists_column(buf: &mut Buffer, app: &App, area: Rect) -> Vec<(Rect, Optio
   let x = area.x + 2;
   put(buf, x, area.y, format!("{I_LIBRARY}  Tu biblioteca"), t.title());
   if app.tab == Tab::Library {
-    view_chips(buf, app, x, area.y + 2, area.width.saturating_sub(2));
+    view_chips(buf, app, x, area.y + 2, area.width.saturating_sub(3));
+    if app.naming.as_ref().is_some_and(|(_, f)| *f == crate::app::NameFor::Library) {
+      name_field(buf, app, x, area.y + 4, area.width.saturating_sub(3));
+      return Vec::new();
+    }
   } else {
     put(buf, x, area.y + 2, " Playlists ", Style::new().fg(t.on_accent).bg(t.accent));
   }
@@ -702,7 +748,10 @@ fn playlists_column(buf: &mut Buffer, app: &App, area: Rect) -> Vec<(Rect, Optio
     putn(buf, x + 8, y + 1, format!("{count} canciones"), w, t.faint());
   }
   if app.playlists.is_empty() {
-    put(buf, x, area.y + 4, if app.playlists_loaded { "Sin playlists" } else { "Cargando…" }, t.faint());
+    put(buf, x, area.y + 5, if app.playlists_loaded { "Sin playlists" } else { "Cargando…" }, t.faint());
+    if app.playlists_loaded && app.tab == Tab::Library {
+      put(buf, x, area.y + 6, "c crea una", t.faint());
+    }
   }
   slots
 }
@@ -739,9 +788,9 @@ fn player_status(app: &App) -> Line<'static> {
   let muted = app.player["muted"].as_bool().unwrap_or(false);
   let vol = (app.player["volume"].as_f64().unwrap_or(1.0) * 100.0).round();
   let mut spans = vec![Span::styled(format!("{} {vol}%", if muted { I_MUTE } else { I_VOLUME }), t.faint())];
-  if let Some(out) = &app.output_active {
-    let name = app.outputs.iter().find(|d| d["id"] == out.as_str()).and_then(|d| d["name"].as_str()).unwrap_or(out);
-    let icon = if out.starts_with("bluez") { I_HEADPHONES } else { I_DEVICE };
+  {
+    let name = app.output_label();
+    let icon = if app.output_active.as_deref().is_some_and(|o| o.starts_with("bluez")) { I_HEADPHONES } else { I_DEVICE };
     spans.push(Span::styled(format!("   {icon} {name}"), t.faint()));
   }
   if app.player["track"].is_object() {
@@ -802,27 +851,52 @@ fn fmt_total(ms: u64) -> String {
 }
 
 /// Vistas de Biblioteca como pestanas chicas (h / l). Si no entran todas,
-/// se muestran las que rodean a la elegida.
+/// se muestran las que rodean a la elegida, con flechas que avisan que hay
+/// mas y la posicion ("1/7").
 fn view_chips(buf: &mut Buffer, app: &App, x: u16, y: u16, w: u16) {
   let t = &app.theme;
   let views = crate::app::LibView::ALL;
   let at = views.iter().position(|v| *v == app.lib_view).unwrap_or(0);
-  let mut first = 0;
+  let pos = format!("{}/{}", at + 1, views.len());
+  // Lugar para "‹ ", " ›" y la posicion.
+  let room = w.saturating_sub(pos.chars().count() as u16 + 5);
   let width = |from: usize, to: usize| views[from..=to].iter().map(|v| v.label().chars().count() as u16 + 3).sum::<u16>();
-  while first < at && width(first, at) > w {
+  let mut first = 0;
+  while first < at && width(first, at) > room {
     first += 1;
   }
   let mut cx = x;
-  for v in &views[first..] {
+  if first > 0 {
+    put(buf, cx, y, "‹", t.accent());
+  }
+  cx += 2;
+  let mut last = first;
+  for (i, v) in views.iter().enumerate().skip(first) {
     let label = format!(" {} ", v.label());
     let lw = label.chars().count() as u16;
-    if cx + lw > x + w {
+    if cx + lw > x + room + 2 {
       break;
     }
     let style = if *v == app.lib_view { Style::new().fg(t.on_accent).bg(t.accent) } else { t.dim() };
     put(buf, cx, y, &label, style);
     cx += lw + 1;
+    last = i;
   }
+  if last + 1 < views.len() {
+    put(buf, cx, y, "›", t.accent());
+  }
+  put(buf, x + w.saturating_sub(pos.chars().count() as u16), y, &pos, t.faint());
+  put(buf, x + 2, y + 1, "h / l cambia de vista", t.faint());
+}
+
+/// Campo para escribir el nombre de una playlist nueva.
+fn name_field(buf: &mut Buffer, app: &App, x: u16, y: u16, w: u16) {
+  let t = &app.theme;
+  let Some((name, _)) = &app.naming else { return };
+  put(buf, x, y, "Nombre de la playlist nueva", t.faint());
+  buf.set_style(Rect::new(x, y + 1, w, 1), Style::new().bg(t.raised));
+  putn(buf, x + 1, y + 1, format!("{name}▏"), w.saturating_sub(2) as usize, t.title());
+  put(buf, x, y + 2, "⏎ crear · esc cancelar", t.faint());
 }
 
 /// Columna de grupos (artistas, albumes, carpetas, anos, generos).
@@ -830,7 +904,7 @@ fn groups_column(buf: &mut Buffer, app: &App, area: Rect) {
   let t = &app.theme;
   let x = area.x + 2;
   put(buf, x, area.y, format!("{I_LIBRARY}  Tu biblioteca"), t.title());
-  view_chips(buf, app, x, area.y + 2, area.width.saturating_sub(2));
+  view_chips(buf, app, x, area.y + 2, area.width.saturating_sub(3));
   let focused = app.lib_focus == crate::app::LibFocus::Playlists;
   if app.lib_view == crate::app::LibView::All {
     put(buf, x, area.y + 4, format!("{} canciones", app.lib_total), t.dim());
@@ -1347,12 +1421,7 @@ fn header(f: &mut RFrame, app: &App, area: Rect) {
   } else {
     Line::from(vec![Span::styled("● ", Style::new().fg(t.error)), Span::styled("ketaid sin conexión", Style::new().fg(t.error))])
   };
-  let mut spans = Vec::new();
-  if let Some(name) = app.output_name() {
-    spans.push(Span::styled(format!("{I_HEADPHONES} {name}    "), t.dim()));
-  }
-  spans.extend(status.spans);
-  let status = Line::from(spans);
+  // La salida activa se ve en el reproductor, no aca.
   let w = status.width() as u16;
   if area.width > w + 2 {
     put_line(buf, area.x + area.width - w - 2, area.y + 1, &status, w);

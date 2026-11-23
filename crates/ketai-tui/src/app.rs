@@ -86,6 +86,20 @@ impl LibView {
   }
 }
 
+/// Desde donde se crea una playlist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameFor {
+  /// Popup "Agregar a una playlist": se crea y se agrega la que suena.
+  Add,
+  /// Biblioteca: solo se crea.
+  Library,
+}
+
+/// Nombre valido de playlist (el mismo control que hace ketaid).
+fn valid_playlist_name(name: &str) -> bool {
+  !name.is_empty() && !name.starts_with('.') && !name.contains('/')
+}
+
 /// Pistas por pedido en las vistas de biblioteca.
 pub const LIB_LIMIT: u64 = 5000;
 
@@ -188,6 +202,8 @@ pub struct App {
   pub add_pending: Option<String>,
   /// El daemon dijo que ya estaba (1009): se espera la decision.
   pub add_confirm: Option<String>,
+  /// Nombre de una playlist nueva que se esta escribiendo, y desde donde.
+  pub naming: Option<(String, NameFor)>,
   /// Aviso corto abajo (por ejemplo "Agregada a «rock»"); se borra con la
   /// proxima tecla.
   pub notice: Option<String>,
@@ -197,6 +213,8 @@ pub struct App {
   /// `output.list` / `output.changed`: dispositivos del servidor de sonido.
   pub outputs: Vec<Value>,
   pub outputs_loaded: bool,
+  /// Ya se pidio `output.list` (para no repetirlo en cada estado).
+  pub outputs_asked: bool,
   /// Eleccion del usuario; `None` sigue el default del sistema.
   pub output_active: Option<String>,
   pub devices_cursor: usize,
@@ -321,10 +339,12 @@ impl Default for App {
       add_pending: None,
       add_confirm: None,
       notice: None,
+      naming: None,
       images: false,
       covers: Default::default(),
       outputs: Vec::new(),
       outputs_loaded: false,
+      outputs_asked: false,
       output_active: None,
       devices_cursor: 0,
       folders_open: false,
@@ -352,6 +372,9 @@ impl App {
       return self.folders_key(key);
     }
     self.notice = None;
+    if self.naming.is_some() {
+      return self.naming_key(key);
+    }
     if self.devices_open {
       return self.devices_key(key);
     }
@@ -656,6 +679,16 @@ impl App {
   }
 
   /// Nombre del dispositivo que suena: el elegido o el default.
+  /// Nombre de la salida para mostrar: nunca vacio. "Default" si se sigue
+  /// al default y todavia no se sabe su nombre; "No device" si no hay
+  /// ninguna salida disponible.
+  pub fn output_label(&self) -> String {
+    if self.outputs_loaded && self.outputs.is_empty() {
+      return "No device".into();
+    }
+    self.output_name().unwrap_or_else(|| "Default".into())
+  }
+
   pub fn output_name(&self) -> Option<String> {
     let found = match &self.output_active {
       Some(id) => self.outputs.iter().find(|d| d["id"] == id.as_str()),
@@ -760,6 +793,47 @@ impl App {
     self.playlists.iter().filter(|p| p["kind"].is_null()).filter_map(|p| p["name"].as_str().map(str::to_string)).collect()
   }
 
+  /// Escribiendo el nombre de una playlist nueva: las letras son texto.
+  fn naming_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    let Some((name, from)) = self.naming.as_mut() else { return Vec::new() };
+    match key.code {
+      KeyCode::Char(c) => name.push(c),
+      KeyCode::Backspace => {
+        name.pop();
+      }
+      KeyCode::Esc => self.naming = None,
+      KeyCode::Enter => {
+        let (name, from) = (name.trim().to_string(), *from);
+        if !valid_playlist_name(&name) {
+          self.notice = Some("Nombre inválido: no puede estar vacío, empezar con . ni tener /".into());
+          return Vec::new();
+        }
+        self.naming = None;
+        let exists = self.playlists.iter().any(|p| p["name"] == name.as_str());
+        // playlist.save reemplaza: una que ya existe no se toca.
+        let mut cmds = Vec::new();
+        if exists {
+          self.notice = Some(format!("Ya existe «{name}»"));
+        } else {
+          cmds.push(("playlist.save".into(), json!({"name": name, "from_queue": false})));
+        }
+        match from {
+          NameFor::Add => {
+            if let Some(uri) = self.now_uri() {
+              self.add_pending = Some(name.clone());
+              cmds.push(("playlist.add".into(), json!({"name": name, "uris": [uri]})));
+            }
+          }
+          NameFor::Library if !exists => self.notice = Some(format!("Playlist «{name}» creada")),
+          NameFor::Library => {}
+        }
+        return cmds;
+      }
+      _ => {}
+    }
+    Vec::new()
+  }
+
   fn add_key(&mut self, key: KeyEvent) -> Vec<Command> {
     // Esperando la decision: ya estaba en la playlist.
     if let Some(name) = self.add_confirm.clone() {
@@ -780,6 +854,7 @@ impl App {
     }
     let targets = self.add_targets();
     match key.code {
+      KeyCode::Char('c') => self.naming = Some((String::new(), NameFor::Add)),
       KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('P') => self.add_open = false,
       KeyCode::Up | KeyCode::Char('k') => self.add_cursor = self.add_cursor.saturating_sub(1),
       KeyCode::Down | KeyCode::Char('j') => self.add_cursor = (self.add_cursor + 1).min(targets.len().saturating_sub(1)),
@@ -953,6 +1028,10 @@ impl App {
       let next = if c == 'l' { (at + 1) % views.len() } else { (at + views.len() - 1) % views.len() };
       return Some(self.set_lib_view(views[next]));
     }
+    if key.code == KeyCode::Char('c') && self.lib_view == LibView::Playlists {
+      self.naming = Some((String::new(), NameFor::Library));
+      return Some(Vec::new());
+    }
     match self.lib_focus {
       LibFocus::Playlists => {
         let side = match self.lib_view {
@@ -1079,7 +1158,13 @@ impl App {
           self.output_active = data["output"].as_str().map(str::to_string);
           self.player = data;
           self.pos_at = Instant::now();
-          return self.track_changed();
+          let mut cmds = self.track_changed();
+          // La salida se muestra en todas las vistas: la lista se pide una vez.
+          if !self.outputs_loaded && !self.outputs_asked {
+            self.outputs_asked = true;
+            cmds.push(("output.list".into(), json!({})));
+          }
+          return cmds;
         }
         "player.position" => {
           if let (Some(obj), Some(pos)) = (self.player.as_object_mut(), data.get("position_ms")) {

@@ -189,3 +189,23 @@ fn an_old_reply_for_another_group_is_ignored() {
   app.on_daemon(DaemonMsg::Reply { id: id + 1, result: Ok(json!({"total": 1, "tracks": [{"title": "from B"}]})) });
   assert!(text(&app).contains("from B"));
 }
+
+#[test]
+fn the_sidebar_tells_there_are_more_views() {
+  let app = library_app();
+  let mut term = Terminal::new(TestBackend::new(88, 30)).unwrap();
+  term.draw(|f| ui::draw(f, &app)).unwrap();
+  let buf = term.backend().buffer();
+  let t: String = (0..30).map(|y| (0..88).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect();
+  assert!(t.contains("1/7") && t.contains('›'), "{t}");
+}
+
+#[test]
+fn c_creates_a_playlist_from_the_library() {
+  let mut app = library_app();
+  assert!(app.on_key(key(KeyCode::Char('c'))).is_empty());
+  for ch in "nueva".chars() {
+    assert!(app.on_key(key(KeyCode::Char(ch))).is_empty());
+  }
+  assert_eq!(app.on_key(key(KeyCode::Enter)), vec![("playlist.save".to_string(), json!({"name": "nueva", "from_queue": false}))]);
+}

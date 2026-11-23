@@ -72,10 +72,11 @@ fn text(app: &App) -> String {
 }
 
 #[test]
-fn the_header_names_the_output_and_the_popup_lists_them() {
+fn the_popup_lists_the_outputs_and_the_header_does_not_repeat_the_active_one() {
   let mut app = with_devices();
+  // La salida activa se ve en el reproductor, no en la cabecera.
   let header = text(&app).lines().nth(1).unwrap().to_string();
-  assert!(header.contains("WH-1000XM4"), "{header}");
+  assert!(!header.contains("WH-1000XM4"), "{header}");
   app.on_key(key(KeyCode::Char('d')));
   let t = text(&app);
   for want in ["Conectar a un dispositivo", "DISPOSITIVO ACTUAL", "WH-1000XM4", "bluetooth · bluez_output.88_C9_E8.1", "OTROS DISPOSITIVOS", "Predeterminado del sistema", "sigue al default: Parlantes internos", "Monitor LG HDMI", "HDMI"] {

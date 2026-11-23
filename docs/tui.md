@@ -45,6 +45,8 @@ En cualquier pestana (salvo mientras se escribe en Buscar):
 | `s` | aleatorio |
 | `r` | repeticion: ninguna, pista, cola |
 | `d` | elegir la salida de audio |
+| `*` | marcar o desmarcar como favorita la cancion que suena |
+| `P` | agregar la cancion que suena a una playlist |
 | `f` | carpetas de la biblioteca |
 | `/` o `Ctrl+K` | busqueda rapida sobre la pantalla actual |
 | `q` | salir (`Ctrl+C` sale siempre) |
@@ -88,6 +90,14 @@ mismas.
 Busqueda rapida: escribir busca canciones y playlists; abajo estan las
 acciones (salida de audio, escanear toda la biblioteca, letras, carpetas). `Enter` reproduce o
 ejecuta, `Tab` agrega a la cola, `Esc` cierra.
+
+## Favoritos y agregar a una playlist
+
+En Reproduciendo, debajo del volumen se ven la salida activa, si la cancion
+es favorita y en cuantas playlists esta. `*` la marca o desmarca como
+favorita (queda en la playlist Favoritos). `P` abre la lista de playlists
+(las que ya la tienen llevan una marca); `Enter` la agrega. Si ya estaba,
+ketaid avisa y ketai pregunta: `a` la agrega de todos modos, `n` no.
 
 ## Modo mini
 

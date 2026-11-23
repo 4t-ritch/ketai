@@ -177,6 +177,20 @@ pub struct App {
   pub palette_cursor: usize,
   /// Selector de salida de audio abierto.
   pub devices_open: bool,
+  /// La pista que suena es favorita (`track.playlists`), si ya se sabe.
+  pub now_favorite: Option<bool>,
+  /// Playlists donde esta la pista que suena.
+  pub now_playlists: Vec<String>,
+  /// Popup "Agregar a una playlist".
+  pub add_open: bool,
+  pub add_cursor: usize,
+  /// Playlist del `playlist.add` en vuelo.
+  pub add_pending: Option<String>,
+  /// El daemon dijo que ya estaba (1009): se espera la decision.
+  pub add_confirm: Option<String>,
+  /// Aviso corto abajo (por ejemplo "Agregada a «rock»"); se borra con la
+  /// proxima tecla.
+  pub notice: Option<String>,
   /// La terminal muestra imagenes (protocolo kitty).
   pub images: bool,
   pub covers: crate::covers::CoverCache,
@@ -300,6 +314,13 @@ impl Default for App {
       palette_results: Vec::new(),
       palette_cursor: 0,
       devices_open: false,
+      now_favorite: None,
+      now_playlists: Vec::new(),
+      add_open: false,
+      add_cursor: 0,
+      add_pending: None,
+      add_confirm: None,
+      notice: None,
       images: false,
       covers: Default::default(),
       outputs: Vec::new(),
@@ -330,8 +351,12 @@ impl App {
     if self.folders_open {
       return self.folders_key(key);
     }
+    self.notice = None;
     if self.devices_open {
       return self.devices_key(key);
+    }
+    if self.add_open {
+      return self.add_key(key);
     }
     if self.palette_open {
       return self.palette_key(key);
@@ -339,6 +364,18 @@ impl App {
     let typing = self.tab == Tab::Search && self.search_editing;
     if key.code == KeyCode::Char('d') && !typing {
       return self.open_devices();
+    }
+    if key.code == KeyCode::Char('*') && !typing {
+      return self.toggle_favorite();
+    }
+    if key.code == KeyCode::Char('P') && !typing && self.now_uri().is_some() {
+      self.add_open = true;
+      self.add_cursor = 0;
+      self.add_confirm = None;
+      if !self.playlists_loaded {
+        return vec![("playlist.list".into(), json!({}))];
+      }
+      return Vec::new();
     }
     if key.code == KeyCode::Char('f') && !typing {
       return self.open_folders();
@@ -705,6 +742,58 @@ impl App {
     if self.outputs_loaded { Vec::new() } else { vec![("output.list".into(), json!({}))] }
   }
 
+  /// URI de la pista que suena.
+  pub fn now_uri(&self) -> Option<String> {
+    self.player["track"]["uri"].as_str().map(str::to_string)
+  }
+
+  fn toggle_favorite(&mut self) -> Vec<Command> {
+    let Some(uri) = self.now_uri() else { return Vec::new() };
+    let favorite = !self.now_favorite.unwrap_or(false);
+    // Se muestra enseguida; el daemon confirma con playlist.changed.
+    self.now_favorite = Some(favorite);
+    vec![("favorites.set".into(), json!({"uri": uri, "favorite": favorite}))]
+  }
+
+  /// Playlists a las que se puede agregar (sin Favoritos, que va con `*`).
+  pub fn add_targets(&self) -> Vec<String> {
+    self.playlists.iter().filter(|p| p["kind"].is_null()).filter_map(|p| p["name"].as_str().map(str::to_string)).collect()
+  }
+
+  fn add_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    // Esperando la decision: ya estaba en la playlist.
+    if let Some(name) = self.add_confirm.clone() {
+      match key.code {
+        KeyCode::Char('a') | KeyCode::Enter => {
+          self.add_confirm = None;
+          self.add_pending = Some(name.clone());
+          let Some(uri) = self.now_uri() else { return Vec::new() };
+          return vec![("playlist.add".into(), json!({"name": name, "uris": [uri], "duplicates": "add"}))];
+        }
+        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+          self.add_confirm = None;
+          self.add_open = false;
+        }
+        _ => {}
+      }
+      return Vec::new();
+    }
+    let targets = self.add_targets();
+    match key.code {
+      KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('P') => self.add_open = false,
+      KeyCode::Up | KeyCode::Char('k') => self.add_cursor = self.add_cursor.saturating_sub(1),
+      KeyCode::Down | KeyCode::Char('j') => self.add_cursor = (self.add_cursor + 1).min(targets.len().saturating_sub(1)),
+      KeyCode::Enter => {
+        if let (Some(name), Some(uri)) = (targets.get(self.add_cursor), self.now_uri()) {
+          self.add_pending = Some(name.clone());
+          return vec![("playlist.add".into(), json!({"name": name, "uris": [uri]}))];
+        }
+      }
+      _ => {}
+    }
+    Vec::new()
+  }
+
   fn devices_key(&mut self, key: KeyEvent) -> Vec<Command> {
     let rows = self.device_rows();
     match key.code {
@@ -951,10 +1040,17 @@ impl App {
     self.lyrics_primary = "original".into();
     self.lyrics_secondary.clear();
     self.lyrics_chosen = false;
-    match id {
+    self.now_favorite = None;
+    self.now_playlists.clear();
+    let mut cmds = match id {
       Some(id) => vec![("lyrics.layers".into(), json!({"track_id": id})), self.lyrics_get(&id)],
       None => Vec::new(),
+    };
+    // Si es favorita y en que playlists esta.
+    if let Some(uri) = self.now_uri() {
+      cmds.push(("track.playlists".into(), json!({"uri": uri})));
     }
+    cmds
   }
 
   /// Linea actual de la letra: la ultima que ya empezo.
@@ -1015,6 +1111,9 @@ impl App {
         }
         "playlist.changed" => {
           let mut cmds = vec![("playlist.list".into(), json!({}))];
+          if let Some(uri) = self.now_uri() {
+            cmds.push(("track.playlists".into(), json!({"uri": uri})));
+          }
           if let Some(open) = &self.lib_open
             && data["name"] == open.as_str()
           {
@@ -1050,6 +1149,21 @@ impl App {
         if method == "lyrics.get" && result.is_err() {
           self.lyrics = Value::Null;
           self.lyrics_loaded = true;
+        }
+        if method == "playlist.add" && self.add_pending.is_some() {
+          let name = self.add_pending.take().unwrap_or_default();
+          match &result {
+            Ok(_) => {
+              self.add_open = false;
+              self.notice = Some(format!("Agregada a «{name}»"));
+            }
+            // Ya estaba: se pregunta al usuario.
+            Err(e) if e["code"] == 1009 => self.add_confirm = Some(name),
+            Err(e) => {
+              self.add_open = false;
+              self.notice = Some(format!("No se pudo agregar: {}", e["message"].as_str().unwrap_or("error")));
+            }
+          }
         }
         // Errores de la pantalla de carpetas: se muestran en ella.
         if let (Err(e), "library.add_folder" | "library.remove_folder" | "library.scan") = (&result, method.as_str()) {
@@ -1114,6 +1228,11 @@ impl App {
                 self.lib_cursor = self.lib_cursor.min(self.playlists.len().saturating_sub(1));
                 return self.open_selected();
               }
+            }
+            "track.playlists" => {
+              self.now_favorite = v["favorite"].as_bool();
+              self.now_playlists =
+                v["playlists"].as_array().map(|l| l.iter().filter_map(|n| n.as_str().map(str::to_string)).collect()).unwrap_or_default();
             }
             "library.groups" if latest => {
               self.lib_groups = v["groups"].as_array().cloned().unwrap_or_default();

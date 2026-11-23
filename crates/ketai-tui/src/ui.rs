@@ -55,7 +55,19 @@ pub fn draw(f: &mut RFrame, app: &App) {
     begin_overlay();
     folders(f, app);
   }
+  if app.add_open {
+    dim(f, t);
+    begin_overlay();
+    add_popup(f, app);
+  }
   config_notice(f, app);
+  if let Some(n) = &app.notice {
+    let area = f.area();
+    if area.height > 0 {
+      let y = area.y + area.height - 1;
+      putn(f.buffer_mut(), area.x + 1, y, n, area.width.saturating_sub(2) as usize, t.accent());
+    }
+  }
 }
 
 /// Error o aviso de config.toml en la ultima fila. Un error deja el tema
@@ -74,6 +86,48 @@ fn config_notice(f: &mut RFrame, app: &App) {
   let y = area.y + area.height - 1;
   f.buffer_mut().set_style(Rect::new(area.x, y, area.width, 1), Style::new().bg(t.bg));
   putn(f.buffer_mut(), area.x + 1, y, text, area.width.saturating_sub(2) as usize, Style::new().fg(color));
+}
+
+/// Popup "Agregar a una playlist" y, si ya estaba, la confirmacion.
+fn add_popup(f: &mut RFrame, app: &App) {
+  let t = &app.theme;
+  let area = f.area();
+  let targets = app.add_targets();
+  let h = (targets.len() as u16 * 2 + 8).clamp(10, area.height.saturating_sub(4).max(10));
+  let w = 56.min(area.width.saturating_sub(4));
+  let pop = Rect::new(area.x + (area.width.saturating_sub(w)) / 2, area.y + (area.height.saturating_sub(h)) / 3, w, h);
+  popup_frame(f, t, pop);
+  let buf = f.buffer_mut();
+  let x = pop.x + 3;
+  let iw = pop.width.saturating_sub(6) as usize;
+  if let Some(name) = &app.add_confirm {
+    put(buf, x, pop.y + 1, "¿Agregar de nuevo?", t.title());
+    putn(buf, x, pop.y + 3, format!("Esta canción ya está en «{name}»."), iw, t.text());
+    put(buf, x, pop.y + 5, " a ", Style::new().fg(t.on_accent).bg(t.accent));
+    put(buf, x + 4, pop.y + 5, "agregar de todos modos", t.text());
+    put(buf, x, pop.y + 6, " n ", t.dim());
+    put(buf, x + 4, pop.y + 6, "no agregar", t.text());
+    return;
+  }
+  put(buf, x, pop.y + 1, "Agregar a una playlist", t.title());
+  put(buf, pop.x + pop.width.saturating_sub(9), pop.y + 1, "esc ✕", t.faint());
+  let mut y = pop.y + 3;
+  if targets.is_empty() {
+    put(buf, x, y, if app.playlists_loaded { "No hay playlists" } else { "Cargando…" }, t.faint());
+  }
+  for (i, name) in targets.iter().enumerate() {
+    if y + 1 > pop.y + pop.height - 2 {
+      break;
+    }
+    let mark = if app.now_playlists.contains(name) { "  ✓" } else { "" };
+    if i == app.add_cursor {
+      buf.set_style(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), 1), Style::new().bg(t.row));
+      put(buf, pop.x + 1, y, "▌", t.accent());
+    }
+    putn(buf, x, y, format!("{name}{mark}"), iw, t.text());
+    y += 2;
+  }
+  put(buf, x, pop.y + pop.height - 2, "⏎ agregar · ↑↓ elegir · esc cerrar", t.faint());
 }
 
 /// Atenua todo lo dibujado (fondo de un popup modal).
@@ -413,12 +467,30 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
     Span::styled("━".repeat(18 - filled.min(18)), Style::new().fg(t.raised)),
     Span::styled(format!("  {}%", (vol * 100.0).round()), t.faint()),
   ];
+  // Dispositivo activo, con su nombre si ya se conoce la lista.
+  if let Some(out) = &app.output_active {
+    let name = app.outputs.iter().find(|d| d["id"] == out.as_str()).and_then(|d| d["name"].as_str()).unwrap_or(out);
+    let icon = if out.starts_with("bluez") { I_HEADPHONES } else { I_DEVICE };
+    details.push(Span::styled(format!("   {icon} {name}"), t.faint()));
+  }
+  put_line(buf, x, y, &Line::from(details), w);
+  // Favorito, playlists donde esta y como agregarla.
+  let fav = app.now_favorite == Some(true);
+  let mut mine = vec![Span::styled(
+    if fav { format!("{I_HEART} Favorito") } else { format!("{I_HEART_EMPTY} No es favorito") },
+    if fav { t.accent() } else { t.faint() },
+  )];
+  let n = app.now_playlists.len();
+  if n > 0 {
+    mine.push(Span::styled(format!("   En {n} {}", if n == 1 { "playlist" } else { "playlists" }), t.faint()));
+  }
+  mine.push(Span::styled("   * favorito · P agregar", t.faint()));
+  put_line(buf, x, y + 1, &Line::from(mine), w);
   let codec = s("codec");
   if !codec.is_empty() {
     let rate = track["sample_rate"].as_u64().map(|r| format!(" · {}", fmt_rate(r))).unwrap_or_default();
-    details.push(Span::styled(format!("   {codec}{rate}"), t.faint()));
+    putn(buf, x, y + 2, format!("{codec}{rate}"), w as usize, t.faint());
   }
-  put_line(buf, x, y, &Line::from(details), w);
 
   if app.playing() {
     let viz = Rect::new(area.x + 2, area.y + area.height - viz_h - 1, area.width.saturating_sub(4), viz_h);
@@ -585,6 +657,8 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
 }
 
 const I_LIBRARY: &str = "\u{f02d}";
+const I_HEART: &str = "\u{f004}";
+const I_HEART_EMPTY: &str = "\u{f08a}";
 const I_FOLDER: &str = "\u{f07b}";
 const I_HEADPHONES: &str = "\u{f025}";
 const I_DEVICE: &str = "\u{f108}";

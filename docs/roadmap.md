@@ -31,6 +31,22 @@ actualizacion permite tener varios guardados y elegir cual usar.
 - Antes de empezar se define como conviven un tema elegido y `cover_color`
   (por ejemplo, un tema que diga que colores toma de la caratula).
 
+### Varios idiomas en la interfaz
+
+La v1 muestra la interfaz en espanol (con algunos textos en ingles, como
+"Default" y "No device" en la salida de audio). Esta actualizacion permite
+elegir el idioma.
+
+- Todos los textos de la TUI salen de un catalogo por idioma, en vez de
+  estar escritos en el codigo.
+- El idioma se elige en `config.toml` (por ejemplo `[ui] language = "en"`)
+  o se toma del sistema (`LANG`), con recarga en vivo.
+- Idiomas iniciales: espanol e ingles. Agregar uno nuevo es sumar un
+  catalogo.
+- Antes de empezar se define que pasa con los mensajes del daemon (errores
+  del protocolo): hoy estan en ingles y los clientes podrian traducirlos por
+  codigo de error.
+
 ### Romanizacion automatica de letras
 
 Generar la letra romanizada cuando el origen no la trae.

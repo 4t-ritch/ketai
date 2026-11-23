@@ -248,7 +248,8 @@ fn dragging_the_bars_moves_them() {
   let s = draw(&mut app);
   // Volumen: se manda mientras se arrastra.
   let (x, y) = find(&s, "50%");
-  let start = x - 17;
+  // Primer tramo de la barra de volumen en esa fila.
+  let start = s[y as usize].chars().position(|c| c == '━' || c == '●').unwrap() as u16;
   assert_eq!(at(&mut app, MouseEventKind::Down(MouseButton::Left), (start, y))[0].1, json!({"volume": 0.0}));
   let cmds = at(&mut app, MouseEventKind::Drag(MouseButton::Left), (x - 4, y));
   assert!(cmds[0].1["volume"].as_f64().unwrap() > 0.8, "{cmds:?}");

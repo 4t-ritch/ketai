@@ -459,7 +459,8 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
     Span::styled("━".repeat(filled), t.dim()),
     Span::styled("●", t.text()),
     Span::styled("━".repeat(14 - filled.min(14)), Style::new().fg(t.raised)),
-    Span::styled(format!("  {}%  ", (vol * 100.0).round()), t.text()),
+    // Ancho fijo ("100%", " 40%", "  5%"): lo de la derecha no se corre.
+    Span::styled(format!("  {:>4}  ", format!("{}%", (vol * 100.0).round())), t.text()),
     keycap(&key_label(app, crate::keys::Action::VolumeDown)),
     Span::raw(" "),
     keycap(&key_label(app, crate::keys::Action::VolumeUp)),
@@ -830,7 +831,7 @@ fn player_status(app: &App) -> Line<'static> {
   let t = &app.theme;
   let muted = app.player["muted"].as_bool().unwrap_or(false);
   let vol = (app.player["volume"].as_f64().unwrap_or(1.0) * 100.0).round();
-  let mut spans = vec![Span::styled(format!("{} {vol}%", if muted { I_MUTE } else { I_VOLUME }), t.faint())];
+  let mut spans = vec![Span::styled(format!("{} {:>4}", if muted { I_MUTE } else { I_VOLUME }, format!("{vol}%")), t.faint())];
   {
     let name = app.output_label();
     let icon = if app.output_active.as_deref().is_some_and(|o| o.starts_with("bluez")) { I_HEADPHONES } else { I_DEVICE };
@@ -1443,7 +1444,7 @@ fn mini(f: &mut RFrame, app: &App, area: Rect) {
     let play = if app.playing() { I_PAUSE } else { I_PLAY };
     let vol = (app.player["volume"].as_f64().unwrap_or(1.0) * 100.0).round();
     let heart = if app.now_favorite == Some(true) { I_HEART } else { I_HEART_EMPTY };
-    let controls = format!("{I_SHUFFLE}  {I_PREV}  {play}  {I_NEXT}  {I_REPEAT}    {I_VOLUME} {vol}%  {heart}");
+    let controls = format!("{I_SHUFFLE}  {I_PREV}  {play}  {I_NEXT}  {I_REPEAT}    {I_VOLUME} {:>4}  {heart}", format!("{vol}%"));
     putn(buf, x, y, controls, text_w as usize, t.text());
   }
   if viz_w > 0 && app.playing() && area.height >= 6 {

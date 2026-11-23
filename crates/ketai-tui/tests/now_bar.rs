@@ -195,3 +195,25 @@ fn volume_and_output_show_their_keys() {
   assert!(line.contains("40%   -   + "), "{line}");
   assert!(line.contains("Hisense HS2100   d "), "{line}");
 }
+
+#[test]
+fn the_volume_row_keeps_its_width_at_any_volume() {
+  // De 100% a 40% o 5%, las teclas y la salida no se corren.
+  let mut columns = Vec::new();
+  for v in [1.0, 0.4, 0.05] {
+    let (mut app, _) = playing();
+    reply(&mut app, "output.list", Ok(json!({"devices": [{"id": "bluez_output.x", "name": "Hisense HS2100", "is_default": true}]})));
+    if let Some(o) = app.player.as_object_mut() {
+      o.insert("volume".into(), json!(v));
+    }
+    let t = text(&app);
+    let line = t.lines().find(|l| l.contains("Hisense")).unwrap().to_string();
+    let col = |s: &str| line[..line.find(s).unwrap()].chars().count();
+    columns.push((col(" + "), col("Hisense")));
+    app.tab = ketai_tui::app::Tab::Library;
+    let t = text(&app);
+    let bar = t.lines().rev().find(|l| l.contains("Hisense")).unwrap().to_string();
+    columns.push((bar[..bar.find("Hisense").unwrap()].chars().count(), 0));
+  }
+  assert!(columns.chunks(2).all(|c| c == &columns[..2]), "{columns:?}");
+}

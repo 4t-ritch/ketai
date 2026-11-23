@@ -224,6 +224,35 @@ impl Worker {
         let tracks: Vec<Value> = self.store.search(&words, limit).map_err(db)?.iter().map(track_json).collect();
         Ok(json!({"tracks": tracks}))
       }
+      "library.groups" => {
+        let by = params.get("by").and_then(Value::as_str).unwrap_or_default();
+        let groups = self.store.groups(by).ok_or_else(|| invalid("by must be artist, album, folder, year or genre"))?.map_err(db)?;
+        let groups: Vec<Value> = groups.into_iter().map(|(name, count)| json!({"name": name, "count": count})).collect();
+        Ok(json!({"groups": groups}))
+      }
+      "library.tracks" => {
+        let number = |k: &str, default: u64| match params.get(k) {
+          None | Some(Value::Null) => Ok(default),
+          Some(v) => v.as_u64().ok_or_else(|| invalid(&format!("{k} must be a non-negative integer"))),
+        };
+        let (offset, limit) = (number("offset", 0)?, number("limit", 200)?.clamp(1, 5000));
+        let group = match params.get("by") {
+          None | Some(Value::Null) => None,
+          Some(by) => {
+            let by = by.as_str().ok_or_else(|| invalid("by must be a string"))?;
+            // Un grupo necesita `name` (null es el grupo sin dato).
+            let name = match params.get("name") {
+              None => return Err(invalid("name is required with by")),
+              Some(Value::Null) => None,
+              Some(v) => Some(v.as_str().ok_or_else(|| invalid("name must be a string or null"))?),
+            };
+            Some((by, name))
+          }
+        };
+        let (tracks, total) =
+          self.store.tracks(group, offset, limit).ok_or_else(|| invalid("by must be artist, album, folder, year or genre"))?.map_err(db)?;
+        Ok(json!({"tracks": tracks.iter().map(track_json).collect::<Vec<_>>(), "total": total}))
+      }
       "track.cover" => {
         let track = track.ok_or_else(|| invalid("track_id or uri is required"))?;
         // Pistas remotas: todavia no tienen caratula.

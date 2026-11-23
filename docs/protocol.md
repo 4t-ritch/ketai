@@ -382,6 +382,8 @@ Ver la seccion 4 para los tipos y la seccion 11 para las reglas.
 | `library.add_folder` | `{"path": "/home/u/Music"}`   | `{}` |
 | `library.remove_folder` | `{"path": "/home/u/Music"}` | `{}` |
 | `library.search` | `{"query": "illit", "limit": 50}` | `{"tracks": [Track]}` |
+| `library.groups` | `{"by": "artist"}` | `{"groups": [{"name": "ILLIT", "count": 12}]}` |
+| `library.tracks` | `{"by": "artist", "name": "ILLIT", "offset": 0, "limit": 200}` | `{"tracks": [Track], "total": 12}` |
 
 ### Cache
 | Metodo        | Params | Resultado |
@@ -424,6 +426,14 @@ Reglas de biblioteca, caratulas y cache (v1, solo archivos locales):
   por un solo thread: dos clientes al mismo tiempo nunca se pisan. Si
   existe un `library.json` de una version anterior, se importa la primera
   vez que se crea la base (el archivo no se borra).
+- `library.groups` agrupa la biblioteca por `artist`, `album`, `folder`
+  (carpeta de cada archivo), `year` (como texto) o `genre`, en orden. Las
+  pistas sin ese dato forman el grupo `name: null`, que va primero. Otro
+  `by` devuelve `-32602`.
+- `library.tracks` devuelve una pagina de pistas y el `total`. Sin `by`, de
+  toda la biblioteca, por ruta. Con `by`, `name` es obligatorio (`null` es
+  el grupo sin dato); en un album van por disco y numero de pista.
+  `offset` arranca en 0 y `limit` va de 1 a 5000 (200 por defecto).
 - `library.search`: `query` es obligatorio. Cada palabra debe aparecer, en
   cualquier parte (no solo al principio), en el titulo, artista, album, artista
   del album, genero, ano o nombre de archivo. No importan las mayusculas ni las marcas: "cancion"

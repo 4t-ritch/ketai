@@ -439,3 +439,40 @@ fn a_scan_cut_halfway_keeps_what_it_already_read() {
   let kept = s.ok("library.search", json!({"query": "", "limit": 5000}))["tracks"].as_array().unwrap().len();
   assert!(kept >= 200, "only {kept} tracks survived the cut");
 }
+
+#[test]
+fn browse_groups_and_pages_the_whole_library() {
+  let mut s = S::new();
+  s.put("full_tags.ogg", "jp/a/full.ogg");
+  s.put("tagged_cover.mp3", "rock/red.mp3");
+  s.put("vorbis.ogg", "rock/plain.ogg");
+  s.scan(&s.music());
+  // Todas, por pagina, ordenadas por ruta.
+  let all = s.ok("library.tracks", json!({"offset": 0, "limit": 2}));
+  assert_eq!(all["total"], 3);
+  assert_eq!(titles(all["tracks"].as_array().unwrap()), ["full.ogg", "plain.ogg"]);
+  let rest = s.ok("library.tracks", json!({"offset": 2, "limit": 2}));
+  assert_eq!(titles(rest["tracks"].as_array().unwrap()), ["red.mp3"]);
+  // Grupos con su cantidad; sin dato queda en un grupo null.
+  assert_eq!(
+    s.ok("library.groups", json!({"by": "genre"})),
+    json!({"groups": [{"name": null, "count": 2}, {"name": "J-Pop", "count": 1}]})
+  );
+  assert_eq!(s.ok("library.groups", json!({"by": "year"}))["groups"][1], json!({"name": "2021", "count": 1}));
+  let folders = s.ok("library.groups", json!({"by": "folder"}));
+  assert_eq!(folders["groups"], json!([{"name": s.music().join("jp/a"), "count": 1}, {"name": s.music().join("rock"), "count": 2}]));
+  assert_eq!(s.ok("library.groups", json!({"by": "artist"}))["groups"].as_array().unwrap().len(), 3);
+  assert_eq!(s.ok("library.groups", json!({"by": "album"}))["groups"].as_array().unwrap().len(), 3);
+  // Canciones de un grupo.
+  let rock = s.ok("library.tracks", json!({"by": "folder", "name": s.music().join("rock")}));
+  assert_eq!(titles(rock["tracks"].as_array().unwrap()), ["plain.ogg", "red.mp3"]);
+  let none = s.ok("library.tracks", json!({"by": "genre", "name": null}));
+  assert_eq!(none["total"], 2);
+  let band = s.ok("library.tracks", json!({"by": "artist", "name": "Test Band"}));
+  assert_eq!(titles(band["tracks"].as_array().unwrap()), ["red.mp3"]);
+  for bad in [json!({"by": "mood"}), json!({})] {
+    assert_eq!(s.code("library.groups", bad), -32602);
+  }
+  assert_eq!(s.code("library.tracks", json!({"by": "nope", "name": "x"})), -32602);
+  assert_eq!(s.code("library.tracks", json!({"by": "artist"})), -32602, "a group needs a name (null is allowed)");
+}

@@ -50,7 +50,26 @@ const MIGRATIONS: &[&str] = &[
    CREATE INDEX playlist_items_uri ON playlist_items(uri);",
   // 3: datos sueltos (por ejemplo, si ya se importo el indice viejo).
   "CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT);",
+  // 4: carpeta de cada pista, para agrupar (se completa al migrar).
+  "ALTER TABLE tracks ADD COLUMN folder TEXT;
+   CREATE INDEX tracks_folder ON tracks(folder);",
 ];
+
+/// Agrupaciones de la biblioteca: nombre en el protocolo y expresion SQL.
+pub const GROUPS: &[(&str, &str)] = &[
+  ("artist", "artist"),
+  ("album", "album"),
+  ("folder", "folder"),
+  ("year", "CAST(year AS TEXT)"),
+  ("genre", "genre"),
+];
+
+/// Grupo: nombre (None si las pistas no tienen ese dato) y cantidad.
+pub type Group = (Option<String>, u64);
+
+fn group_expr(by: &str) -> Option<&'static str> {
+  GROUPS.iter().find(|(name, _)| *name == by).map(|(_, expr)| *expr)
+}
 
 /// Nombre de la playlist de favoritos.
 /// Ruta de la base: `XDG_DATA_HOME/ketai/library.db`.
@@ -130,6 +149,15 @@ impl Store {
       tx.execute_batch(step)?;
       tx.pragma_update(None, "user_version", i + 1)?;
     }
+    if version < 4 {
+      let paths: Vec<String> = {
+        let mut st = tx.prepare("SELECT path FROM tracks")?;
+        st.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+      };
+      for p in paths {
+        tx.execute("UPDATE tracks SET folder = ?2 WHERE path = ?1", params![p, folder_of(Path::new(&p))])?;
+      }
+    }
     // Una base de antes de `meta` ya habia importado el indice viejo.
     if (1..3).contains(&version) {
       tx.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('legacy_imported', '1')", [])?;
@@ -191,6 +219,37 @@ impl Store {
       }
     }
     tx.commit()
+  }
+
+  /// Grupos de la biblioteca por `by` (ver `GROUPS`), con su cantidad. Las
+  /// pistas sin ese dato forman el grupo `None`, que va primero.
+  pub fn groups(&self, by: &str) -> Option<rusqlite::Result<Vec<Group>>> {
+    let expr = group_expr(by)?;
+    let sql = format!("SELECT {expr} AS g, count(*) FROM tracks GROUP BY g ORDER BY g");
+    Some((|| {
+      let mut st = self.conn.prepare(&sql)?;
+      st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect()
+    })())
+  }
+
+  /// Una pagina de pistas, de toda la biblioteca o de un grupo, y el total.
+  /// Dentro de un album van por disco y numero de pista.
+  pub fn tracks(&self, group: Option<(&str, Option<&str>)>, offset: u64, limit: u64) -> Option<rusqlite::Result<(Vec<Entry>, u64)>> {
+    let (filter, order, value) = match group {
+      None => (String::from("1"), "path", None),
+      Some((by, value)) => {
+        let order = if by == "album" { "disc_number, track_number, path" } else { "path" };
+        (format!("{} IS ?1", group_expr(by)?), order, value)
+      }
+    };
+    Some((|| {
+      let args: Vec<&dyn rusqlite::ToSql> = if group.is_some() { vec![&value] } else { vec![] };
+      let total = self.conn.query_row(&format!("SELECT count(*) FROM tracks WHERE {filter}"), args.as_slice(), |r| r.get(0))?;
+      let sql = format!("SELECT * FROM tracks WHERE {filter} ORDER BY {order} LIMIT {limit} OFFSET {offset}");
+      let mut st = self.conn.prepare(&sql)?;
+      let rows = st.query_map(args.as_slice(), entry_from_row)?.collect::<rusqlite::Result<_>>()?;
+      Ok((rows, total))
+    })())
   }
 
   pub fn playlists(&self) -> rusqlite::Result<Vec<PlaylistInfo>> {
@@ -304,6 +363,10 @@ fn items(conn: &Connection, name: &str) -> rusqlite::Result<Option<Vec<String>>>
   Ok(Some(st.query_map([pid], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?))
 }
 
+fn folder_of(p: &Path) -> Option<String> {
+  p.parent().map(path_text)
+}
+
 fn path_text(p: &Path) -> String {
   p.to_string_lossy().into_owned()
 }
@@ -325,8 +388,8 @@ fn upsert(tx: &Transaction, e: &Entry) -> rusqlite::Result<()> {
   let i = &e.info;
   tx.prepare_cached(
     "INSERT OR REPLACE INTO tracks (path, title, artist, album, album_artist, genre, year, track_number, disc_number,
-       duration_ms, has_cover, codec, sample_rate, channels, search_text)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+       duration_ms, has_cover, codec, sample_rate, channels, search_text, folder)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
   )?
   .execute(params![
     path_text(&e.path),
@@ -344,6 +407,7 @@ fn upsert(tx: &Transaction, e: &Entry) -> rusqlite::Result<()> {
     i.sample_rate,
     i.channels,
     library::search_text(e),
+    folder_of(&e.path),
   ])?;
   Ok(())
 }

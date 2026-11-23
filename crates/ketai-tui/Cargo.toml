@@ -1,0 +1,26 @@
+[package]
+name = "ketai-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ketai"
+path = "src/main.rs"
+
+[lib]
+name = "ketai_tui"
+path = "src/lib.rs"
+
+[dependencies]
+ketai-protocol.workspace = true
+dbus = "0.9"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+libc = "0.2"
+toml = "0.8"
+ratatui = "0.29"
+unicode-width = "0.2"
+serde_json.workspace = true
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }

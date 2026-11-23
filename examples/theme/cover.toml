@@ -1,0 +1,6 @@
+# Toda la interfaz con los colores de la caratula que suena.
+# Los colores fijos de abajo se ignorarian aunque estuvieran.
+# Ver examples/theme/README.md.
+
+[theme]
+cover_color = true

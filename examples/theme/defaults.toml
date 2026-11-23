@@ -1,0 +1,17 @@
+# Todos los colores con su valor por defecto.
+# Copia esta seccion a ~/.config/ketai/config.toml y cambia lo que quieras.
+# Ver examples/theme/README.md.
+
+[theme]
+# cover_color = true
+background = "cover"
+accent = "cover"
+foreground = "#ffffff"
+dim = "#c8d3e0"
+faint = "#7f8ea3"
+raised = "#1c2a3a"
+on_accent = "#04121f"
+row = "#16202e"
+ok = "#7ee787"
+error = "#ff7b8a"
+spectrum_top = "#ff7ab6"

@@ -1,0 +1,192 @@
+//! Conformidad de instancia unica: docs/servicio.md, seccion "Instancia unica".
+
+mod common;
+
+use std::{
+  fs,
+  path::Path,
+  process::{Command, Stdio},
+  thread,
+  time::{Duration, Instant},
+};
+
+use common::{Daemon, temp_runtime_dir};
+use serde_json::json;
+
+fn spawn_in(runtime_dir: &Path) -> std::process::Child {
+  common::ketaid_command()
+    .env("KETAI_AUDIO_BACKEND", "null")
+    .env("XDG_STATE_HOME", runtime_dir.join("state"))
+    .env("XDG_DATA_HOME", runtime_dir.join("data"))
+    .env("XDG_RUNTIME_DIR", runtime_dir)
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .spawn()
+    .unwrap()
+}
+
+fn alive(pid: u32) -> bool {
+  // Un proceso zombie ya termino aunque su entrada siga en /proc.
+  match fs::read_to_string(format!("/proc/{pid}/stat")) {
+    Ok(stat) => !stat.rsplit(')').next().unwrap_or("").trim_start().starts_with('Z'),
+    Err(_) => false,
+  }
+}
+
+fn wait_until(timeout: Duration, mut cond: impl FnMut() -> bool) -> bool {
+  let deadline = Instant::now() + timeout;
+  while Instant::now() < deadline {
+    if cond() {
+      return true;
+    }
+    thread::sleep(Duration::from_millis(50));
+  }
+  false
+}
+
+fn signal(pid: u32, sig: &str) {
+  Command::new("kill").arg(format!("-{sig}")).arg(pid.to_string()).status().unwrap();
+}
+
+#[test]
+fn second_instance_exits_when_owner_is_healthy() {
+  let daemon = Daemon::start();
+  let status = common::ketaid_command()
+    .env("KETAI_AUDIO_BACKEND", "null")
+    .env("XDG_STATE_HOME", daemon.runtime_dir.join("state"))
+    .env("XDG_DATA_HOME", daemon.runtime_dir.join("data"))
+    .env("XDG_RUNTIME_DIR", &daemon.runtime_dir)
+    .stderr(Stdio::null())
+    .status()
+    .unwrap();
+  assert!(status.success(), "second instance must exit with code 0");
+
+  // El dueno original sigue atendiendo.
+  let mut client = daemon.connect();
+  let reply = client.request(1, "daemon.hello", json!({"client": "t", "protocol": 1}));
+  assert_eq!(reply["result"]["server"], "ketaid");
+}
+
+#[test]
+fn lock_file_holds_owner_pid() {
+  let daemon = Daemon::start();
+  let lock = daemon.runtime_dir.join("ketai").join("ketaid.lock");
+  let content = fs::read_to_string(lock).unwrap();
+  let mut lines = content.lines();
+  assert_eq!(lines.next(), Some(daemon.child.id().to_string().as_str()));
+  assert_eq!(lines.next(), Some("ready"), "owner must be marked ready once serving");
+}
+
+#[test]
+fn owner_still_starting_is_never_killed() {
+  // Simula un dueno que tomo el bloqueo pero todavia no abrio el socket:
+  // detenido y sin la marca `ready`.
+  let mut starting = Daemon::start();
+  let pid = starting.child.id();
+  signal(pid, "STOP");
+  let dir = starting.runtime_dir.join("ketai");
+  fs::write(dir.join("ketaid.lock"), format!("{pid}\n")).unwrap();
+
+  let status = common::ketaid_command()
+    .env("KETAI_AUDIO_BACKEND", "null")
+    .env("XDG_STATE_HOME", starting.runtime_dir.join("state"))
+    .env("XDG_DATA_HOME", starting.runtime_dir.join("data"))
+    .env("XDG_RUNTIME_DIR", &starting.runtime_dir)
+    .stderr(Stdio::null())
+    .status()
+    .unwrap();
+  let _ = starting.child.try_wait();
+  let still_alive = alive(pid);
+  signal(pid, "CONT");
+  assert!(!status.success(), "new instance must give up, not take over");
+  assert!(still_alive, "a starting owner must never be signaled");
+}
+
+#[test]
+fn stale_socket_without_owner_does_not_block_start() {
+  let runtime = temp_runtime_dir();
+  let dir = runtime.join("ketai");
+  fs::create_dir_all(&dir).unwrap();
+  fs::write(dir.join("ctl.sock"), b"").unwrap();
+
+  let mut child = spawn_in(&runtime);
+  let ok = wait_until(Duration::from_secs(5), || {
+    std::os::unix::net::UnixStream::connect(dir.join("ctl.sock")).is_ok()
+  });
+  let _ = child.kill();
+  let _ = child.wait();
+  let _ = fs::remove_dir_all(&runtime);
+  assert!(ok, "daemon must replace a stale socket");
+}
+
+#[test]
+fn hung_owner_is_replaced() {
+  let mut hung = Daemon::start();
+  let hung_pid = hung.child.id();
+  // Un proceso detenido mantiene el bloqueo pero no responde.
+  signal(hung_pid, "STOP");
+
+  let mut new = spawn_in(&hung.runtime_dir);
+  let replaced = wait_until(Duration::from_secs(15), || {
+    let _ = hung.child.try_wait();
+    !alive(hung_pid)
+  });
+  let serving = replaced
+    && wait_until(Duration::from_secs(5), || {
+      let mut c = match std::os::unix::net::UnixStream::connect(hung.socket_path()) {
+        Ok(s) => common::Client { reader: std::io::BufReader::new(s.try_clone().unwrap()), writer: s },
+        Err(_) => return false,
+      };
+      let reply = c.request(1, "daemon.hello", json!({"client": "t", "protocol": 1}));
+      reply["result"]["server"] == "ketaid"
+    });
+  let _ = new.kill();
+  let _ = new.wait();
+  assert!(replaced, "hung owner must be terminated");
+  assert!(serving, "new instance must take over");
+}
+
+#[test]
+fn orphan_of_same_session_is_closed() {
+  let mut orphan = Daemon::start();
+  let orphan_pid = orphan.child.id();
+  // Sin lock ni socket, el proceso viejo queda como huerfano de la sesion.
+  let dir = orphan.runtime_dir.join("ketai");
+  fs::remove_file(dir.join("ketaid.lock")).unwrap();
+  fs::remove_file(dir.join("ctl.sock")).unwrap();
+
+  let mut owner = spawn_in(&orphan.runtime_dir);
+  // El plazo para cerrar al huerfano cuenta desde que el dueno nuevo esta
+  // listo: con la maquina cargada, arrancar puede tardar y no debe comerse
+  // el margen (TERM_GRACE 5 s + KILL_WAIT 2 s).
+  let t0 = Instant::now();
+  let ready = wait_until(Duration::from_secs(20), || std::os::unix::net::UnixStream::connect(dir.join("ctl.sock")).is_ok());
+  let ready_after = t0.elapsed();
+  let closed = wait_until(Duration::from_secs(10), || {
+    let _ = orphan.child.try_wait();
+    !alive(orphan_pid)
+  });
+  let orphan_state = fs::read_to_string(format!("/proc/{orphan_pid}/stat")).unwrap_or_else(|_| "gone".into());
+  let owner_alive = alive(owner.id());
+  // Al apagarse, el huerfano no debe borrar los sockets del dueno nuevo,
+  // que ocupan las mismas rutas.
+  thread::sleep(Duration::from_millis(300));
+  let ctl_ok = std::os::unix::net::UnixStream::connect(dir.join("ctl.sock")).is_ok();
+  let viz_ok = std::os::unix::net::UnixStream::connect(dir.join("viz.sock")).is_ok();
+  let _ = owner.kill();
+  let _ = owner.wait();
+  assert!(ready, "the new owner never became ready ({ready_after:?})");
+  assert!(closed, "orphan must be closed by the new owner; owner ready after {ready_after:?}, orphan: {orphan_state}");
+  assert!(owner_alive, "the owner must keep running");
+  assert!(ctl_ok, "the owner's ctl.sock must survive the orphan's exit");
+  assert!(viz_ok, "the owner's viz.sock must survive the orphan's exit");
+}
+
+#[test]
+fn daemons_of_other_sessions_are_not_touched() {
+  let other = Daemon::start();
+  let mine = Daemon::start();
+  thread::sleep(Duration::from_millis(300));
+  assert!(alive(other.child.id()));
+  assert!(alive(mine.child.id()));
+}

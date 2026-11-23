@@ -1,0 +1,27 @@
+# Todos los atajos globales con su valor por defecto.
+# Copia esta seccion a ~/.config/ketai/config.toml y cambia lo que quieras.
+# Ver examples/keys/README.md.
+
+[keys]
+toggle = "space"
+next = "n"
+previous = "p"
+seek_forward = "right"
+seek_back = "left"
+volume_up = ["+", "="]
+volume_down = "-"
+mute = "m"
+shuffle = "s"
+repeat = "r"
+devices = "d"
+folders = "f"
+favorite = "*"
+add_to_playlist = "P"
+actions = ["ctrl+p", "ctrl+k", "/"]
+quit = "q"
+next_tab = "tab"
+prev_tab = "shift+tab"
+tab_now_playing = "1"
+tab_lyrics = "2"
+tab_library = "3"
+tab_search = "4"

@@ -19,6 +19,7 @@ Tests: `cargo test` (workspace).
 - S11: Boton de play. Usuario: "corrige el recuadro contenedor del boton de play/pause porque se ve feo como esta actualmente que un lado esta mas largo que el otro".
 - S12: Audio. Usuario: "por momentos se traba como si tuviera saturacion en su buffer de audio es algo intermintente ... tarda como unos 500ms o un poco mas en detener la cancion o cuando se hace un seek tarda esos como 500 ms o mas en poder reflejar el cambio en el audio."
 - S13: Confirmar repetidas. Usuario: "en la TUI hay que agregar una alerta de que ya se encuentra en la playlist pero hay que ofrecerle la opcion al usuario de agregarla de todos modos o no agregarla. pero esto debe de validarse desde el ketaid para que la confirmacion quede del lado del cliente."
+- S14: Cortes en otros programas. Usuario: "lo unico que hice fue levantar ketaid y yo tengo una pelicula en segundo plano y empece a escuchar como se entrecortaba el audio de la pelicula" y "no necesariamente debe compartir mismo output device para que ocurra".
 
 ## Tasks
 
@@ -35,7 +36,7 @@ Tests: `cargo test` (workspace).
 | T8 | S5 | inline | pendiente | Mouse |
 | T9 | S10 | inline | pendiente | Texto largo con desplazamiento horizontal |
 | T10 | S11 | inline | hecho | ed15b40 |
-| T11 | S12 | inline | diagnosticando | ver L4 |
+| T11 | S12, S14 | inline | hecho (falta ver en el sistema real) | ver L12 |
 
 ## Log
 
@@ -50,4 +51,5 @@ Tests: `cargo test` (workspace).
 - L9 (2026-11-22) S13 lado daemon: `playlist.add` con `duplicates` ask/add/skip; ask devuelve 1009 con `error.data.duplicates` (campo `data` opcional nuevo en los errores). El test de dos clientes ahora manda `duplicates: "add"` (agrega repetidas a proposito). Falta el dialogo en la TUI (T5).
 - L10 (2026-11-22) Usuario: "la idea es que el scan realice el guardado de todos los datos en la db, no importa que" y acepto guardar por tandas. Hecho: tandas de 200 (`Job::Batch`), al final se borra lo que no aparecio. RED: corte con SIGKILL a mitad de 3000 archivos dejaba 0 pistas.
 - L11 (2026-11-22) T4: daemon `library.groups` y `library.tracks` (columna `folder`, migracion 4); TUI con vistas h/l, columna de grupos y tabla en columnas compartida con la playlist. Respuestas viejas de otro grupo se descartan (contador de pedidos en vuelo). Una corrida completa de la suite fallo una vez en `orphan_of_same_session_is_closed` (ketaid/tests/instance.rs:172, el huerfano no se cerro en 10 s); paso 5 de 5 sola y 3 de 3 completa: intermitente, a vigilar.
+- L12 (2026-11-22) S14, evidencia: PipeWire con `clock.quantum 1024`, pero con ketaid abierto el driver Bluetooth corria a QUANT 2048 y el stream `alsa_playback.ketaid` (2048/44100) figuraba activo sin sonar. ketaid abria la salida al restaurar la sesion en pausa y la dejaba abierta siempre; cada aparicion del stream reacomoda el grafo de PipeWire (corte en otros programas). Arreglo: la salida se abre recien al reproducir, se cierra tras 15 s en pausa o detenido (reanuda donde estaba) y pide bloques de 1024 (antes 2048). Tests del motor con salida nula. Falta verlo en el sistema real.
 - Siguiente paso: T5 (barra de Reproduciendo, agregar a playlist con confirmacion de repetidas, favorito); T11 espera la medicion del usuario.

@@ -59,6 +59,35 @@ pub fn delete_images(ids: &[u32]) -> String {
 
 /// Lo que hay que mandar para pasar de `old` a `new`. Vacio si no cambio
 /// nada (redibujar las imagenes en cada cuadro haria parpadear la pantalla).
+/// Vuelve a poner las mismas ubicaciones, sin borrar: con los mismos ids
+/// reemplazan en el lugar. Para cuando el multiplexor las perdio sin avisar.
+pub fn refresh(placements: &[Placement]) -> String {
+  place_all(placements)
+}
+
+/// Ubica cada imagen: cursor en la celda (1-based) y ubicacion sin moverlo
+/// (C=1), con su propio id de ubicacion.
+fn place_all(new: &[Placement]) -> String {
+  let mut out = String::new();
+  for (n, p) in new.iter().enumerate() {
+    let a = p.area;
+    if a.width == 0 || a.height == 0 {
+      continue;
+    }
+    let _ = write!(
+      out,
+      "\x1b[{};{}H\x1b_Ga=p,i={},p={},c={},r={},C=1,z={Z_BELOW_BACKGROUND},q=2\x1b\\",
+      a.y + 1,
+      a.x + 1,
+      p.image,
+      n + 1,
+      a.width,
+      a.height
+    );
+  }
+  out
+}
+
 pub fn update(old: &[Placement], new: &[Placement]) -> String {
   if old == new {
     return String::new();
@@ -73,23 +102,7 @@ pub fn update(old: &[Placement], new: &[Placement]) -> String {
     }
   }
   // Cada ubicacion con su propio id: la misma caratula puede verse dos veces.
-  for (n, p) in new.iter().enumerate() {
-    let a = p.area;
-    if a.width == 0 || a.height == 0 {
-      continue;
-    }
-    // Cursor en la celda (1-based) y ubicacion sin moverlo (C=1).
-    let _ = write!(
-      out,
-      "\x1b[{};{}H\x1b_Ga=p,i={},p={},c={},r={},C=1,z={Z_BELOW_BACKGROUND},q=2\x1b\\",
-      a.y + 1,
-      a.x + 1,
-      p.image,
-      n + 1,
-      a.width,
-      a.height
-    );
-  }
+  out.push_str(&place_all(new));
   out
 }
 

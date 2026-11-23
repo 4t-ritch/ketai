@@ -193,3 +193,33 @@ fn the_terminal_never_keeps_more_than_a_few_covers() {
   }
   assert!(cache.evict(4).is_empty(), "nothing more to drop");
 }
+
+#[test]
+fn old_covers_are_forgotten_to_keep_memory_small() {
+  // Cada caratula en memoria ocupa ~300 KB. Pasado el tope se olvidan las
+  // menos usadas; si reaparecen, se le piden de nuevo al daemon.
+  let uris: Vec<String> = (0..10).map(|i| format!("u{i}")).collect();
+  let refs: Vec<&str> = uris.iter().map(String::as_str).collect();
+  let mut cache = ready_cache(&refs);
+  cache.touch(&["u9".to_string()]);
+  cache.evict(2);
+  cache.forget(5);
+  assert_eq!(cache.in_memory(), 5);
+  assert!(cache.state("u9").is_some(), "recently used stays");
+  let forgotten = refs.iter().filter(|u| cache.state(u).is_none()).count();
+  assert_eq!(forgotten, 5);
+  // Una olvidada se vuelve a pedir.
+  let gone = refs.iter().find(|u| cache.state(u).is_none()).unwrap();
+  assert!(cache.want(gone).is_some());
+}
+
+#[test]
+fn placements_can_be_refreshed_without_deleting_anything() {
+  // Si el multiplexor perdio las ubicaciones sin avisar, se vuelven a poner
+  // con los mismos ids: reemplazan en el lugar, sin parpadeo.
+  let p = vec![Placement { image: 5, area: Rect::new(2, 2, 10, 5) }, Placement { image: 7, area: Rect::new(30, 2, 4, 2) }];
+  let out = kitty::refresh(&p);
+  assert!(!out.contains("a=d"), "{out:?}");
+  assert!(out.contains("a=p,i=5,p=1,") && out.contains("a=p,i=7,p=2,"), "{out:?}");
+  assert_eq!(kitty::refresh(&[]), "");
+}

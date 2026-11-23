@@ -185,3 +185,13 @@ fn the_output_is_never_blank() {
   reply(&mut app, "output.list", Ok(json!({"devices": []})));
   assert!(text(&app).contains("No device"), "{}", text(&app));
 }
+
+#[test]
+fn volume_and_output_show_their_keys() {
+  let (mut app, _) = playing();
+  reply(&mut app, "output.list", Ok(json!({"devices": [{"id": "bluez_output.x", "name": "Hisense HS2100", "is_default": true}]})));
+  let t = text(&app);
+  let line = t.lines().find(|l| l.contains("40%")).unwrap();
+  assert!(line.contains("40%   -   + "), "{line}");
+  assert!(line.contains("Hisense HS2100   d "), "{line}");
+}

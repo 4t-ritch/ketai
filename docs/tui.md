@@ -101,7 +101,9 @@ ejecuta, `Tab` agrega a la cola, `Esc` cierra.
 
 ## Favoritos y agregar a una playlist
 
-En todas las vistas se ve el estado del reproductor activo: volumen,
+En Reproduciendo, junto al volumen y a la salida estan sus teclas (`-` `+`
+y `d` por defecto, o las de `[keys]`), igual que en Favorito y Agregar a
+playlist; tambien se pueden clickear. En todas las vistas se ve el estado del reproductor activo: volumen,
 salida y si la cancion es favorita (en Biblioteca y Buscar, en la barra de
 abajo; en Letras, junto a los controles; en el modo mini, al lado del
 volumen). En Reproduciendo, ademas, en cuantas playlists esta. La salida
@@ -166,4 +168,7 @@ recuperar el foco, las caratulas se vuelven a mandar a medida que se
 dibujan (algunos multiplexores, como herdr, las pierden), y la terminal
 guarda como mucho 48: las que no se usan hace rato se borran y se mandan de
 nuevo si reaparecen. Asi no se llena la memoria de imagenes del
-multiplexor.
+multiplexor. ketai guarda en su memoria como mucho 120 caratulas; las demas
+se vuelven a pedir al daemon si reaparecen. Cada 2 segundos vuelve a poner
+las ubicaciones de las imagenes en pantalla (sin borrar nada), por si el
+multiplexor las perdio sin avisar.

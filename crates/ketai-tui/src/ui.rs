@@ -459,16 +459,27 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
     Span::styled("━".repeat(filled), t.dim()),
     Span::styled("●", t.text()),
     Span::styled("━".repeat(14 - filled.min(14)), Style::new().fg(t.raised)),
-    Span::styled(format!("  {}%", (vol * 100.0).round()), t.text()),
+    Span::styled(format!("  {}%  ", (vol * 100.0).round()), t.text()),
+    keycap(&key_label(app, crate::keys::Action::VolumeDown)),
+    Span::raw(" "),
+    keycap(&key_label(app, crate::keys::Action::VolumeUp)),
   ]);
   put_line(buf, x, y, &volume, w);
   hit(Rect::new(x + 3, y, 15, 1), Hit::Volume { x: x + 3, w: 15 });
   {
+    use crate::keys::Action as A;
+    span_hits(x, y, &volume, &[None, None, None, None, None, Some(A::VolumeDown), None, Some(A::VolumeUp)]);
+  }
+  {
     let name = app.output_label();
     let icon = if app.output_active.as_deref().is_some_and(|o| o.starts_with("bluez")) { I_HEADPHONES } else { I_DEVICE };
-    let device = Line::from(vec![Span::styled(format!("{icon}  "), t.dim()), Span::styled(name, t.text())]);
+    let device = Line::from(vec![
+      Span::styled(format!("{icon}  "), t.dim()),
+      Span::styled(format!("{name}  "), t.text()),
+      keycap(&key_label(app, crate::keys::Action::Devices)),
+    ]);
     // Al lado del volumen si entra; si no, en la fila siguiente.
-    let vw = volume.width() as u16 + 6;
+    let vw = volume.width() as u16 + 5;
     let dw = device.width() as u16;
     let dx = if w >= vw + dw {
       x + vw

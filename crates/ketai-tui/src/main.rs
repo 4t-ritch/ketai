@@ -77,6 +77,10 @@ fn kitty_supported() -> bool {
 /// Caratulas que la terminal guarda como mucho. Pocas pantallas muestran mas
 /// de una docena; el resto se borra y se vuelve a mandar si reaparece.
 const KEEP_COVERS: usize = 48;
+/// Cada cuanto se vuelven a poner las ubicaciones de las imagenes.
+const REFRESH_PLACEMENTS: Duration = Duration::from_secs(2);
+/// Caratulas que ketai guarda en memoria (~300 KB cada una, ~36 MB en total).
+const KEEP_IN_MEMORY: usize = 120;
 
 /// Trabajo para el thread de caratulas.
 enum Prep {
@@ -242,6 +246,7 @@ fn main() -> io::Result<()> {
   }
 
   let mut last_retry = Instant::now();
+  let mut last_refresh = Instant::now();
   // Imagenes ubicadas en el ultimo cuadro.
   let mut placed: Vec<kitty::Placement> = Vec::new();
   let result = (|| -> io::Result<()> {
@@ -275,10 +280,19 @@ fn main() -> io::Result<()> {
         }
         emit(&update);
         placed = frame.placements;
+        // Si el multiplexor perdio las ubicaciones sin avisar, se vuelven a
+        // poner cada tanto (pocos bytes, sin parpadeo).
+        if !update.is_empty() {
+          last_refresh = Instant::now();
+        } else if !placed.is_empty() && last_refresh.elapsed() >= REFRESH_PLACEMENTS {
+          emit(&kitty::refresh(&placed));
+          last_refresh = Instant::now();
+        }
         // Las que no se usan hace rato se borran de la terminal.
         let in_use: Vec<String> = frame.on_screen;
         app.covers.touch(&in_use);
         let evicted = app.covers.evict(KEEP_COVERS);
+        app.covers.forget(KEEP_IN_MEMORY);
         if !evicted.is_empty() {
           ketai_tui::log::log("evicted old covers");
           emit(&evicted);

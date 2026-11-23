@@ -140,6 +140,31 @@ impl CoverCache {
     crate::kitty::delete_images(&ids)
   }
 
+  /// Deja en memoria como mucho `keep` caratulas: olvida las `Stale` usadas
+  /// hace mas tiempo (ya no estan en la terminal). Si reaparecen, se piden
+  /// de nuevo al daemon.
+  pub fn forget(&mut self, keep: usize) {
+    let mut stale: Vec<(u64, String)> = self
+      .covers
+      .iter()
+      .filter(|(_, s)| matches!(s, CoverState::Stale { .. }))
+      .map(|(u, _)| (self.last_used.get(u).copied().unwrap_or(0), u.clone()))
+      .collect();
+    let extra = self.images.len().saturating_sub(keep).min(stale.len());
+    stale.sort();
+    for (_, uri) in stale.into_iter().take(extra) {
+      self.covers.remove(&uri);
+      self.images.remove(&uri);
+      self.palettes.remove(&uri);
+      self.last_used.remove(&uri);
+    }
+  }
+
+  /// Caratulas guardadas en memoria.
+  pub fn in_memory(&self) -> usize {
+    self.images.len()
+  }
+
   /// Ids de imagen reservados por este cache (para borrarlos al salir).
   pub fn ids(&self) -> Vec<u32> {
     let mut ids: Vec<u32> = self

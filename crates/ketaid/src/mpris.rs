@@ -255,7 +255,43 @@ impl MprisService {
 }
 
 /// Estado del objeto D-Bus: la copia del reproductor y el canal al loop.
+/// Valores escritos por MPRIS que el daemon todavia no confirmo. Un estado
+/// que llega despues pero es de un cambio anterior (por ejemplo, el de un
+/// volumen escrito antes) no debe deshacerlos: `playerctl loop Playlist;
+/// playerctl loop` tiene que ver "Playlist". Se olvidan al confirmarse o a
+/// los 2 segundos (si el daemon lo rechazo, manda el estado real).
+#[derive(Default)]
+struct Pending {
+  repeat: Option<(String, Instant)>,
+  shuffle: Option<(bool, Instant)>,
+  volume: Option<(f64, Instant)>,
+  muted: Option<(bool, Instant)>,
+}
+
+const PENDING_FOR: Duration = Duration::from_secs(2);
+
+impl Pending {
+  /// Ajusta un estado recien llegado con lo escrito sin confirmar.
+  fn apply(&mut self, s: &mut Snapshot, now: Instant) {
+    fn keep<T: PartialEq + Clone>(slot: &mut Option<(T, Instant)>, field: &mut T, now: Instant) {
+      if let Some((v, at)) = slot.clone() {
+        if *field == v || now.duration_since(at) >= PENDING_FOR {
+          *slot = None;
+        } else {
+          *field = v;
+        }
+      }
+    }
+    keep(&mut self.repeat, &mut s.repeat, now);
+    keep(&mut self.shuffle, &mut s.shuffle, now);
+    keep(&mut self.volume, &mut s.volume, now);
+    keep(&mut self.muted, &mut s.muted, now);
+  }
+}
+
 struct Data {
+  /// Escrituras sin confirmar (ver `Pending`).
+  pending: Pending,
   /// Lo que responden las propiedades. Las escrituras lo actualizan al
   /// instante (para que una lectura inmediata vea el valor nuevo) hasta que
   /// llega el estado real del loop central.
@@ -303,7 +339,7 @@ fn run(updates: Receiver<Update>, tx: Sender<Message>, credit: Arc<Credit>) -> R
   let mut cr = Crossroads::new();
   let root = cr.register(ROOT, root_iface);
   let player = cr.register(PLAYER, player_iface);
-  cr.insert(OBJECT, &[root, player], Data { snapshot: Snapshot::default(), announced: Snapshot::default(), at: Instant::now(), tx, credit });
+  cr.insert(OBJECT, &[root, player], Data { pending: Pending::default(), snapshot: Snapshot::default(), announced: Snapshot::default(), at: Instant::now(), tx, credit });
   let cr = Rc::new(RefCell::new(cr));
 
   let handler = cr.clone();
@@ -328,7 +364,9 @@ fn run(updates: Receiver<Update>, tx: Sender<Message>, credit: Arc<Credit>) -> R
       let Some(data) = cr.data_mut::<Data>(&Path::from(OBJECT)) else { continue };
       let changes = update.snapshot.changes(&data.announced);
       data.announced = update.snapshot.clone();
-      data.snapshot = update.snapshot;
+      let mut snapshot = update.snapshot;
+      data.pending.apply(&mut snapshot, Instant::now());
+      data.snapshot = snapshot;
       data.at = Instant::now();
       if !changes.is_empty() {
         let msg = DbusMessage::new_signal(OBJECT, "org.freedesktop.DBus.Properties", "PropertiesChanged")
@@ -416,12 +454,14 @@ fn player_iface(b: &mut IfaceBuilder<Data>) {
       };
       d.send("player.set_repeat", json!({"repeat": repeat}));
       d.snapshot.repeat = repeat.to_string();
+      d.pending.repeat = Some((repeat.to_string(), Instant::now()));
       Ok(None)
     },
   );
   b.property("Shuffle").get(|_, d: &mut Data| Ok(d.snapshot.shuffle)).set(|_, d: &mut Data, v: bool| {
     d.send("player.set_shuffle", json!({"shuffle": v}));
     d.snapshot.shuffle = v;
+    d.pending.shuffle = Some((v, Instant::now()));
     Ok(None)
   });
   b.property("Volume").get(|_, d: &mut Data| Ok(d.snapshot.volume())).set(|_, d: &mut Data, v: f64| {
@@ -431,8 +471,10 @@ fn player_iface(b: &mut IfaceBuilder<Data>) {
     if d.snapshot.muted && v > 0.0 {
       d.send("player.set_muted", json!({"muted": false}));
       d.snapshot.muted = false;
+      d.pending.muted = Some((false, Instant::now()));
     }
     d.snapshot.volume = v;
+    d.pending.volume = Some((v, Instant::now()));
     Ok(None)
   });
   b.property("Metadata").get(|_, d: &mut Data| Ok(d.snapshot.metadata()));
@@ -446,4 +488,39 @@ fn player_iface(b: &mut IfaceBuilder<Data>) {
   b.property("CanPause").get(|_, d: &mut Data| Ok(d.snapshot.can_play));
   b.property("CanSeek").get(|_, d: &mut Data| Ok(d.snapshot.can_seek()));
   b.property("CanControl").emits_changed_const().get(|_, _| Ok(true));
+}
+
+#[cfg(test)]
+mod pending_tests {
+  use super::*;
+
+  fn snap(repeat: &str, shuffle: bool, volume: f64) -> Snapshot {
+    Snapshot { repeat: repeat.into(), shuffle, volume, ..Snapshot::default() }
+  }
+
+  #[test]
+  fn an_older_state_never_undoes_a_value_just_written() {
+    // Se escribio LoopStatus = Playlist; llega el estado de un cambio
+    // anterior (todavia con repeat "off"): la lectura sigue viendo "queue".
+    let mut p = Pending::default();
+    let now = Instant::now();
+    p.repeat = Some(("queue".into(), now));
+    p.volume = Some((0.5, now));
+    let mut s = snap("off", false, 0.5);
+    p.apply(&mut s, now);
+    assert_eq!(s.repeat, "queue");
+    // El volumen ya coincide: se confirma y se olvida.
+    assert!(p.volume.is_none());
+    // Llega el estado con el valor nuevo: se confirma.
+    let mut s = snap("queue", false, 0.5);
+    p.apply(&mut s, now);
+    assert!(p.repeat.is_none());
+    // Si el daemon nunca lo confirma (por ejemplo, lo rechazo), a los 2 s
+    // manda el estado real.
+    p.shuffle = Some((true, now));
+    let mut s = snap("queue", false, 0.5);
+    p.apply(&mut s, now + Duration::from_secs(3));
+    assert!(!s.shuffle);
+    assert!(p.shuffle.is_none());
+  }
 }

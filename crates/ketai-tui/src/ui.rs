@@ -466,10 +466,10 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   let fav = app.now_favorite == Some(true);
   let mine = vec![
     Span::styled(format!("{} Favorito ", if fav { I_HEART } else { I_HEART_EMPTY }), if fav { t.accent() } else { t.dim() }),
-    keycap("*"),
+    keycap(&key_label(app, crate::keys::Action::Favorite)),
     Span::raw("     "),
     Span::styled("+ Agregar a playlist ", t.dim()),
-    keycap("P"),
+    keycap(&key_label(app, crate::keys::Action::AddToPlaylist)),
   ];
   put_line(buf, x, y, &Line::from(mine), w);
   y += 2;
@@ -773,6 +773,11 @@ fn now_column(f: &mut RFrame, app: &App, area: Rect) {
     putn(buf, x, y + 10, track_title(next), w as usize, t.text());
     putn(buf, x, y + 11, next["artist"].as_str().unwrap_or(""), w as usize, t.faint());
   }
+}
+
+/// Primera tecla configurada para una accion (para mostrarla).
+fn key_label(app: &App, action: crate::keys::Action) -> String {
+  app.config.keys.keys(action).first().map(|k| k.label()).unwrap_or_else(|| "—".into())
 }
 
 /// Estado del reproductor activo, para todas las vistas: volumen, salida y

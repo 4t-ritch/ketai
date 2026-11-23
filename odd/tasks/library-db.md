@@ -32,7 +32,7 @@ Tests: `cargo test` (workspace).
 | T4 | S7, S9 | inline | hecho | ed883c5 (daemon library.groups/library.tracks) + commit TUI |
 | T5 | S2, S13 | inline | hecho | ver commit: dispositivo, favorito (*), agregar (P) con confirmacion 1009 |
 | T6 | S8 | inline | hecho | ver commit: cover_color true/false, paleta completa |
-| T7 | S6 | inline | pendiente | `[keys]` en config.toml, acciones con Ctrl+P |
+| T7 | S6 | inline | hecho | ver commit: [keys], Ctrl+P |
 | T8 | S5 | inline | pendiente | Mouse |
 | T9 | S10 | inline | pendiente | Texto largo con desplazamiento horizontal |
 | T10 | S11 | inline | hecho | ed15b40 |
@@ -60,4 +60,5 @@ Tests: `cargo test` (workspace).
 - L18 (2026-11-22) Usuario: "ketaid: audio output error, reopening: Buffer underrun/overrun occurred." y "solo reproduje la cancion de tokai teio". El aviso lo agrego 13a17c8: trataba un underrun como salida rota y reabria (corte mas largo). Ahora solo se reabre con DeviceNotAvailable, StreamInvalidated o errores del backend (`needs_reopen`, test). Underruns probablemente por el bloque de 1024 de f2ba363: se vuelve a 2048 (la salida igual solo esta abierta mientras suena). Intermitente visto una vez: ketaid/tests/mpris.rs `written_properties_read_back_immediately` (5 de 5 sola).
 - L19 (2026-11-22) T6: `[theme] cover_color`. true: toda la UI de la caratula (paleta ampliada: row, on_accent, dim, faint, spectrum_top), manuales ignorados; false: solo manuales ("cover" = defecto); sin clave: comportamiento anterior. Tests en tests/config.rs.
 - L20 (2026-11-22) Usuario: "debes revisar todas las vistas porque no en todas se esta respectando lo del color ... haz varias pasadas". Pasadas: (1) colores fijos en el codigo: fondo de popups `POPUP`, lineas de letra `UPCOMING`/`UPCOMING_SECONDARY`; (2) con `background`/`accent` "cover" sin `cover_color`, row/dim/faint/on_accent/spectrum_top quedaban por defecto (azulados); (3) mini, Buscar con resultados, Biblioteca por grupos, nombre nuevo, confirmacion, aviso; (4) `cover_color = false` con todos los colores manuales: nada toma la caratula. Test de barrido tests/palette_sync.rs: dibuja todas las pestanas y popups con caratula roja y revisa cada celda. ok/error quedan como colores de estado.
-- Siguiente paso: T7 (teclas en config.toml y Ctrl+P) (barra de Reproduciendo, agregar a playlist con confirmacion de repetidas, favorito); T11 espera la medicion del usuario.
+- L21 (2026-11-22) T7: modulo `keys` con 22 acciones globales, teclas por defecto, `[keys]` en config.toml (texto o lista, modificadores ctrl/alt/shift), errores y avisos (accion desconocida, tecla repetida), Ctrl+C siempre sale, en Buscar solo valen las teclas con Ctrl/Alt, Ctrl+P abre acciones. Reproduciendo muestra las teclas configuradas. Teclas de cada vista fijas por ahora.
+- Siguiente paso: T8 (mouse) (barra de Reproduciendo, agregar a playlist con confirmacion de repetidas, favorito); T11 espera la medicion del usuario.

@@ -33,6 +33,9 @@ Pestanas arriba, en todas las pantallas:
 
 ## Teclas
 
+Los atajos globales se pueden cambiar en `[keys]` de `config.toml` (ver
+`docs/config.md`); estos son los de por defecto.
+
 En cualquier pestana (salvo mientras se escribe en Buscar):
 
 | Tecla | Accion |
@@ -48,7 +51,7 @@ En cualquier pestana (salvo mientras se escribe en Buscar):
 | `*` | marcar o desmarcar como favorita la cancion que suena |
 | `P` | agregar la cancion que suena a una playlist |
 | `f` | carpetas de la biblioteca |
-| `/` o `Ctrl+K` | busqueda rapida sobre la pantalla actual |
+| `Ctrl+P`, `/` o `Ctrl+K` | acciones y busqueda rapida sobre la pantalla actual |
 | `q` | salir (`Ctrl+C` sale siempre) |
 
 Letras:

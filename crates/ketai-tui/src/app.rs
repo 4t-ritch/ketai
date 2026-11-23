@@ -385,31 +385,31 @@ impl App {
       return self.palette_key(key);
     }
     let typing = self.tab == Tab::Search && self.search_editing;
-    if key.code == KeyCode::Char('d') && !typing {
-      return self.open_devices();
-    }
-    if key.code == KeyCode::Char('*') && !typing {
-      return self.toggle_favorite();
-    }
-    if key.code == KeyCode::Char('P') && !typing && self.now_uri().is_some() {
-      self.add_open = true;
-      self.add_cursor = 0;
-      self.add_confirm = None;
-      if !self.playlists_loaded {
-        return vec![("playlist.list".into(), json!({}))];
+    use crate::keys::Action as A;
+    let action = self.config.keys.action(&key, typing);
+    // Popups y busqueda rapida: antes que las teclas de cada vista.
+    match action {
+      Some(A::Devices) => return self.open_devices(),
+      Some(A::Favorite) => return self.toggle_favorite(),
+      Some(A::AddToPlaylist) if self.now_uri().is_some() => {
+        self.add_open = true;
+        self.add_cursor = 0;
+        self.add_confirm = None;
+        if !self.playlists_loaded {
+          return vec![("playlist.list".into(), json!({}))];
+        }
+        return Vec::new();
       }
-      return Vec::new();
-    }
-    if key.code == KeyCode::Char('f') && !typing {
-      return self.open_folders();
-    }
-    let ctrl_k = key.code == KeyCode::Char('k') && key.modifiers.contains(KeyModifiers::CONTROL);
-    if ctrl_k || (key.code == KeyCode::Char('/') && self.tab != Tab::Search) {
-      self.palette_open = true;
-      self.palette_query.clear();
-      self.palette_results.clear();
-      self.palette_cursor = 0;
-      return Vec::new();
+      Some(A::Folders) => return self.open_folders(),
+      // En Buscar, "/" vuelve a escribir (lo maneja la vista).
+      Some(A::Actions) if !(self.tab == Tab::Search && key.code == KeyCode::Char('/')) => {
+        self.palette_open = true;
+        self.palette_query.clear();
+        self.palette_results.clear();
+        self.palette_cursor = 0;
+        return Vec::new();
+      }
+      _ => {}
     }
     if self.tab == Tab::Search
       && let Some(cmds) = self.search_key(key)
@@ -427,32 +427,35 @@ impl App {
       return cmds;
     }
     let cmd = |m: &str| vec![(m.to_string(), json!({}))];
-    match key.code {
-      KeyCode::Char('q') => self.quit = true,
-      KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
-      KeyCode::Char(c @ '1'..='4') => return self.go_to(Tab::ALL[c as usize - '1' as usize]),
-      KeyCode::Tab => return self.go_to(Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()]),
-      KeyCode::BackTab => return self.go_to(Tab::ALL[(self.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]),
-      KeyCode::Char(' ') => return cmd("player.toggle"),
-      KeyCode::Char('n') => return cmd("player.next"),
-      KeyCode::Char('p') => return cmd("player.previous"),
-      KeyCode::Right => return vec![("player.seek_relative".into(), json!({"offset_ms": 5000}))],
-      KeyCode::Left => return vec![("player.seek_relative".into(), json!({"offset_ms": -5000}))],
-      KeyCode::Char(c @ ('+' | '=' | '-')) => {
-        let step = if c == '-' { -0.05 } else { 0.05 };
-        let v = self.player["volume"].as_f64().unwrap_or(1.0) + step;
-        let v = (v.clamp(0.0, 1.0) * 100.0).round() / 100.0;
-        return vec![("player.set_volume".into(), json!({"volume": v}))];
-      }
-      KeyCode::Char('m') => {
+    let volume = |app: &App, step: f64| {
+      let v = app.player["volume"].as_f64().unwrap_or(1.0) + step;
+      let v = (v.clamp(0.0, 1.0) * 100.0).round() / 100.0;
+      vec![("player.set_volume".into(), json!({"volume": v}))]
+    };
+    match action {
+      Some(A::Quit) => self.quit = true,
+      Some(A::TabNowPlaying) => return self.go_to(Tab::NowPlaying),
+      Some(A::TabLyrics) => return self.go_to(Tab::Lyrics),
+      Some(A::TabLibrary) => return self.go_to(Tab::Library),
+      Some(A::TabSearch) => return self.go_to(Tab::Search),
+      Some(A::NextTab) => return self.go_to(Tab::ALL[(self.tab.index() + 1) % Tab::ALL.len()]),
+      Some(A::PrevTab) => return self.go_to(Tab::ALL[(self.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]),
+      Some(A::Toggle) => return cmd("player.toggle"),
+      Some(A::Next) => return cmd("player.next"),
+      Some(A::Previous) => return cmd("player.previous"),
+      Some(A::SeekForward) => return vec![("player.seek_relative".into(), json!({"offset_ms": 5000}))],
+      Some(A::SeekBack) => return vec![("player.seek_relative".into(), json!({"offset_ms": -5000}))],
+      Some(A::VolumeUp) => return volume(self, 0.05),
+      Some(A::VolumeDown) => return volume(self, -0.05),
+      Some(A::Mute) => {
         let muted = self.player["muted"].as_bool().unwrap_or(false);
         return vec![("player.set_muted".into(), json!({"muted": !muted}))];
       }
-      KeyCode::Char('s') => {
+      Some(A::Shuffle) => {
         let on = self.player["shuffle"].as_bool().unwrap_or(false);
         return vec![("player.set_shuffle".into(), json!({"shuffle": !on}))];
       }
-      KeyCode::Char('r') => {
+      Some(A::Repeat) => {
         let next = match self.player["repeat"].as_str() {
           Some("off") | None => "track",
           Some("track") => "queue",

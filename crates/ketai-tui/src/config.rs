@@ -34,13 +34,18 @@ pub struct ThemeConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
   pub theme: ThemeConfig,
+  /// Atajos globales (`[keys]`).
+  pub keys: crate::keys::Keymap,
   /// Claves que no se reconocen (no frenan la carga).
   pub warnings: Vec<String>,
 }
 
 impl Default for Config {
   fn default() -> Self {
-    Self { theme: ThemeConfig { cover_color: None, background: Color::Cover, accent: Color::Cover, fixed: Vec::new() }, warnings: Vec::new() }
+    Self { theme: ThemeConfig { cover_color: None, background: Color::Cover, accent: Color::Cover, fixed: Vec::new() },
+      keys: crate::keys::Keymap::default(),
+      warnings: Vec::new(),
+    }
   }
 }
 
@@ -94,6 +99,29 @@ impl Config {
               },
             }
           }
+        }
+        "keys" => {
+          let keys = value.as_table().ok_or("keys: tiene que ser una sección [keys]")?;
+          for (k, v) in keys {
+            let name = format!("keys.{k}");
+            let Some(action) = crate::keys::action_named(k) else {
+              config.warnings.push(format!("{name}: acción desconocida, se ignora"));
+              continue;
+            };
+            let specs: Vec<&str> = match v {
+              toml::Value::String(s) => vec![s.as_str()],
+              toml::Value::Array(a) => {
+                a.iter().map(|x| x.as_str().ok_or_else(|| format!("{name}: la lista tiene que ser de textos"))).collect::<Result<_, _>>()?
+              }
+              _ => return Err(format!("{name}: tiene que ser una tecla como \"ctrl+p\" o una lista")),
+            };
+            let mut parsed = Vec::new();
+            for spec in specs {
+              parsed.push(crate::keys::Key::parse(spec).ok_or_else(|| format!("{name}: tecla inválida \"{spec}\""))?);
+            }
+            config.keys.set(action, parsed);
+          }
+          config.warnings.extend(config.keys.conflicts());
         }
         // La lee el daemon (carpeta de playlists).
         "playlists" => {}

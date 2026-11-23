@@ -5,6 +5,7 @@ pub mod app;
 pub mod client;
 pub mod config;
 pub mod covers;
+pub mod keys;
 pub mod kitty;
 pub mod service;
 pub mod theme;

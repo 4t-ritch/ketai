@@ -22,6 +22,13 @@ accent = "cover"
 # error = "#ff7b8a"
 # spectrum_top = "#ff7ab6"
 
+[keys]
+# Atajos globales: una tecla o una lista. Lo que no se pone queda por defecto.
+# Ver docs/config.md para la lista de acciones.
+# actions = "ctrl+p"
+# toggle = "space"
+# next = ["n", "ctrl+right"]
+
 [playlists]
 # Carpeta de las playlists (.m3u8). Por defecto XDG_MUSIC_DIR/playlists
 # (~/music/playlists). Se crea si no existe.

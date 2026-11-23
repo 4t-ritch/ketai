@@ -36,7 +36,7 @@ Tests: `cargo test` (workspace).
 | T8 | S5 | inline | pendiente | Mouse |
 | T9 | S10 | inline | pendiente | Texto largo con desplazamiento horizontal |
 | T10 | S11 | inline | hecho | ed15b40 |
-| T11 | S12, S14 | inline | hecho (falta ver en el sistema real) | ver L12 |
+| T11 | S12, S14 | inline | hecho | f2ba363; el corte restante es del Bluetooth (L13) |
 
 ## Log
 
@@ -52,4 +52,5 @@ Tests: `cargo test` (workspace).
 - L10 (2026-11-22) Usuario: "la idea es que el scan realice el guardado de todos los datos en la db, no importa que" y acepto guardar por tandas. Hecho: tandas de 200 (`Job::Batch`), al final se borra lo que no aparecio. RED: corte con SIGKILL a mitad de 3000 archivos dejaba 0 pistas.
 - L11 (2026-11-22) T4: daemon `library.groups` y `library.tracks` (columna `folder`, migracion 4); TUI con vistas h/l, columna de grupos y tabla en columnas compartida con la playlist. Respuestas viejas de otro grupo se descartan (contador de pedidos en vuelo). Una corrida completa de la suite fallo una vez en `orphan_of_same_session_is_closed` (ketaid/tests/instance.rs:172, el huerfano no se cerro en 10 s); paso 5 de 5 sola y 3 de 3 completa: intermitente, a vigilar.
 - L12 (2026-11-22) S14, evidencia: PipeWire con `clock.quantum 1024`, pero con ketaid abierto el driver Bluetooth corria a QUANT 2048 y el stream `alsa_playback.ketaid` (2048/44100) figuraba activo sin sonar. ketaid abria la salida al restaurar la sesion en pausa y la dejaba abierta siempre; cada aparicion del stream reacomoda el grafo de PipeWire (corte en otros programas). Arreglo: la salida se abre recien al reproducir, se cierra tras 15 s en pausa o detenido (reanuda donde estaba) y pide bloques de 1024 (antes 2048). Tests del motor con salida nula. Falta verlo en el sistema real.
+- L13 (2026-11-22) Usuario: "si tambien se corta, con esa prueba que me acabas de dar tambien pasa que se entrecorta el audio". Medicion con pw-top al dar play: ketai a 1024, ERR 0; ketai sale por un Bluetooth (Hisense, 96 kHz) y Brave por otro Bluetooth, cuyo driver queda un instante en QUANT 0. Con mpv al mismo dispositivo pasa igual: es la radio Bluetooth compartida entre dos dispositivos, no ketai. Mitigacion del lado del usuario: codec mas liviano (SBC/AAC) o un solo dispositivo.
 - Siguiente paso: T5 (barra de Reproduciendo, agregar a playlist con confirmacion de repetidas, favorito); T11 espera la medicion del usuario.

@@ -596,7 +596,11 @@ fn playlists_column(buf: &mut Buffer, app: &App, area: Rect) -> Vec<(Rect, Optio
   let t = &app.theme;
   let x = area.x + 2;
   put(buf, x, area.y, format!("{I_LIBRARY}  Tu biblioteca"), t.title());
-  put(buf, x, area.y + 2, " Playlists ", Style::new().fg(t.on_accent).bg(t.accent));
+  if app.tab == Tab::Library {
+    view_chips(buf, app, x, area.y + 2, area.width.saturating_sub(2));
+  } else {
+    put(buf, x, area.y + 2, " Playlists ", Style::new().fg(t.on_accent).bg(t.accent));
+  }
   let mut slots = Vec::new();
   let focused = app.lib_focus == crate::app::LibFocus::Playlists && app.tab == Tab::Library;
   for (i, p) in app.playlists.iter().enumerate() {
@@ -681,11 +685,150 @@ fn fmt_total(ms: u64) -> String {
   if min >= 60 { format!("{} h {} min", min / 60, min % 60) } else { format!("{min} min") }
 }
 
+/// Vistas de Biblioteca como pestanas chicas (h / l). Si no entran todas,
+/// se muestran las que rodean a la elegida.
+fn view_chips(buf: &mut Buffer, app: &App, x: u16, y: u16, w: u16) {
+  let t = &app.theme;
+  let views = crate::app::LibView::ALL;
+  let at = views.iter().position(|v| *v == app.lib_view).unwrap_or(0);
+  let mut first = 0;
+  let width = |from: usize, to: usize| views[from..=to].iter().map(|v| v.label().chars().count() as u16 + 3).sum::<u16>();
+  while first < at && width(first, at) > w {
+    first += 1;
+  }
+  let mut cx = x;
+  for v in &views[first..] {
+    let label = format!(" {} ", v.label());
+    let lw = label.chars().count() as u16;
+    if cx + lw > x + w {
+      break;
+    }
+    let style = if *v == app.lib_view { Style::new().fg(t.on_accent).bg(t.accent) } else { t.dim() };
+    put(buf, cx, y, &label, style);
+    cx += lw + 1;
+  }
+}
+
+/// Columna de grupos (artistas, albumes, carpetas, anos, generos).
+fn groups_column(buf: &mut Buffer, app: &App, area: Rect) {
+  let t = &app.theme;
+  let x = area.x + 2;
+  put(buf, x, area.y, format!("{I_LIBRARY}  Tu biblioteca"), t.title());
+  view_chips(buf, app, x, area.y + 2, area.width.saturating_sub(2));
+  let focused = app.lib_focus == crate::app::LibFocus::Playlists;
+  if app.lib_view == crate::app::LibView::All {
+    put(buf, x, area.y + 4, format!("{} canciones", app.lib_total), t.dim());
+    return;
+  }
+  let rows = area.height.saturating_sub(4) / 2;
+  let first = app.lib_cursor.saturating_sub((rows as usize).saturating_sub(1));
+  for (slot, i) in (first..app.lib_groups.len()).take(rows as usize).enumerate() {
+    let g = &app.lib_groups[i];
+    let y = area.y + 4 + slot as u16 * 2;
+    if i == app.lib_cursor {
+      buf.set_style(Rect::new(area.x, y, area.width, 2), Style::new().bg(t.row));
+      if focused {
+        put(buf, area.x, y, "▌", t.accent());
+        put(buf, area.x, y + 1, "▌", t.accent());
+      }
+    }
+    let name = g["name"].as_str().map(|n| {
+      // Las carpetas se muestran por su ultimo tramo.
+      if app.lib_view == crate::app::LibView::Folders { n.rsplit('/').next().unwrap_or(n).to_string() } else { n.to_string() }
+    });
+    let w = area.width.saturating_sub(3) as usize;
+    match name {
+      Some(n) => putn(buf, x, y, n, w, t.text()),
+      None => putn(buf, x, y, "Sin dato", w, t.faint()),
+    }
+    let count = g["count"].as_u64().unwrap_or(0);
+    put(buf, x, y + 1, format!("{count} {}", if count == 1 { "canción" } else { "canciones" }), t.faint());
+  }
+}
+
+/// Tabla de canciones en columnas, como en Spotify: #, titulo y artista,
+/// album, ano y duracion. Devuelve los lugares de las caratulas.
+fn track_table(buf: &mut Buffer, app: &App, area: Rect, rows_src: &[serde_json::Value]) -> Vec<(Rect, Option<String>)> {
+  let t = &app.theme;
+  let wide = area.width >= 70;
+  let dur_x = area.x + area.width.saturating_sub(6);
+  let year_x = if wide { dur_x.saturating_sub(7) } else { dur_x };
+  let album_x = area.x + area.width * 55 / 100;
+  let cols = [area.x + 1, area.x + 5, album_x, year_x, dur_x];
+  let mut heads = vec![(cols[0], "#"), (cols[1], "TÍTULO"), (cols[2], "ÁLBUM")];
+  if wide {
+    heads.push((cols[3], "AÑO"));
+  }
+  heads.push((cols[4], I_CLOCK));
+  for (cx, h) in heads {
+    put(buf, cx, area.y, h, t.faint());
+  }
+  let playing_uri = app.player["track"]["uri"].as_str();
+  let rows = (area.height.saturating_sub(2) / 3) as usize;
+  let first = app.track_cursor.saturating_sub(rows.saturating_sub(1));
+  let mut slots = Vec::new();
+  let focus = app.lib_focus == crate::app::LibFocus::Tracks;
+  for (slot, i) in (first..rows_src.len()).take(rows).enumerate() {
+    let tr = &rows_src[i];
+    let ry = area.y + 2 + slot as u16 * 3;
+    let playing = playing_uri.is_some() && tr["uri"].as_str() == playing_uri;
+    if focus && i == app.track_cursor {
+      buf.set_style(Rect::new(area.x, ry, area.width, 2), Style::new().bg(t.row));
+      put(buf, area.x, ry, "▌", t.accent());
+      put(buf, area.x, ry + 1, "▌", t.accent());
+    }
+    put(buf, cols[0], ry, if playing { "▶".to_string() } else { (i + 1).to_string() }, if playing { t.accent() } else { t.faint() });
+    slots.push((Rect::new(cols[1], ry, 4, 2), tr["uri"].as_str().map(str::to_string)));
+    let tw = cols[2].saturating_sub(cols[1] + 7) as usize;
+    putn(buf, cols[1] + 6, ry, track_title(tr), tw, if playing { t.accent().add_modifier(Modifier::BOLD) } else { t.text() });
+    putn(buf, cols[1] + 6, ry + 1, tr["artist"].as_str().unwrap_or(""), tw, t.faint());
+    putn(buf, cols[2], ry, tr["album"].as_str().unwrap_or(""), cols[3].saturating_sub(cols[2] + 2) as usize, t.dim());
+    if wide && let Some(y) = tr["year"].as_u64() {
+      put(buf, cols[3], ry, y.to_string(), t.faint());
+    }
+    put(buf, cols[4], ry, tr["duration_ms"].as_u64().map(fmt_ms).unwrap_or_default(), t.faint());
+  }
+  slots
+}
+
+/// Biblioteca en las vistas de canciones y grupos.
+fn library_browse(f: &mut RFrame, app: &App, body: Rect) {
+  let t = &app.theme;
+  let side_w = if body.width < 130 { (body.width / 3).clamp(18, 34) } else { 34 };
+  groups_column(f.buffer_mut(), app, Rect::new(body.x, body.y, side_w, body.height));
+  let center = Rect::new(body.x + side_w + 3, body.y, body.width.saturating_sub(side_w + 4), body.height);
+  let buf = f.buffer_mut();
+  let title = match app.lib_view {
+    crate::app::LibView::All => "Todas las canciones".to_string(),
+    _ => app
+      .lib_groups
+      .get(app.lib_cursor)
+      .map(|g| g["name"].as_str().map(str::to_string).unwrap_or_else(|| "Sin dato".into()))
+      .unwrap_or_default(),
+  };
+  putn(buf, center.x, center.y + 1, &title, center.width as usize, t.title());
+  put(buf, center.x, center.y + 2, "▔".repeat(title.chars().count().min(center.width as usize)), t.accent());
+  let n = app.lib_total;
+  let total: u64 = app.lib_tracks.iter().filter_map(|t| t["duration_ms"].as_u64()).sum();
+  put(buf, center.x, center.y + 3, format!("{n} {} · {}", if n == 1 { "canción" } else { "canciones" }, fmt_total(total)), t.dim());
+  putn(buf, center.x, center.y + 4, "⏎ reproducir · a a la cola · h/l vista · esc volver", center.width as usize, t.faint());
+  let table = Rect::new(center.x, center.y + 6, center.width, center.height.saturating_sub(6));
+  let slots = track_table(buf, app, table, &app.lib_tracks);
+  for (s, uri) in slots {
+    draw_cover(f, app, s, uri.as_deref());
+  }
+}
+
 /// Biblioteca: playlists, la playlist abierta y lo que suena (maqueta
 /// 4-biblioteca-playlist).
 fn library(f: &mut RFrame, app: &App, area: Rect) {
   let t = &app.theme;
   let body = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(6));
+  if app.lib_view != crate::app::LibView::Playlists {
+    library_browse(f, app, body);
+    player_bar(f, app, Rect::new(area.x, area.y + area.height - 4, area.width, 3));
+    return;
+  }
   // En paneles angostos (4:3) la columna de lo que suena se oculta (ya esta
   // la barra de abajo) y la de playlists se achica.
   let side_w = if body.width < 130 { (body.width / 3).clamp(18, 34) } else { 34 };
@@ -729,33 +872,9 @@ fn library(f: &mut RFrame, app: &App, area: Rect) {
   put(buf, center.x, y, format!("  {I_PLAY}  "), Style::new().fg(t.on_accent).bg(t.accent).add_modifier(Modifier::BOLD));
   putn(buf, center.x + 9, y, "⏎ reproducir · a a la cola · esc volver", center.width.saturating_sub(9) as usize, t.faint());
 
-  let cols = [center.x + 1, center.x + 5, center.x + center.width * 58 / 100, center.x + center.width.saturating_sub(6)];
   let hy = y + if short { 2 } else { 3 };
-  for (cx, h) in cols.iter().zip(["#", "TÍTULO", "ÁLBUM", I_CLOCK]) {
-    put(buf, *cx, hy, h, t.faint());
-  }
-  let playing_uri = app.player["track"]["uri"].as_str();
-  let rows = ((center.y + center.height).saturating_sub(hy + 2) / 3) as usize;
-  let first = app.track_cursor.saturating_sub(rows.saturating_sub(1));
-  let mut cover_slots = Vec::new();
-  let tracks_focus = app.lib_focus == crate::app::LibFocus::Tracks;
-  for (slot, i) in (first..tracks.len()).take(rows).enumerate() {
-    let tr = &tracks[i];
-    let ry = hy + 2 + slot as u16 * 3;
-    let playing = playing_uri.is_some() && tr["uri"].as_str() == playing_uri;
-    if tracks_focus && i == app.track_cursor {
-      buf.set_style(Rect::new(center.x, ry, center.width, 2), Style::new().bg(t.row));
-      put(buf, center.x, ry, "▌", t.accent());
-      put(buf, center.x, ry + 1, "▌", t.accent());
-    }
-    put(buf, cols[0], ry, if playing { "▶".to_string() } else { (i + 1).to_string() }, if playing { t.accent() } else { t.faint() });
-    cover_slots.push((Rect::new(cols[1], ry, 4, 2), tr["uri"].as_str().map(str::to_string)));
-    let tw = cols[2].saturating_sub(cols[1] + 7) as usize;
-    putn(buf, cols[1] + 6, ry, track_title(tr), tw, if playing { t.accent().add_modifier(Modifier::BOLD) } else { t.text() });
-    putn(buf, cols[1] + 6, ry + 1, tr["artist"].as_str().unwrap_or(""), tw, t.faint());
-    putn(buf, cols[2], ry, tr["album"].as_str().unwrap_or(""), cols[3].saturating_sub(cols[2] + 2) as usize, t.dim());
-    put(buf, cols[3], ry, tr["duration_ms"].as_u64().map(fmt_ms).unwrap_or_default(), t.faint());
-  }
+  let tracks_src = app.lib_rows().to_vec();
+  let cover_slots = track_table(buf, app, Rect::new(center.x, hy, center.width, (center.y + center.height).saturating_sub(hy)), &tracks_src);
   for (s, uri) in cover_slots {
     draw_cover(f, app, s, uri.as_deref());
   }

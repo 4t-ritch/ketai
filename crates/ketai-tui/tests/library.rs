@@ -124,3 +124,68 @@ fn a_4_3_pane_shows_the_playlist_and_a_bar_that_does_not_overlap() {
     assert!(title_end.is_none_or(|e| e <= shuffle), "{w}x{h}: {bar}");
   }
 }
+
+fn songs() -> Value {
+  json!({"total": 2, "tracks": [
+    {"id": null, "uri": "file:///m/a.ogg", "title": "Magnetic", "artist": "ILLIT", "album": "SUPER REAL ME", "year": 2024, "genre": "K-Pop", "duration_ms": 160000},
+    {"id": null, "uri": "file:///m/b.ogg", "title": "Sugarcoat", "artist": "KISS OF LIFE", "album": "KISS OF LIFE", "year": 2023, "genre": "K-Pop", "duration_ms": 179000}
+  ]})
+}
+
+#[test]
+fn h_and_l_switch_between_playlists_all_songs_and_groups() {
+  let mut app = library_app();
+  // Todas las canciones.
+  assert_eq!(app.on_key(key(KeyCode::Char('l'))), vec![("library.tracks".to_string(), json!({"limit": 5000}))]);
+  reply(&mut app, "library.tracks", songs());
+  let t = text(&app);
+  for want in ["Canciones", "TÍTULO", "ÁLBUM", "AÑO", "Magnetic", "ILLIT", "SUPER REAL ME", "2024", "2:40", "2 canciones"] {
+    assert!(t.contains(want), "missing {want:?}\n{t}");
+  }
+  // Reproducir desde una cancion: la lista entera pasa a la cola.
+  app.on_key(key(KeyCode::Enter));
+  assert_eq!(app.lib_focus, LibFocus::Tracks);
+  app.on_key(key(KeyCode::Down));
+  assert_eq!(
+    app.on_key(key(KeyCode::Enter)),
+    vec![
+      ("queue.clear".to_string(), json!({})),
+      ("queue.add".to_string(), json!({"uris": ["file:///m/a.ogg", "file:///m/b.ogg"]})),
+      ("queue.jump".to_string(), json!({"index": 1}))
+    ]
+  );
+  assert_eq!(app.on_key(key(KeyCode::Char('a'))), vec![("queue.add".to_string(), json!({"uris": ["file:///m/b.ogg"]}))]);
+  app.on_key(key(KeyCode::Esc));
+  // Artistas: la lista de grupos y las canciones del primero.
+  assert_eq!(app.on_key(key(KeyCode::Char('l'))), vec![("library.groups".to_string(), json!({"by": "artist"}))]);
+  let cmds = reply(&mut app, "library.groups", json!({"groups": [{"name": null, "count": 3}, {"name": "ILLIT", "count": 1}]}));
+  assert_eq!(cmds, vec![("library.tracks".to_string(), json!({"by": "artist", "name": null, "limit": 5000}))]);
+  assert_eq!(app.on_key(key(KeyCode::Down)), vec![("library.tracks".to_string(), json!({"by": "artist", "name": "ILLIT", "limit": 5000}))]);
+  let t = text(&app);
+  for want in ["Artistas", "Sin dato", "ILLIT", "1 canción"] {
+    assert!(t.contains(want), "missing {want:?}\n{t}");
+  }
+  // Siguen album, carpeta, ano y genero; despues vuelve a playlists.
+  for by in ["album", "folder", "year", "genre"] {
+    assert_eq!(app.on_key(key(KeyCode::Char('l'))), vec![("library.groups".to_string(), json!({"by": by}))]);
+  }
+  assert_eq!(app.on_key(key(KeyCode::Char('l'))), vec![("playlist.list".to_string(), json!({}))]);
+  assert_eq!(app.on_key(key(KeyCode::Char('h'))), vec![("library.groups".to_string(), json!({"by": "genre"}))]);
+}
+
+#[test]
+fn an_old_reply_for_another_group_is_ignored() {
+  let mut app = library_app();
+  app.on_key(key(KeyCode::Char('l')));
+  app.on_key(key(KeyCode::Char('l')));
+  reply(&mut app, "library.groups", json!({"groups": [{"name": "A", "count": 1}, {"name": "B", "count": 1}]}));
+  // Se pidieron A y B; llega A cuando ya esta B elegido.
+  app.on_key(key(KeyCode::Down));
+  let id = 900;
+  app.sent(id, "library.tracks");
+  app.sent(id + 1, "library.tracks");
+  app.on_daemon(DaemonMsg::Reply { id, result: Ok(json!({"total": 1, "tracks": [{"title": "from A"}]})) });
+  assert!(!text(&app).contains("from A"));
+  app.on_daemon(DaemonMsg::Reply { id: id + 1, result: Ok(json!({"total": 1, "tracks": [{"title": "from B"}]})) });
+  assert!(text(&app).contains("from B"));
+}

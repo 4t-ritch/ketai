@@ -26,7 +26,7 @@ Pestanas arriba, en todas las pantallas:
 |---|---|
 | `1` | Reproduciendo: caratula, progreso, controles, letra, siguiente y espectro |
 | `2` | Letras: linea actual con la palabra que suena, traducciones debajo |
-| `3` | Biblioteca: playlists y la playlist abierta |
+| `3` | Biblioteca: playlists, todas las canciones, o por artista, album, carpeta, ano o genero |
 | `4` | Buscar: busqueda en la biblioteca local |
 
 `Tab` y `Shift+Tab` pasan a la pestana siguiente o anterior.
@@ -65,7 +65,13 @@ Biblioteca:
 | flechas arriba y abajo, o `k` `j` | mover |
 | `Enter` | abrir la playlist; sobre una cancion, reproducir la playlist desde ahi |
 | `a` | agregar la cancion a la cola |
-| `Esc` | volver a la lista de playlists |
+| `Esc` | volver a la lista de la izquierda |
+| `h` / `l` | vista anterior / siguiente: Playlists, Canciones, Artistas, Albumes, Carpetas, Anos, Generos |
+
+En Canciones y en los grupos, la lista va en columnas (numero, titulo y
+artista, album, ano y duracion). `Enter` sobre una cancion pone en la cola
+toda la lista que se ve y empieza desde esa. Las canciones sin el dato del
+grupo (por ejemplo sin genero) quedan en "Sin dato".
 
 Buscar: al entrar se escribe directo. `Esc` o la flecha abajo pasan a los resultados,
 `/` vuelve a escribir. En los resultados: `Enter` reproduce, `a` agrega a la

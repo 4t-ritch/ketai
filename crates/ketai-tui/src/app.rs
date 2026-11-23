@@ -44,6 +44,51 @@ pub enum LibFocus {
   Tracks,
 }
 
+/// Vista de Biblioteca: playlists, todas las canciones o agrupadas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LibView {
+  #[default]
+  Playlists,
+  All,
+  Artists,
+  Albums,
+  Folders,
+  Years,
+  Genres,
+}
+
+impl LibView {
+  pub const ALL: [LibView; 7] =
+    [LibView::Playlists, LibView::All, LibView::Artists, LibView::Albums, LibView::Folders, LibView::Years, LibView::Genres];
+
+  pub fn label(self) -> &'static str {
+    match self {
+      LibView::Playlists => "Playlists",
+      LibView::All => "Canciones",
+      LibView::Artists => "Artistas",
+      LibView::Albums => "Álbumes",
+      LibView::Folders => "Carpetas",
+      LibView::Years => "Años",
+      LibView::Genres => "Géneros",
+    }
+  }
+
+  /// `by` de `library.groups` / `library.tracks`.
+  pub fn by(self) -> Option<&'static str> {
+    match self {
+      LibView::Artists => Some("artist"),
+      LibView::Albums => Some("album"),
+      LibView::Folders => Some("folder"),
+      LibView::Years => Some("year"),
+      LibView::Genres => Some("genre"),
+      _ => None,
+    }
+  }
+}
+
+/// Pistas por pedido en las vistas de biblioteca.
+pub const LIB_LIMIT: u64 = 5000;
+
 /// Pantalla principal o la de servicio (cuando no hay daemon).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
@@ -101,6 +146,15 @@ pub struct App {
   pub lib_open: Option<String>,
   /// Resultado de `playlist.get`.
   pub playlist: Value,
+  pub lib_view: LibView,
+  /// Grupos de la vista (`library.groups`).
+  pub lib_groups: Vec<Value>,
+  /// Pistas de la vista o del grupo elegido (`library.tracks`).
+  pub lib_tracks: Vec<Value>,
+  pub lib_total: u64,
+  /// Pedidos en vuelo: solo cuenta la respuesta del ultimo.
+  pub lib_groups_inflight: u32,
+  pub lib_tracks_inflight: u32,
   pub track_cursor: usize,
   /// Texto de la pestana Buscar.
   pub search_query: String,
@@ -226,6 +280,12 @@ impl Default for App {
       lib_cursor: 0,
       lib_focus: LibFocus::Playlists,
       lib_open: None,
+      lib_view: LibView::Playlists,
+      lib_groups: Vec::new(),
+      lib_tracks: Vec::new(),
+      lib_total: 0,
+      lib_groups_inflight: 0,
+      lib_tracks_inflight: 0,
       playlist: Value::Null,
       track_cursor: 0,
       search_query: String::new(),
@@ -757,25 +817,72 @@ impl App {
     vec![("playlist.get".into(), json!({"name": name}))]
   }
 
+  /// Pistas que muestra Biblioteca: las de la playlist abierta o las de la
+  /// vista.
+  pub fn lib_rows(&self) -> &[Value] {
+    if self.lib_view == LibView::Playlists {
+      self.playlist["tracks"].as_array().map(Vec::as_slice).unwrap_or(&[])
+    } else {
+      &self.lib_tracks
+    }
+  }
+
+  /// Cambia de vista y pide lo que necesita.
+  fn set_lib_view(&mut self, view: LibView) -> Vec<Command> {
+    self.lib_view = view;
+    self.lib_cursor = 0;
+    self.track_cursor = 0;
+    self.lib_focus = LibFocus::Playlists;
+    self.lib_groups.clear();
+    self.lib_tracks.clear();
+    self.lib_total = 0;
+    match view {
+      LibView::Playlists => {
+        self.lib_open = None;
+        vec![("playlist.list".into(), json!({}))]
+      }
+      LibView::All => vec![("library.tracks".into(), json!({"limit": LIB_LIMIT}))],
+      _ => vec![("library.groups".into(), json!({"by": view.by()}))],
+    }
+  }
+
+  /// Pide las pistas del grupo elegido.
+  fn open_group(&mut self) -> Vec<Command> {
+    let (Some(by), Some(group)) = (self.lib_view.by(), self.lib_groups.get(self.lib_cursor)) else { return Vec::new() };
+    self.track_cursor = 0;
+    vec![("library.tracks".into(), json!({"by": by, "name": group["name"], "limit": LIB_LIMIT}))]
+  }
+
   /// Teclas de Biblioteca. `None` si la tecla no es suya.
   fn library_key(&mut self, key: KeyEvent) -> Option<Vec<Command>> {
     let up = matches!(key.code, KeyCode::Up | KeyCode::Char('k'));
     let down = matches!(key.code, KeyCode::Down | KeyCode::Char('j'));
+    // h / l: vista anterior o siguiente.
+    if let KeyCode::Char(c @ ('h' | 'l')) = key.code {
+      let views = LibView::ALL;
+      let at = views.iter().position(|v| *v == self.lib_view).unwrap_or(0);
+      let next = if c == 'l' { (at + 1) % views.len() } else { (at + views.len() - 1) % views.len() };
+      return Some(self.set_lib_view(views[next]));
+    }
     match self.lib_focus {
       LibFocus::Playlists => {
-        if up || down {
-          let max = self.playlists.len().saturating_sub(1);
-          self.lib_cursor = if up { self.lib_cursor.saturating_sub(1) } else { (self.lib_cursor + 1).min(max) };
-          return Some(self.open_selected());
+        let side = match self.lib_view {
+          LibView::Playlists => self.playlists.len(),
+          LibView::All => 0,
+          _ => self.lib_groups.len(),
+        };
+        if (up || down) && side > 0 {
+          self.lib_cursor = if up { self.lib_cursor.saturating_sub(1) } else { (self.lib_cursor + 1).min(side - 1) };
+          return Some(if self.lib_view == LibView::Playlists { self.open_selected() } else { self.open_group() });
         }
-        if key.code == KeyCode::Enter && !self.playlists.is_empty() {
+        if key.code == KeyCode::Enter && !self.lib_rows().is_empty() {
           self.lib_focus = LibFocus::Tracks;
           return Some(Vec::new());
         }
         None
       }
       LibFocus::Tracks => {
-        let tracks = self.playlist["tracks"].as_array().map(|t| t.len()).unwrap_or(0);
+        let tracks = self.lib_rows().len();
         if up || down {
           self.track_cursor = if up { self.track_cursor.saturating_sub(1) } else { (self.track_cursor + 1).min(tracks.saturating_sub(1)) };
           return Some(Vec::new());
@@ -785,15 +892,24 @@ impl App {
             self.lib_focus = LibFocus::Playlists;
             Some(Vec::new())
           }
-          KeyCode::Enter if tracks > 0 => {
+          KeyCode::Enter if tracks > 0 && self.lib_view == LibView::Playlists => {
             let name = self.lib_open.clone()?;
             Some(vec![
               ("playlist.load".into(), json!({"name": name, "replace": true})),
               ("queue.jump".into(), json!({"index": self.track_cursor})),
             ])
           }
+          // La lista entera pasa a la cola, desde la cancion elegida.
+          KeyCode::Enter if tracks > 0 => {
+            let uris: Vec<Value> = self.lib_tracks.iter().map(|t| t["uri"].clone()).collect();
+            Some(vec![
+              ("queue.clear".into(), json!({})),
+              ("queue.add".into(), json!({"uris": uris})),
+              ("queue.jump".into(), json!({"index": self.track_cursor})),
+            ])
+          }
           KeyCode::Char('a') => {
-            let uri = self.playlist["tracks"][self.track_cursor]["uri"].as_str()?.to_string();
+            let uri = self.lib_rows().get(self.track_cursor)?["uri"].as_str()?.to_string();
             Some(vec![("queue.add".into(), json!({"uris": [uri]}))])
           }
           _ => None,
@@ -850,6 +966,11 @@ impl App {
 
   /// Se envio la peticion `id`: su respuesta se reconoce por el metodo.
   pub fn sent(&mut self, id: u64, method: &str) {
+    match method {
+      "library.groups" => self.lib_groups_inflight += 1,
+      "library.tracks" => self.lib_tracks_inflight += 1,
+      _ => {}
+    }
     self.pending.insert(id, method.to_string());
   }
 
@@ -912,6 +1033,19 @@ impl App {
       },
       DaemonMsg::Reply { id, result } => {
         let method = self.pending.remove(&id).unwrap_or_default();
+        // Solo la ultima respuesta de cada vista cuenta: una vieja (de otro
+        // grupo) se descarta.
+        let latest = match method.as_str() {
+          "library.groups" => {
+            self.lib_groups_inflight = self.lib_groups_inflight.saturating_sub(1);
+            self.lib_groups_inflight == 0
+          }
+          "library.tracks" => {
+            self.lib_tracks_inflight = self.lib_tracks_inflight.saturating_sub(1);
+            self.lib_tracks_inflight == 0
+          }
+          _ => true,
+        };
         // Una letra que no se puede leer (1006) se muestra como sin letra.
         if method == "lyrics.get" && result.is_err() {
           self.lyrics = Value::Null;
@@ -975,8 +1109,21 @@ impl App {
             "playlist.list" => {
               self.playlists = v["playlists"].as_array().cloned().unwrap_or_default();
               self.playlists_loaded = true;
-              self.lib_cursor = self.lib_cursor.min(self.playlists.len().saturating_sub(1));
-              return self.open_selected();
+              // En otras vistas el cursor es de los grupos.
+              if self.lib_view == LibView::Playlists {
+                self.lib_cursor = self.lib_cursor.min(self.playlists.len().saturating_sub(1));
+                return self.open_selected();
+              }
+            }
+            "library.groups" if latest => {
+              self.lib_groups = v["groups"].as_array().cloned().unwrap_or_default();
+              self.lib_cursor = self.lib_cursor.min(self.lib_groups.len().saturating_sub(1));
+              return self.open_group();
+            }
+            "library.tracks" if latest => {
+              self.lib_tracks = v["tracks"].as_array().cloned().unwrap_or_default();
+              self.lib_total = v["total"].as_u64().unwrap_or(self.lib_tracks.len() as u64);
+              self.track_cursor = self.track_cursor.min(self.lib_tracks.len().saturating_sub(1));
             }
             // Solo cuenta la respuesta de la playlist que sigue abierta.
             "playlist.get" if v["name"].as_str() == self.lib_open.as_deref() => {

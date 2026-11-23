@@ -28,7 +28,7 @@ Tests: `cargo test` (workspace).
 | T1b | S1 | inline | hecho (falta ver en herdr) | redimensionar y layout 4:3 |
 | T2 | S3, S4, S7 | inline | hecho | 384d9fc: library.db (WAL, transacciones, un solo thread), importa library.json una vez, genero/ano/numeros/artista del album |
 | T3 | S3, S4 | inline | hecho | ver commit; playlists y favoritos en library.db, copias .m3u8, favorites.set, track.playlists |
-| T4 | S7, S9 | inline | pendiente | Biblioteca: todas, artista, album, carpeta, ano, genero |
+| T4 | S7, S9 | inline | hecho | ed883c5 (daemon library.groups/library.tracks) + commit TUI |
 | T5 | S2, S13 | inline | pendiente | Volumen, dispositivo, agregar a playlist y favorito en Reproduciendo |
 | T6 | S8 | inline | pendiente | `cover_color` en toda la UI |
 | T7 | S6 | inline | pendiente | `[keys]` en config.toml, acciones con Ctrl+P |
@@ -49,4 +49,5 @@ Tests: `cargo test` (workspace).
 - L8 T3: playlists en la base (migraciones 2 y 3), copias .m3u8 escritas por ketai, sincronizacion de la carpeta en cada operacion (nuevo se importa, conocido cambiado o borrado se reescribe), Favoritos como playlist con kind, `favorites.set`, `track.playlists`. Cambio de regla deliberado (decision B): al cambiar la carpeta, las playlists siguen existiendo y se copian a la nueva (test de config actualizado). Error encontrado: dos threads abriendo la base a la vez daban "database is locked" al pasar a WAL; se serializa la apertura. RED: 3 tests nuevos fallaban; el de dos clientes agregando a la vez ya pasaba (un solo thread de playlists).
 - L9 (2026-11-22) S13 lado daemon: `playlist.add` con `duplicates` ask/add/skip; ask devuelve 1009 con `error.data.duplicates` (campo `data` opcional nuevo en los errores). El test de dos clientes ahora manda `duplicates: "add"` (agrega repetidas a proposito). Falta el dialogo en la TUI (T5).
 - L10 (2026-11-22) Usuario: "la idea es que el scan realice el guardado de todos los datos en la db, no importa que" y acepto guardar por tandas. Hecho: tandas de 200 (`Job::Batch`), al final se borra lo que no aparecio. RED: corte con SIGKILL a mitad de 3000 archivos dejaba 0 pistas.
-- Siguiente paso: T4 (vistas de biblioteca en columnas); T11 espera la medicion del usuario.
+- L11 (2026-11-22) T4: daemon `library.groups` y `library.tracks` (columna `folder`, migracion 4); TUI con vistas h/l, columna de grupos y tabla en columnas compartida con la playlist. Respuestas viejas de otro grupo se descartan (contador de pedidos en vuelo). Una corrida completa de la suite fallo una vez en `orphan_of_same_session_is_closed` (ketaid/tests/instance.rs:172, el huerfano no se cerro en 10 s); paso 5 de 5 sola y 3 de 3 completa: intermitente, a vigilar.
+- Siguiente paso: T5 (barra de Reproduciendo, agregar a playlist con confirmacion de repetidas, favorito); T11 espera la medicion del usuario.

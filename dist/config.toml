@@ -2,6 +2,11 @@
 # Los cambios se aplican al guardar, sin reiniciar.
 
 [theme]
+# true: toda la interfaz toma los colores de la caratula que suena y los
+# colores de abajo se ignoran. false: solo valen los colores de abajo.
+# Sin esta linea, cada color decide ("cover" o "#rrggbb").
+# cover_color = true
+
 # "cover": el color sale de la caratula que suena. O un color fijo "#rrggbb".
 background = "cover"
 accent = "cover"

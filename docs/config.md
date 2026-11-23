@@ -28,6 +28,7 @@ defecto.
 
 | Clave | Valores | Por defecto |
 |---|---|---|
+| `cover_color` | `true` o `false` | sin definir |
 | `background` | `"cover"` o `"#rrggbb"` | `"cover"` |
 | `accent` | `"cover"` o `"#rrggbb"` | `"cover"` |
 | `foreground` | `"#rrggbb"` | `"#ffffff"` |
@@ -39,6 +40,18 @@ defecto.
 | `ok` | `"#rrggbb"` | `"#7ee787"` |
 | `error` | `"#rrggbb"` | `"#ff7b8a"` |
 | `spectrum_top` | `"#rrggbb"` | `"#ff7ab6"` |
+
+`cover_color` decide de donde salen los colores:
+
+- `true`: toda la interfaz sale de la caratula que suena (fondo, fondo
+  elevado, fila elegida, acento, texto sobre el acento, textos secundarios
+  y espectro, todos del tono de la caratula). Los colores manuales se
+  ignoran aunque esten en el archivo. Sin caratula, los colores por
+  defecto.
+- `false`: solo valen los colores manuales; `"cover"` vale el color por
+  defecto.
+- Sin la clave: cada color decide; `background` y `accent` pueden ser
+  `"cover"`.
 
 Con `"cover"`, los colores salen de la caratula que suena: el fondo es el
 color promedio oscurecido y el acento es el mismo tono, claro y saturado

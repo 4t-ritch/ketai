@@ -264,11 +264,22 @@ fn palette(img: &RgbImage) -> CoverPalette {
   let scale = |k: f32| rgb(((avg[0] * k * 255.0) as u32) << 16 | ((avg[1] * k * 255.0) as u32) << 8 | (avg[2] * k * 255.0) as u32);
   let (h, s, _) = to_hsl(avg);
   // Una caratula gris no tiene tono: el acento queda casi blanco.
-  let [ar, ag, ab] = from_hsl(h, s.max(0.55).min(if s < 0.05 { 0.0 } else { 1.0 }), 0.72);
+  // Una caratula gris no tiene tono: todo queda en grises.
+  let sat = s.max(0.55).min(if s < 0.05 { 0.0 } else { 1.0 });
+  let soft = (s * 0.35).min(if s < 0.05 { 0.0 } else { 1.0 });
+  let hsl = |h: f32, s: f32, l: f32| {
+    let [r, g, b] = from_hsl(h.rem_euclid(1.0), s, l);
+    rgb(((r * 255.0) as u32) << 16 | ((g * 255.0) as u32) << 8 | (b * 255.0) as u32)
+  };
   CoverPalette {
-    accent: rgb(((ar * 255.0) as u32) << 16 | ((ag * 255.0) as u32) << 8 | (ab * 255.0) as u32),
+    accent: hsl(h, sat, 0.72),
     background: scale(0.35),
     raised: scale(0.6),
+    row: scale(0.5),
+    on_accent: hsl(h, sat, 0.12),
+    dim: hsl(h, soft, 0.82),
+    faint: hsl(h, soft, 0.60),
+    spectrum_top: hsl(h + 0.06, sat, 0.70),
   }
 }
 

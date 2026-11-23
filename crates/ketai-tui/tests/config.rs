@@ -80,3 +80,40 @@ fn a_config_error_is_shown_on_screen() {
   let t: String = (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect();
   assert!(t.contains("color inválido"), "{t}");
 }
+
+/// Paleta de una caratula roja, armada por el mismo camino que la TUI.
+fn red_palette() -> ketai_tui::config::CoverPalette {
+  let mut app = App::default();
+  app.covers.want("u");
+  app.covers.sent(1, "u");
+  app.covers.on_reply(1, Ok(json!({"path": "/x.png"})));
+  app.covers.decoded("u", Some(image::RgbImage::from_pixel(8, 8, image::Rgb([200, 30, 30]))));
+  app.covers.palette("u").unwrap()
+}
+
+#[test]
+fn cover_color_true_paints_the_whole_ui_and_ignores_manual_colors() {
+  let p = red_palette();
+  let c = Config::parse("[theme]\ncover_color = true\nbackground = \"#000000\"\naccent = \"#00ff00\"\nfaint = \"#123456\"\nrow = \"#654321\"\n").unwrap();
+  let t = c.theme(Some(p));
+  assert_eq!((t.bg, t.accent, t.raised, t.row), (p.background, p.accent, p.raised, p.row));
+  assert_eq!((t.dim, t.faint, t.on_accent, t.spectrum_top), (p.dim, p.faint, p.on_accent, p.spectrum_top));
+  // Todos tiran al rojo de la caratula.
+  for color in [t.faint, t.dim, t.row, t.spectrum_top] {
+    let ratatui::style::Color::Rgb(r, g, b) = color else { panic!() };
+    assert!(r >= g && r >= b, "{color:?} follows the red cover");
+  }
+  // Sin caratula todavia: los colores por defecto, no los manuales.
+  assert_eq!(c.theme(None).bg, Theme::default().bg);
+}
+
+#[test]
+fn cover_color_false_uses_only_manual_colors() {
+  let p = red_palette();
+  let c = Config::parse("[theme]\ncover_color = false\naccent = \"#00ff00\"\nbackground = \"cover\"\n").unwrap();
+  let t = c.theme(Some(p));
+  assert_eq!(t.accent, rgb(0x00ff00));
+  assert_eq!(t.bg, Theme::default().bg, "\"cover\" means the default when cover_color is false");
+  assert_eq!(t.faint, Theme::default().faint);
+  assert!(Config::parse("[theme]\ncover_color = \"yes\"\n").unwrap_err().contains("theme.cover_color"));
+}

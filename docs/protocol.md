@@ -270,6 +270,7 @@ Reglas del reproductor:
 | `playlist.rename` | `{"name": "chill", "new_name": "relax"}` | `{}` |
 | `playlist.add`    | `{"name": "chill", "uris": ["file:///a.ogg", "file:///b.ogg"], "position": null, "duplicates": "ask"}` | `{"added": 2}` |
 | `playlist.remove` | `{"name": "chill", "indexes": [3, 5]}`  | `{"removed": 2}` |
+| `playlist.remove` | `{"name": "chill", "uris": ["file:///a.ogg"]}` | `{"removed": 1}` |
 | `playlist.move`   | `{"name": "chill", "from": 3, "to": 0}` | `{}` |
 | `playlist.transfer` | `{"from_name": "rock", "indexes": [2, 5, 7], "to_name": "metal", "position": null, "mode": "move"}` | `{"transferred": 3}` |
 | `favorites.set`   | `{"uri": "file:///a.ogg", "favorite": true}` | `{}` |
@@ -290,6 +291,10 @@ Reglas del reproductor:
   `1009` con `data: {"duplicates": [uris]}`, para que el cliente pregunte
   al usuario; `"add"` las agrega igual; `"skip"` agrega solo las que
   faltan (`added` cuenta las agregadas). Otro valor devuelve `-32602`.
+- `playlist.remove` quita por posicion (`indexes`) o por cancion (`uris`:
+  todas las copias de cada una); hay que dar uno de los dos (`-32602` si
+  no, o si vienen ambos). `removed` cuenta las pistas quitadas; con `uris`
+  que no estan, `removed: 0` y no cambia nada.
 - `track.playlists` dice en que playlists esta una URI (sin Favoritos, por
   orden de nombre) y si es favorita.
 - Cada playlist tiene una copia `.m3u8` en la carpeta de playlists,

@@ -497,3 +497,19 @@ fn adding_a_track_that_is_already_there_asks_first() {
   s.create("new", &[]);
   assert_eq!(s.ok("playlist.add", json!({"name": "new", "uris": [u("opus.ogg")]})), json!({"added": 1}));
 }
+
+#[test]
+fn remove_by_uri_takes_out_every_copy_of_that_track() {
+  let mut s = S::new();
+  s.create("mix", &["vorbis.ogg", "opus.ogg"]);
+  s.ok("playlist.add", json!({"name": "mix", "uris": [u("vorbis.ogg")], "duplicates": "add"}));
+  assert_eq!(s.ok("playlist.remove", json!({"name": "mix", "uris": [u("vorbis.ogg")]})), json!({"removed": 2}));
+  assert_eq!(s.uris_of("mix"), [u("opus.ogg")]);
+  // Una que no esta: no pasa nada.
+  assert_eq!(s.ok("playlist.remove", json!({"name": "mix", "uris": [u("vorbis.ogg")]})), json!({"removed": 0}));
+  // Hace falta uno de los dos, no ambos.
+  assert_eq!(s.code("playlist.remove", json!({"name": "mix"})), -32602);
+  assert_eq!(s.code("playlist.remove", json!({"name": "mix", "indexes": [0], "uris": [u("opus.ogg")]})), -32602);
+  // Por posicion sigue igual.
+  assert_eq!(s.ok("playlist.remove", json!({"name": "mix", "indexes": [0]})), json!({"removed": 1}));
+}

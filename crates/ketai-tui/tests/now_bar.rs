@@ -127,7 +127,7 @@ fn a_new_playlist_can_be_created_from_the_add_popup() {
   let (mut app, _) = playing();
   reply(&mut app, "playlist.list", Ok(json!({"playlists": []})));
   app.on_key(key(KeyCode::Char('P')));
-  assert!(text(&app).contains("c nueva playlist"));
+  assert!(text(&app).contains("c nueva"));
   app.on_key(key(KeyCode::Char('c')));
   type_text(&mut app, "mi mix");
   assert!(text(&app).contains("mi mix"));
@@ -216,4 +216,20 @@ fn the_volume_row_keeps_its_width_at_any_volume() {
     columns.push((bar[..bar.find("Hisense").unwrap()].chars().count(), 0));
   }
   assert!(columns.chunks(2).all(|c| c == &columns[..2]), "{columns:?}");
+}
+
+#[test]
+fn x_removes_the_playing_track_from_a_playlist_that_has_it() {
+  let (mut app, _) = playing();
+  reply(&mut app, "playlist.list", Ok(json!({"playlists": [{"name": "chill", "count": 3}, {"name": "rock", "count": 1}]})));
+  reply(&mut app, "track.playlists", Ok(json!({"playlists": ["rock"], "favorite": false})));
+  app.on_key(key(KeyCode::Char('P')));
+  assert!(text(&app).contains("x quitar"), "{}", text(&app));
+  // En una que no la tiene, x no hace nada.
+  assert!(app.on_key(key(KeyCode::Char('x'))).is_empty());
+  app.on_key(key(KeyCode::Down));
+  assert_eq!(app.on_key(key(KeyCode::Char('x'))), vec![("playlist.remove".to_string(), json!({"name": "rock", "uris": [URI]}))]);
+  reply(&mut app, "playlist.remove", Ok(json!({"removed": 1})));
+  assert!(app.notice.as_deref().unwrap_or("").contains("Quitada de «rock»"), "{:?}", app.notice);
+  assert!(app.add_open, "stays open to keep choosing");
 }

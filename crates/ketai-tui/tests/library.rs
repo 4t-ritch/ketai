@@ -209,3 +209,18 @@ fn c_creates_a_playlist_from_the_library() {
   }
   assert_eq!(app.on_key(key(KeyCode::Enter)), vec![("playlist.save".to_string(), json!({"name": "nueva", "from_queue": false}))]);
 }
+
+#[test]
+fn x_removes_the_selected_track_from_the_open_playlist() {
+  let mut app = library_app();
+  app.on_key(key(KeyCode::Down));
+  reply(&mut app, "playlist.get", tracks());
+  app.on_key(key(KeyCode::Enter));
+  app.on_key(key(KeyCode::Down));
+  assert_eq!(app.on_key(key(KeyCode::Char('x'))), vec![("playlist.remove".to_string(), json!({"name": "metal", "indexes": [1]}))]);
+  // En las vistas de canciones y grupos no hay playlist de la cual quitar.
+  app.on_key(key(KeyCode::Char('l')));
+  reply(&mut app, "library.tracks", json!({"total": 1, "tracks": [{"uri": "file:///m/a.ogg", "title": "A"}]}));
+  app.on_key(key(KeyCode::Enter));
+  assert!(app.on_key(key(KeyCode::Char('x'))).is_empty());
+}

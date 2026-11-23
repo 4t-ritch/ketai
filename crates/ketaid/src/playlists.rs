@@ -290,20 +290,35 @@ impl Worker {
         }
         "playlist.remove" => {
           let name = p.name("name")?;
-          let indexes = p.indexes()?;
-          self.update(id, &[&name], |l| {
+          // Por posicion (`indexes`) o por cancion (`uris`: todas sus copias),
+          // uno de los dos.
+          let by_uri = match (job.params.contains_key("indexes"), job.params.contains_key("uris")) {
+            (true, false) => None,
+            (false, true) => Some(p.uris()?),
+            _ => return Err(ErrorReply::new(Some(id), codes::INVALID_PARAMS, "give either indexes or uris")),
+          };
+          let indexes = if by_uri.is_none() { p.indexes()? } else { Vec::new() };
+          let removed = self.update(id, &[&name], |l| {
             let uris = l[0].as_mut().ok_or_else(|| not_found(id))?;
-            let remove = validate_indexes(id, &indexes, uris.len())?;
-            let mut i = 0;
-            uris.retain(|_| {
-              let keep = !remove.contains(&i);
-              i += 1;
-              keep
-            });
-            Ok(())
+            let before = uris.len();
+            match &by_uri {
+              Some(gone) => uris.retain(|u| !gone.contains(u)),
+              None => {
+                let remove = validate_indexes(id, &indexes, uris.len())?;
+                let mut i = 0;
+                uris.retain(|_| {
+                  let keep = !remove.contains(&i);
+                  i += 1;
+                  keep
+                });
+              }
+            }
+            Ok(before - uris.len())
           })?;
-          changed.push(name);
-          Ok(json!({"removed": indexes.len()}))
+          if removed > 0 {
+            changed.push(name);
+          }
+          Ok(json!({"removed": removed}))
         }
         "playlist.move" => {
           let name = p.name("name")?;

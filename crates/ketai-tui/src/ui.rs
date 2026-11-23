@@ -137,7 +137,7 @@ fn add_popup(f: &mut RFrame, app: &App) {
     putn(buf, x, y, format!("{name}{mark}"), iw, t.text());
     y += 2;
   }
-  putn(buf, x, pop.y + pop.height - 2, "⏎ agregar · ↑↓ elegir · c nueva playlist · esc cerrar", iw, t.faint());
+  putn(buf, x, pop.y + pop.height - 2, "⏎ agregar · x quitar · c nueva · esc cerrar", iw, t.faint());
 }
 
 /// Atenua todo lo dibujado (fondo de un popup modal).
@@ -1117,7 +1117,7 @@ fn library(f: &mut RFrame, app: &App, area: Rect) {
     center.y + 11
   };
   put(buf, center.x, y, format!("  {I_PLAY}  "), Style::new().fg(t.on_accent).bg(t.accent).add_modifier(Modifier::BOLD));
-  putn(buf, center.x + 9, y, "⏎ reproducir · a a la cola · esc volver", center.width.saturating_sub(9) as usize, t.faint());
+  putn(buf, center.x + 9, y, "⏎ reproducir · a a la cola · x quitar · esc volver", center.width.saturating_sub(9) as usize, t.faint());
 
   let hy = y + if short { 2 } else { 3 };
   let tracks_src = app.lib_rows().to_vec();

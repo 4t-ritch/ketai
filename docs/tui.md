@@ -77,6 +77,7 @@ Biblioteca:
 | `Esc` | volver a la lista de la izquierda |
 | `h` / `l` | vista anterior / siguiente: Playlists, Canciones, Artistas, Albumes, Carpetas, Anos, Generos |
 | `c` | en Playlists, crear una playlist nueva |
+| `x` | en una playlist, quitar la cancion elegida |
 
 En Canciones y en los grupos, la lista va en columnas (numero, titulo y
 artista, album, ano y duracion). `Enter` sobre una cancion pone en la cola
@@ -112,7 +113,8 @@ todavia no se sabe su nombre, "No device" si no hay ninguna disponible. La
 cabecera ya no repite la salida. `*` la marca o desmarca como
 favorita (queda en la playlist Favoritos). `P` abre la lista de playlists
 (las que ya la tienen llevan una marca); `Enter` la agrega y `c` crea una
-playlist nueva (se escribe el nombre) y la agrega ahi. Si ya estaba,
+playlist nueva (se escribe el nombre) y la agrega ahi, y `x` la quita de la
+playlist elegida (las que tienen la marca). Si ya estaba,
 ketaid avisa y ketai pregunta: `a` la agrega de todos modos, `n` no.
 
 ## Mouse

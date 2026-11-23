@@ -240,6 +240,8 @@ pub struct App {
   pub add_cursor: usize,
   /// Playlist del `playlist.add` en vuelo.
   pub add_pending: Option<String>,
+  /// Playlist del `playlist.remove` en vuelo (para el aviso).
+  pub remove_pending: Option<String>,
   /// El daemon dijo que ya estaba (1009): se espera la decision.
   pub add_confirm: Option<String>,
   /// Nombre de una playlist nueva que se esta escribiendo, y desde donde.
@@ -387,6 +389,7 @@ impl Default for App {
       add_cursor: 0,
       add_pending: None,
       add_confirm: None,
+      remove_pending: None,
       notice: None,
       naming: None,
       hits: Vec::new(),
@@ -1064,6 +1067,15 @@ impl App {
     let targets = self.add_targets();
     match key.code {
       KeyCode::Char('c') => self.naming = Some((String::new(), NameFor::Add)),
+      // Quitar la que suena de la playlist elegida (si esta ahi).
+      KeyCode::Char('x') => {
+        if let (Some(name), Some(uri)) = (targets.get(self.add_cursor), self.now_uri())
+          && self.now_playlists.contains(name)
+        {
+          self.remove_pending = Some(name.clone());
+          return vec![("playlist.remove".into(), json!({"name": name, "uris": [uri]}))];
+        }
+      }
       KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('P') => self.add_open = false,
       KeyCode::Up | KeyCode::Char('k') => self.add_cursor = self.add_cursor.saturating_sub(1),
       KeyCode::Down | KeyCode::Char('j') => self.add_cursor = (self.add_cursor + 1).min(targets.len().saturating_sub(1)),
@@ -1289,6 +1301,13 @@ impl App {
             let uri = self.lib_rows().get(self.track_cursor)?["uri"].as_str()?.to_string();
             Some(vec![("queue.add".into(), json!({"uris": [uri]}))])
           }
+          // Quitar de la playlist abierta (solo en la vista Playlists).
+          KeyCode::Char('x') if self.lib_view == LibView::Playlists && tracks > 0 => {
+            let name = self.lib_open.clone()?;
+            self.remove_pending = Some(name.clone());
+            Some(vec![("playlist.remove".into(), json!({"name": name, "indexes": [self.track_cursor]}))])
+          }
+          KeyCode::Char('x') => Some(Vec::new()),
           _ => None,
         }
       }
@@ -1443,6 +1462,12 @@ impl App {
         if method == "lyrics.get" && result.is_err() {
           self.lyrics = Value::Null;
           self.lyrics_loaded = true;
+        }
+        if method == "playlist.remove" && let Some(name) = self.remove_pending.take() {
+          self.notice = Some(match &result {
+            Ok(_) => format!("Quitada de «{name}»"),
+            Err(e) => format!("No se pudo quitar: {}", e["message"].as_str().unwrap_or("error")),
+          });
         }
         if method == "playlist.add" && self.add_pending.is_some() {
           let name = self.add_pending.take().unwrap_or_default();

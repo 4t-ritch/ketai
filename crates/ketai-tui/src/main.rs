@@ -152,6 +152,8 @@ fn main() -> io::Result<()> {
   }
   app.refresh_theme();
   let mut terminal = ratatui::init();
+  // Avisos de foco, para reenviar las caratulas al volver al panel.
+  let _ = ratatui::crossterm::execute!(io::stdout(), ratatui::crossterm::event::EnableFocusChange);
   // La pregunta se hace antes de leer teclas: la respuesta llega por stdin.
   let no_images = std::env::var_os("KETAI_NO_IMAGES").is_some_and(|v| v == "1");
   app.images = !no_images && kitty_supported();
@@ -174,6 +176,9 @@ fn main() -> io::Result<()> {
       let input = match event::read() {
         Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => Input::Key(k),
         Ok(Event::Resize(..)) => Input::Resize,
+        // Al volver al panel o a la pestana (herdr, tmux) algunas terminales
+        // perdieron las imagenes: se reenvian como al redimensionar.
+        Ok(Event::FocusGained) => Input::Resize,
         Ok(_) => continue,
         Err(_) => return,
       };
@@ -330,6 +335,7 @@ fn main() -> io::Result<()> {
   if app.images {
     emit(&kitty::delete_images(&app.covers.ids()));
   }
+  let _ = ratatui::crossterm::execute!(io::stdout(), ratatui::crossterm::event::DisableFocusChange);
   ratatui::restore();
   result
 }

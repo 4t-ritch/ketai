@@ -13,6 +13,10 @@ un panel de herdr y otra completa).
   sale.
 - Una Nerd Font para los iconos.
 - `KETAI_NO_IMAGES=1 ketai` arranca igual, sin caratulas (util por SSH).
+- `KETAI_LOG=/tmp/ketai.log ketai` anota con hora (UTC) los eventos de la
+  terminal (foco, tamano, mouse y que elemento respondio) y lo que se manda
+  de las caratulas. Sirve para diagnosticar problemas con multiplexores como
+  herdr. Sin la variable no se anota nada.
 
 Si `ketaid` no esta corriendo, la TUI muestra la pantalla de servicio:
 diagnostica el estado y ofrece iniciarlo por systemd (ver

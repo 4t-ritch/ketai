@@ -299,7 +299,7 @@ impl Engine {
         let broken = self.broken.clone();
         let on_error = move |e: rodio::cpal::StreamError| {
           if needs_reopen(&e) && !broken.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            eprintln!("ketaid: audio output error, reopening: {e}");
+            eprintln!("ketaid: {} audio output error, reopening: {e}", utc_now());
           }
         };
         let mut sink = DeviceSinkBuilder::from_default_device()
@@ -390,6 +390,13 @@ impl Engine {
   fn emit(&self, event: Event) {
     let _ = self.events.send(event);
   }
+}
+
+/// Hora UTC `HH:MM:SS.mmm`, para cruzar el log con el de otros programas.
+fn utc_now() -> String {
+  let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+  let s = d.as_secs() % 86_400;
+  format!("{:02}:{:02}:{:02}.{:03}", s / 3600, s / 60 % 60, s % 60, d.subsec_millis())
 }
 
 /// Errores de la salida que la dejan inutilizable (el dispositivo ya no

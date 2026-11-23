@@ -27,6 +27,8 @@ enum Input {
   Key(event::KeyEvent),
   Resize,
   Mouse(ratatui::crossterm::event::MouseEvent),
+  /// El panel recupero el foco.
+  Focus,
   Daemon(DaemonMsg),
   /// Resultado de buscar el servicio.
   Observed(Observed),
@@ -180,11 +182,26 @@ fn main() -> io::Result<()> {
     loop {
       let input = match event::read() {
         Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => Input::Key(k),
-        Ok(Event::Resize(..)) => Input::Resize,
+        Ok(Event::Resize(w, h)) => {
+          ketai_tui::log::log(format_args!("resize {w}x{h}"));
+          Input::Resize
+        }
         // Al volver al panel o a la pestana (herdr, tmux) algunas terminales
-        // perdieron las imagenes: se reenvian como al redimensionar.
-        Ok(Event::FocusGained) => Input::Resize,
-        Ok(Event::Mouse(m)) => Input::Mouse(m),
+        // perdieron las imagenes y lo dibujado.
+        Ok(Event::FocusGained) => {
+          ketai_tui::log::log("focus gained");
+          Input::Focus
+        }
+        Ok(Event::FocusLost) => {
+          ketai_tui::log::log("focus lost");
+          continue;
+        }
+        Ok(Event::Mouse(m)) => {
+          if !matches!(m.kind, event::MouseEventKind::Moved) {
+            ketai_tui::log::log(format_args!("mouse {:?} at {},{}", m.kind, m.column, m.row));
+          }
+          Input::Mouse(m)
+        }
         Ok(_) => continue,
         Err(_) => return,
       };
@@ -218,7 +235,11 @@ fn main() -> io::Result<()> {
             });
           }
         }
-        emit(&kitty::update(&placed, &frame.placements));
+        let update = kitty::update(&placed, &frame.placements);
+        if !update.is_empty() {
+          ketai_tui::log::log(format_args!("place {} images", frame.placements.len()));
+        }
+        emit(&update);
         placed = frame.placements;
       }
       // Con una busqueda esperando, se despierta seguido para mandarla a
@@ -242,10 +263,17 @@ fn main() -> io::Result<()> {
         None => {}
         // Al cambiar el tamano se vuelven a mandar y ubicar todas las
         // imagenes: algunas terminales (herdr) las pierden.
-        Some(Input::Resize) => {
+        Some(input @ (Input::Resize | Input::Focus)) => {
           placed.clear();
+          // Al recuperar el foco se redibuja todo: el multiplexor pudo haber
+          // borrado el panel y ratatui solo dibuja lo que cambio.
+          if matches!(input, Input::Focus) {
+            let _ = terminal.clear();
+          }
           if app.images {
-            for (uri, img, id) in app.covers.resend() {
+            let again = app.covers.resend();
+            ketai_tui::log::log(format_args!("resend {} covers", again.len()));
+            for (uri, img, id) in again {
               let tx = tx.clone();
               thread::spawn(move || {
                 let _ = tx.send(Input::Cover(uri, Some(covers::prepare_image(img, id))));
@@ -254,6 +282,10 @@ fn main() -> io::Result<()> {
           }
         }
         Some(Input::Mouse(m)) if matches!(app.screen, Screen::Main) => {
+          if ketai_tui::log::enabled() && !matches!(m.kind, event::MouseEventKind::Moved) {
+            let found = app.hits.iter().rev().find(|(r, _)| m.column >= r.x && m.column < r.x + r.width && m.row >= r.y && m.row < r.y + r.height);
+            ketai_tui::log::log(format_args!("  hit {:?}", found.map(|(_, h)| h)));
+          }
           for (method, params) in app.on_mouse(m, Instant::now()) {
             send(&mut client, &mut app, &method, params);
           }
@@ -313,7 +345,9 @@ fn main() -> io::Result<()> {
           app.covers.dimmed_ready(&uri);
         }
         Some(Input::Cover(uri, prepared)) => {
-          emit(&app.covers.ready(&uri, prepared));
+          let seq = app.covers.ready(&uri, prepared);
+          ketai_tui::log::log(format_args!("cover sent {} bytes {uri}", seq.len()));
+          emit(&seq);
           // Si es la caratula que suena, el tema toma sus colores.
           app.refresh_theme();
         }

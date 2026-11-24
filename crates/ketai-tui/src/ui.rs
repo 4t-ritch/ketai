@@ -450,7 +450,7 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   y += if roomy { 4 } else { 3 };
   // Detalles: volumen y salida, favorito y agregar, formato. Cada fila con
   // aire; despues la letra y lo que sigue, y abajo progreso y controles.
-  let keycap = |k: &str| Span::styled(format!(" {k} "), Style::new().fg(t.fg).bg(t.raised));
+  let keycap = |k: &str| keycap(t, k);
   let muted = app.player["muted"].as_bool().unwrap_or(false);
   let vol = app.player["volume"].as_f64().unwrap_or(1.0);
   let filled = (vol * 14.0).round() as usize;
@@ -667,11 +667,13 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
 
   // Opciones de la letra, arriba a la derecha, como en Reproduciendo: cada
   // una con su tecla en un recuadro, y todo clickeable.
-  let keycap = |k: &str| Span::styled(format!(" {k} "), Style::new().fg(t.fg).bg(t.raised));
+  use crate::keys::Action as A;
+  // La tecla que muestra cada opcion es la configurada en ese momento.
+  let cap = |a: A| action_keycap(app, a);
   let gap = || (Span::raw("        "), None);
   // Etiqueta clara y valor tenue: se lee que es cada cosa.
-  let label = |s: &str, key: char| (Span::styled(format!("{s}: "), t.text()), Some(key));
-  let value = |s: String, key: Option<char>| (Span::styled(format!("{s}  "), t.faint()), key);
+  let label = |s: &str, a: A| (Span::styled(format!("{s}: "), t.text()), Some(a));
+  let value = |s: String, a: Option<A>| (Span::styled(format!("{s}  "), t.faint()), a);
   let translation = match app.lyrics_secondary.first() {
     Some(id) => app.lyrics_layers.iter().find(|l| l["id"] == id.as_str()).and_then(|l| l["language"].as_str()).unwrap_or(id).to_string(),
     None => "no".into(),
@@ -683,26 +685,26 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
     crate::config::LyricsMode::Karaoke if app.karaoke_on() || !app.images => "karaoke",
     crate::config::LyricsMode::Karaoke => "karaoke (no disponible)",
   };
-  let rows: [Vec<(Span, Option<char>)>; 2] = [
+  let rows: [Vec<(Span, Option<A>)>; 2] = [
     vec![
-      label("Capa", 'o'),
-      value(layer_label(app, &app.lyrics_primary), Some('o')),
-      (keycap("o"), Some('o')),
+      label("Capa", A::LyricsLayer),
+      value(layer_label(app, &app.lyrics_primary), Some(A::LyricsLayer)),
+      (cap(A::LyricsLayer), Some(A::LyricsLayer)),
       gap(),
-      label("Traducción", 't'),
-      value(translation, Some('t')),
-      (keycap("t"), Some('t')),
+      label("Traducción", A::LyricsTranslation),
+      value(translation, Some(A::LyricsTranslation)),
+      (cap(A::LyricsTranslation), Some(A::LyricsTranslation)),
     ],
     vec![
       (Span::styled("Offset: ", t.text()), None),
       value(format!("{offset} ms"), None),
-      (keycap("["), Some('[')),
+      (cap(A::LyricsOffsetDown), Some(A::LyricsOffsetDown)),
       (Span::raw(" "), None),
-      (keycap("]"), Some(']')),
+      (cap(A::LyricsOffsetUp), Some(A::LyricsOffsetUp)),
       gap(),
-      label("Modo", 'm'),
-      value(mode.to_string(), Some('m')),
-      (keycap("m"), Some('m')),
+      label("Modo", A::LyricsMode),
+      value(mode.to_string(), Some(A::LyricsMode)),
+      (cap(A::LyricsMode), Some(A::LyricsMode)),
     ],
   ];
   let buf = f.buffer_mut();
@@ -714,8 +716,8 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
     put_line(buf, x, y, &line, area.width);
     for (span, key) in &row {
       let w = span.width() as u16;
-      if let Some(c) = key {
-        hit(Rect::new(x, y, w, 1), Hit::LyricsKey(*c));
+      if let Some(a) = key {
+        hit(Rect::new(x, y, w, 1), Hit::Act(*a));
       }
       x += w;
     }
@@ -934,6 +936,17 @@ fn now_column(f: &mut RFrame, app: &App, area: Rect) {
 }
 
 /// Primera tecla configurada para una accion (para mostrarla).
+/// Tecla en un recuadro, como en Reproduciendo y Letras.
+pub fn keycap(t: &crate::theme::Theme, label: &str) -> Span<'static> {
+  Span::styled(format!(" {label} "), Style::new().fg(t.fg).bg(t.raised))
+}
+
+/// La tecla configurada de una accion, en su recuadro. Sale de la
+/// configuracion actual: si se cambia `[keys]`, cambia lo que se ve.
+pub fn action_keycap(app: &App, action: crate::keys::Action) -> Span<'static> {
+  keycap(&app.theme, &key_label(app, action))
+}
+
 fn key_label(app: &App, action: crate::keys::Action) -> String {
   app.config.keys.keys(action).first().map(|k| k.label()).unwrap_or_else(|| "—".into())
 }

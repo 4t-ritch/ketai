@@ -85,3 +85,14 @@ fn now_playing_shows_the_configured_keys() {
   let t: String = (0..44).map(|y| (0..160).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect();
   assert!(t.contains(" Ctrl+F ") && t.contains(" Alt+A "), "{t}");
 }
+
+#[test]
+fn lyrics_keys_only_conflict_among_themselves() {
+  use ketai_tui::config::Config;
+  // `m` silencia en todas las vistas y cambia el modo en Letras: no es un
+  // conflicto (en Letras manda la de Letras).
+  assert!(Config::parse("").unwrap().warnings.is_empty());
+  let c = Config::parse("[keys]\nlyrics_layer = \"t\"").unwrap();
+  assert_eq!(c.warnings.len(), 1, "{:?}", c.warnings);
+  assert!(c.warnings[0].contains("lyrics_layer") && c.warnings[0].contains("lyrics_translation"), "{:?}", c.warnings);
+}

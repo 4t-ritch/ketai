@@ -64,7 +64,7 @@ On any tab (except while typing in Search):
 | `Ctrl+P`, `/` or `Ctrl+K` | actions and quick search over the current screen |
 | `q` | quit (`Ctrl+C` always quits) |
 
-Lyrics:
+Lyrics (configurable in `[keys]`, see [config.md](config.md#keys)):
 
 | Key | Action |
 |---|---|

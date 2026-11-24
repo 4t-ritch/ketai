@@ -98,13 +98,25 @@ Formato de una tecla: un caracter (`"n"`, `"P"`, `"+"`), o un nombre
 | `quit` | `q` | Salir |
 | `next_tab` / `prev_tab` | `tab` / `shift+tab` | Pestana siguiente / anterior |
 | `tab_now_playing`, `tab_lyrics`, `tab_library`, `tab_search` | `1` a `4` | Ir a cada pestana |
+| `lyrics_layer` | `o` | Letras: cambiar la capa principal |
+| `lyrics_translation` | `t` | Letras: mostrar u ocultar la traduccion |
+| `lyrics_offset_down` / `lyrics_offset_up` | `[` / `]` | Letras: offset -50 / +50 ms |
+| `lyrics_mode` | `m` | Letras: modo clasico o karaoke |
+| `lyrics_estimate` | `w` | Letras: estimar tiempos por palabra |
 
 - `Ctrl+C` siempre sale, aunque se configure otra cosa.
 - Mientras se escribe en Buscar, las teclas sin Ctrl ni Alt son texto.
 - Una tecla invalida es un error (se muestra y se mantiene la configuracion
   anterior); una accion desconocida o una tecla en dos acciones se avisa.
-- Las teclas propias de cada vista (`h` / `l` en Biblioteca, `t` / `o` / `m` en
-  Letras, etc.) son fijas por ahora.
+- Las acciones `lyrics_*` solo valen en la vista de Letras, y ahi tienen
+  prioridad sobre las globales: por defecto `m` silencia en todas las vistas
+  menos en Letras, donde cambia el modo. Eso no se avisa como conflicto; dos
+  acciones de Letras con la misma tecla, si.
+- Las teclas que se ven en pantalla (por ejemplo las de la cabecera de Letras
+  y las del volumen en Reproduciendo) son siempre las configuradas: si se
+  cambia una tecla, la pantalla muestra la nueva.
+- Las demas teclas de cada vista (`h` / `l` en Biblioteca, etc.) son fijas
+  por ahora.
 
 ## `[lyrics]`
 

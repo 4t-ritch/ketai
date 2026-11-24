@@ -114,8 +114,6 @@ pub enum Hit {
   Seek { x: u16, w: u16 },
   /// Barra de volumen.
   Volume { x: u16, w: u16 },
-  /// Una opcion de Letras: como apretar su tecla.
-  LyricsKey(char),
   /// Una linea de la letra: salta a su inicio (ms).
   LyricLine(u64),
   LibView(LibView),
@@ -582,7 +580,6 @@ impl App {
             self.dragging = Some(hit);
             self.set_volume_at(hit, ev.column)
           }
-          Hit::LyricsKey(c) => self.on_key(key(KeyCode::Char(c))),
           Hit::LyricLine(ms) => {
             // Hasta que llegue la posicion nueva del daemon, se muestra esta.
             if let Some(obj) = self.player.as_object_mut() {
@@ -674,6 +671,9 @@ impl App {
   /// Ejecuta una accion global (de una tecla o de un clic).
   pub fn do_action(&mut self, action: crate::keys::Action) -> Vec<Command> {
     use crate::keys::Action as A;
+    if action.is_lyrics() {
+      return self.lyrics_action(action).unwrap_or_default();
+    }
     let cmd = |m: &str| vec![(m.to_string(), json!({}))];
     let volume = |app: &App, step: f64| {
       let v = app.player["volume"].as_f64().unwrap_or(1.0) + step;
@@ -681,6 +681,8 @@ impl App {
       vec![("player.set_volume".into(), json!({"volume": v}))]
     };
     match action {
+      // Ya resueltas arriba.
+      A::LyricsLayer | A::LyricsTranslation | A::LyricsOffsetDown | A::LyricsOffsetUp | A::LyricsMode | A::LyricsEstimate => {}
       A::Devices => return self.open_devices(),
       A::Favorite => return self.toggle_favorite(),
       A::AddToPlaylist if self.now_uri().is_some() => {
@@ -775,19 +777,40 @@ impl App {
 
   /// Teclas propias de la pestana Letras. `None` si la tecla no es suya.
   fn lyrics_key(&mut self, key: KeyEvent) -> Option<Vec<Command>> {
+    let action = self.config.keys.lyrics_action(&key)?;
+    self.lyrics_action(action)
+  }
+
+  /// Una accion de Letras (por tecla o por clic en la cabecera).
+  fn lyrics_action(&mut self, action: crate::keys::Action) -> Option<Vec<Command>> {
+    use crate::keys::Action as A;
+    if action == A::LyricsMode {
+      use crate::config::LyricsMode;
+      self.lyrics_mode = match self.lyrics_mode {
+        LyricsMode::Classic => LyricsMode::Karaoke,
+        LyricsMode::Karaoke => LyricsMode::Classic,
+      };
+      // Queda guardado: al recargar el archivo el modo ya coincide.
+      if let Some(path) = &self.config_path
+        && let Err(e) = crate::config::save_lyrics_mode(path, self.lyrics_mode)
+      {
+        self.notice = Some(format!("No se pudo guardar el modo en config.toml: {e}"));
+      }
+      return Some(Vec::new());
+    }
     let track = self.lyrics_track.clone()?;
-    match key.code {
-      KeyCode::Char(c @ ('[' | ']')) => {
-        let step = if c == ']' { 50 } else { -50 };
+    match action {
+      A::LyricsOffsetDown | A::LyricsOffsetUp => {
+        let step = if action == A::LyricsOffsetUp { 50 } else { -50 };
         let offset = self.lyrics["user_offset_ms"].as_i64().unwrap_or(0) + step;
         Some(vec![("lyrics.set_offset".into(), json!({"track_id": track, "offset_ms": offset}))])
       }
-      KeyCode::Char('t') => {
+      A::LyricsTranslation => {
         self.lyrics_chosen = true;
         self.lyrics_secondary = if self.lyrics_secondary.is_empty() { self.first_translation().into_iter().collect() } else { Vec::new() };
         Some(vec![self.lyrics_get(&track)])
       }
-      KeyCode::Char('o') => {
+      A::LyricsLayer => {
         // Capas que pueden ser principales: original y romanizadas.
         let ids: Vec<String> = self
           .lyrics_layers
@@ -804,23 +827,9 @@ impl App {
         self.lyrics_chosen = true;
         Some(vec![self.lyrics_get(&track)])
       }
-      KeyCode::Char('w') => {
+      A::LyricsEstimate => {
         self.lyrics_estimate = !self.lyrics_estimate;
         Some(vec![self.lyrics_get(&track)])
-      }
-      KeyCode::Char('m') => {
-        use crate::config::LyricsMode;
-        self.lyrics_mode = match self.lyrics_mode {
-          LyricsMode::Classic => LyricsMode::Karaoke,
-          LyricsMode::Karaoke => LyricsMode::Classic,
-        };
-        // Queda guardado: al recargar el archivo el modo ya coincide.
-        if let Some(path) = &self.config_path
-          && let Err(e) = crate::config::save_lyrics_mode(path, self.lyrics_mode)
-        {
-          self.notice = Some(format!("No se pudo guardar el modo en config.toml: {e}"));
-        }
-        Some(Vec::new())
       }
       _ => None,
     }

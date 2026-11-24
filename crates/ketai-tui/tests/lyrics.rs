@@ -449,3 +449,26 @@ fn the_lyrics_options_are_keycaps_that_respond_to_clicks() {
   let t = text(&render(&app));
   assert!(t.contains("Traducción: no   t "), "{t}");
 }
+
+#[test]
+fn lyrics_keys_come_from_the_config_and_the_header_shows_them_live() {
+  use ketai_tui::config::{Config, LyricsMode};
+  let mut app = loaded(4200);
+  app.tab = Tab::Lyrics;
+  // Por defecto, `m` cambia el modo en Letras.
+  assert!(text(&render(&app)).contains("Modo: clásico   m "));
+  app.on_key(key(KeyCode::Char('m')));
+  assert_eq!(app.lyrics_mode, LyricsMode::Karaoke);
+  // Se cambia la tecla en config.toml: la cabecera muestra la nueva.
+  app.config = Config::parse("[keys]\nlyrics_mode = \"k\"\nlyrics_offset_up = \"ctrl+u\"").unwrap();
+  let t = text(&render(&app));
+  assert!(t.contains("Modo: karaoke   k "), "{t}");
+  assert!(t.contains(" Ctrl+U "), "{t}");
+  assert!(!t.contains("   m "), "the old key is not shown\n{t}");
+  // Y es la que responde; `m` vuelve a ser la global (silenciar).
+  app.on_key(key(KeyCode::Char('k')));
+  assert_eq!(app.lyrics_mode, LyricsMode::Classic);
+  let cmds = app.on_key(key(KeyCode::Char('m')));
+  assert_eq!(app.lyrics_mode, LyricsMode::Classic);
+  assert_eq!(methods(&cmds), ["player.set_muted"]);
+}

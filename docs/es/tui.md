@@ -60,7 +60,7 @@ En cualquier pestana (salvo mientras se escribe en Buscar):
 | `Ctrl+P`, `/` o `Ctrl+K` | acciones y busqueda rapida sobre la pantalla actual |
 | `q` | salir (`Ctrl+C` sale siempre) |
 
-Letras:
+Letras (configurables en `[keys]`, ver [config.md](config.md#keys)):
 
 | Tecla | Accion |
 |---|---|

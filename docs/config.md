@@ -94,13 +94,25 @@ modifiers in front (`"ctrl+p"`, `"shift+tab"`).
 | `quit` | `q` | Quit |
 | `next_tab` / `prev_tab` | `tab` / `shift+tab` | Next / previous tab |
 | `tab_now_playing`, `tab_lyrics`, `tab_library`, `tab_search` | `1` to `4` | Go to each tab |
+| `lyrics_layer` | `o` | Lyrics: change the primary layer |
+| `lyrics_translation` | `t` | Lyrics: show or hide the translation |
+| `lyrics_offset_down` / `lyrics_offset_up` | `[` / `]` | Lyrics: offset -50 / +50 ms |
+| `lyrics_mode` | `m` | Lyrics: classic or karaoke mode |
+| `lyrics_estimate` | `w` | Lyrics: estimate word timing |
 
 - `Ctrl+C` always quits, whatever else is configured.
 - While typing in Search, keys without Ctrl or Alt are text.
 - An invalid key is an error (it is shown and the previous configuration is
   kept); an unknown action or a key in two actions is reported.
-- Each view's own keys (`h` / `l` in Library, `t` / `o` / `m` in Lyrics, etc.) are
-  fixed for now.
+- The `lyrics_*` actions only work in the Lyrics view, and there they take
+  priority over the global ones: by default `m` mutes everywhere except in
+  Lyrics, where it changes the mode. That is not reported as a conflict; two
+  Lyrics actions with the same key are.
+- The keys shown on screen (for example the ones in the Lyrics header and
+  next to the volume in Now Playing) are always the configured ones: change
+  a key and the screen shows the new one.
+- The other keys of each view (`h` / `l` in Library, etc.) are fixed for
+  now.
 
 ## `[lyrics]`
 

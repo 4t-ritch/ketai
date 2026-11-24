@@ -1,9 +1,10 @@
-//! Atajos globales configurables (`[keys]` de config.toml).
+//! Atajos configurables (`[keys]` de config.toml).
 //!
 //! Cada accion tiene teclas por defecto; en config.toml se reemplazan por
 //! accion con un texto ("ctrl+p") o una lista (["n", "ctrl+right"]). Las
-//! teclas propias de cada vista (h / l en Biblioteca, t / o en Letras) son
-//! fijas. Ctrl+C siempre sale.
+//! acciones de Letras (`lyrics_*`) valen solo en esa vista y ahi tienen
+//! prioridad sobre las globales. Las demas teclas propias de cada vista (h /
+//! l en Biblioteca) son fijas. Ctrl+C siempre sale.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -31,6 +32,28 @@ pub enum Action {
   TabLyrics,
   TabLibrary,
   TabSearch,
+  // Solo en Letras.
+  LyricsLayer,
+  LyricsTranslation,
+  LyricsOffsetDown,
+  LyricsOffsetUp,
+  LyricsMode,
+  LyricsEstimate,
+}
+
+impl Action {
+  /// Accion de la vista de Letras (no global).
+  pub fn is_lyrics(self) -> bool {
+    matches!(
+      self,
+      Action::LyricsLayer
+        | Action::LyricsTranslation
+        | Action::LyricsOffsetDown
+        | Action::LyricsOffsetUp
+        | Action::LyricsMode
+        | Action::LyricsEstimate
+    )
+  }
 }
 
 /// Nombre en config.toml, accion, teclas por defecto y descripcion.
@@ -57,6 +80,12 @@ pub const ACTIONS: &[(&str, Action, &[&str], &str)] = &[
   ("tab_lyrics", Action::TabLyrics, &["2"], "Ir a Letras"),
   ("tab_library", Action::TabLibrary, &["3"], "Ir a Biblioteca"),
   ("tab_search", Action::TabSearch, &["4"], "Ir a Buscar"),
+  ("lyrics_layer", Action::LyricsLayer, &["o"], "Letras: cambiar la capa principal"),
+  ("lyrics_translation", Action::LyricsTranslation, &["t"], "Letras: mostrar u ocultar la traducción"),
+  ("lyrics_offset_down", Action::LyricsOffsetDown, &["["], "Letras: offset -50 ms"),
+  ("lyrics_offset_up", Action::LyricsOffsetUp, &["]"], "Letras: offset +50 ms"),
+  ("lyrics_mode", Action::LyricsMode, &["m"], "Letras: modo clásico o karaoke"),
+  ("lyrics_estimate", Action::LyricsEstimate, &["w"], "Letras: estimar tiempos por palabra"),
 ];
 
 /// Una tecla con sus modificadores.
@@ -193,8 +222,15 @@ impl Keymap {
     self
       .bindings
       .iter()
+      .filter(|(a, _)| !a.is_lyrics())
       .find(|(_, keys)| keys.iter().any(|k| k.matches(ev) && !(typing && k.is_text())))
       .map(|(a, _)| *a)
+  }
+
+  /// Accion de Letras de una tecla (se consulta antes que las globales
+  /// cuando esa vista esta abierta).
+  pub fn lyrics_action(&self, ev: &KeyEvent) -> Option<Action> {
+    self.bindings.iter().filter(|(a, _)| a.is_lyrics()).find(|(_, keys)| keys.iter().any(|k| k.matches(ev))).map(|(a, _)| *a)
   }
 
   pub fn keys(&self, action: Action) -> &[Key] {
@@ -206,6 +242,11 @@ impl Keymap {
     let mut out = Vec::new();
     for (i, (a, keys)) in self.bindings.iter().enumerate() {
       for (b, other) in &self.bindings[i + 1..] {
+        // Una tecla de Letras puede repetir una global: en esa vista manda
+        // la de Letras (la global sigue en las demas).
+        if a.is_lyrics() != b.is_lyrics() {
+          continue;
+        }
         for k in keys {
           if other.contains(k) {
             out.push(format!("keys: {} está en {} y {}", k.label(), name(*a), name(*b)));

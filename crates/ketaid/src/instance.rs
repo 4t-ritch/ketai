@@ -1,4 +1,4 @@
-//! Instancia unica (docs/servicio.md, seccion "Instancia unica").
+//! Instancia unica (docs/service.md, seccion "Single instance").
 //!
 //! El arbitro es un `flock` exclusivo sobre `ketaid.lock`. Solo el dueno del
 //! bloqueo puede cerrar otros procesos, y como hay un unico dueno, dos
@@ -176,7 +176,7 @@ struct Process {
 }
 
 impl Process {
-  /// Aplica todas las validaciones de docs/servicio.md. Devuelve None si
+  /// Aplica todas las validaciones de docs/service.md. Devuelve None si
   /// alguna falla; en ese caso el proceso no se debe tocar.
   fn validate(pid: i32) -> Option<Self> {
     if pid <= 0 || pid as u32 == std::process::id() {

@@ -1,4 +1,4 @@
-//! Conformidad de instancia unica: docs/servicio.md, seccion "Instancia unica".
+//! Conformidad de instancia unica: docs/service.md, seccion "Single instance".
 
 mod common;
 

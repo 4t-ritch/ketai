@@ -1,5 +1,5 @@
-//! Busqueda y arranque del servicio (docs/servicio.md, seccion "Clientes:
-//! buscar y levantar el servicio").
+//! Busqueda y arranque del servicio (docs/service.md, seccion
+//! "Clients").
 //!
 //! `diagnose` es puro: decide el estado a partir de lo observado. `observe`
 //! y `execute` hablan con el sistema (systemd de usuario por D-Bus,

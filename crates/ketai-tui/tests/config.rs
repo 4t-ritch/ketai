@@ -121,7 +121,7 @@ fn cover_color_false_uses_only_manual_colors() {
 #[test]
 fn lyrics_mode_size_and_font() {
   use ketai_tui::config::{LyricsConfig, LyricsMode};
-  assert_eq!(Config::parse("").unwrap().lyrics, LyricsConfig { mode: LyricsMode::Classic, size: 3, font: None });
+  assert_eq!(Config::parse("").unwrap().lyrics, LyricsConfig { mode: LyricsMode::Classic, size: 2, font: None });
   let c = Config::parse("[lyrics]\nmode = \"karaoke\"\nsize = 5\nfont = \"/fonts/a.ttf\"\n").unwrap();
   assert_eq!(c.lyrics, LyricsConfig { mode: LyricsMode::Karaoke, size: 5, font: Some("/fonts/a.ttf".into()) });
   assert!(c.warnings.is_empty(), "{:?}", c.warnings);

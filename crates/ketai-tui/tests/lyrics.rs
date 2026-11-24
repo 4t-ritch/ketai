@@ -238,3 +238,21 @@ fn karaoke_leaves_the_current_line_to_the_image_and_keeps_the_rest_as_text() {
   render(&app);
   assert!(ui::take_karaoke().is_none());
 }
+
+#[test]
+fn karaoke_dims_the_lines_around_the_one_being_sung() {
+  let app = karaoke_ready(4200);
+  let buf = render(&app);
+  ui::take_karaoke();
+  let t = &app.theme;
+  let (x, y) = find(&buf, "let the world burn");
+  assert_eq!(buf[(x, y)].fg, ketai_tui::theme::lerp(t.faint, t.bg, 0.45), "sung lines, dimmer");
+  let (x, y) = find(&buf, "i'd set it all on fire");
+  assert_eq!(buf[(x, y)].fg, ketai_tui::theme::lerp(t.upcoming(), t.bg, 0.35), "coming lines, dimmer");
+  // El modo clasico no cambia.
+  let mut classic = karaoke_ready(4200);
+  classic.lyrics_mode = ketai_tui::config::LyricsMode::Classic;
+  let buf = render(&classic);
+  let (x, y) = find(&buf, "let the world burn");
+  assert_eq!(buf[(x, y)].fg, t.faint);
+}

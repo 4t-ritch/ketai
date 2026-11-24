@@ -86,7 +86,9 @@ pub fn render(fonts: &Fonts, words: &[&str], width: u32, height: u32, colors: Co
   }
   // Un margen a los costados para que la letra no toque el borde.
   let max_width = width.saturating_sub(width / 20).max(1);
-  let mut size = height as f32 * 0.8;
+  // La letra ocupa algo mas de la mitad del alto: con `size` filas se ve
+  // proporcionada al resto (el margen de arriba y abajo separa las lineas).
+  let mut size = height as f32 * 0.55;
   let text_width = measure(fonts, words, size);
   if text_width > max_width as f32 {
     size *= max_width as f32 / text_width;
@@ -218,11 +220,28 @@ pub struct Karaoke {
   font: Option<PathBuf>,
   shown: Option<Shown>,
   placed: Vec<crate::kitty::Overlay>,
+  /// Ultima posicion dibujada (ver `steady`).
+  last_pos: Option<u64>,
+}
+
+/// Correccion mas grande que esto es un salto de verdad (seek), no el
+/// ajuste de la posicion estimada.
+const MAX_CORRECTION_MS: u64 = 600;
+
+/// La posicion entre los avisos del daemon es estimada; cada aviso la
+/// corrige un poco para atras o para adelante. El relleno no vuelve atras
+/// por una correccion chica: se queda quieto hasta que la cancion lo
+/// alcanza. Un salto grande (seek) si se respeta.
+fn steady(last: Option<u64>, pos: u64) -> u64 {
+  match last {
+    Some(l) if pos < l && l - pos <= MAX_CORRECTION_MS => l,
+    _ => pos,
+  }
 }
 
 impl Karaoke {
   pub fn new(unsung_id: u32, font: Option<PathBuf>) -> Self {
-    Karaoke { unsung_id, sung_id: unsung_id + 1, fonts: None, font, shown: None, placed: Vec::new() }
+    Karaoke { unsung_id, sung_id: unsung_id + 1, fonts: None, font, shown: None, placed: Vec::new(), last_pos: None }
   }
 
   /// Carga las fuentes la primera vez. `false` si no hay ninguna (la vista
@@ -280,10 +299,15 @@ impl Karaoke {
         });
         // Datos nuevos con el mismo id borran las ubicaciones anteriores.
         self.placed.clear();
+        if !same {
+          self.last_pos = None;
+        }
       }
       if let Some(s) = &self.shown {
         let (x, y) = (slot.area.x, slot.area.y);
         overlays.push(Overlay { image: self.unsung_id, x, y, crop: None, z: Z_BELOW_BACKGROUND - 1 });
+        let pos_ms = steady(self.last_pos, pos_ms);
+        self.last_pos = Some(pos_ms);
         let edge = fill_x(&slot.times, &s.xs, pos_ms).round() as u32;
         if edge > 0 {
           overlays.push(Overlay { image: self.sung_id, x, y, crop: Some((edge.min(s.size.0), s.size.1)), z: Z_BELOW_BACKGROUND });
@@ -449,5 +473,19 @@ mod tests {
     assert_eq!(line_words(&line, Some(4000)), Some((vec!["whole line".into()], vec![(1000, 4000)])));
     assert_eq!(line_words(&json!({"start_ms": 5, "text": " "}), None), None);
     assert_eq!(line_words(&json!({"start_ms": null, "text": "x"}), None), None);
+  }
+
+  #[test]
+  fn small_corrections_never_move_the_fill_back() {
+    assert_eq!(steady(None, 1000), 1000);
+    assert_eq!(steady(Some(1500), 1400), 1500, "the estimate went back a little: hold");
+    assert_eq!(steady(Some(1500), 1600), 1600, "forward always");
+    assert_eq!(steady(Some(5000), 1000), 1000, "a seek back is a real jump");
+    let Some(fonts) = test_fonts() else { return };
+    let mut k = Karaoke::new(500, None).with_fonts(fonts);
+    let s = slot(&["hold ", "me"]);
+    k.frame(Some(&s), (10, 20), 1500);
+    assert_eq!(k.frame(Some(&s), (10, 20), 1450), "", "nothing goes back");
+    assert!(k.frame(Some(&s), (10, 20), 1100).is_empty());
   }
 }

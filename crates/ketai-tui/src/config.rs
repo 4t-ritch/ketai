@@ -57,7 +57,7 @@ pub const LYRICS_SIZES: std::ops::RangeInclusive<u16> = 2..=8;
 
 impl Default for LyricsConfig {
   fn default() -> Self {
-    Self { mode: LyricsMode::Classic, size: 3, font: None }
+    Self { mode: LyricsMode::Classic, size: 2, font: None }
   }
 }
 

@@ -717,10 +717,18 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
           }
           below = y + area.height;
         } else {
+          // En karaoke las otras lineas van mas tenues: la que se canta
+          // es la que se lee.
+          let (past, next) = if karaoke {
+            (crate::theme::lerp(t.faint, t.bg, 0.45), crate::theme::lerp(t.upcoming(), t.bg, 0.35))
+          } else {
+            (t.faint, t.upcoming())
+          };
+          let text = line["text"].as_str().unwrap_or("").to_string();
           let main = match cur {
             Some(c) if i == c => sung_line(app, line, pos),
-            Some(c) if i < c => Line::styled(line["text"].as_str().unwrap_or("").to_string(), t.faint()),
-            _ => Line::styled(line["text"].as_str().unwrap_or("").to_string(), Style::new().fg(app.theme.upcoming()).add_modifier(Modifier::BOLD)),
+            Some(c) if i < c => Line::styled(text, Style::new().fg(past)),
+            _ => Line::styled(text, Style::new().fg(next).add_modifier(Modifier::BOLD)),
           };
           center(f, y, main);
         }

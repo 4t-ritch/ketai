@@ -112,7 +112,7 @@ fn lyrics_tab_shows_lines_translations_and_offset_with_the_current_word_lit() {
   app.tab = Tab::Lyrics;
   let buf = render(&app);
   let t = text(&buf);
-  for want in ["let the world burn", "deja que el mundo arda", "just to feel something", "solo para sentir algo", "i'd set it all on fire", "-250 ms", "Traducción (es)"] {
+  for want in ["let the world burn", "deja que el mundo arda", "just to feel something", "solo para sentir algo", "i'd set it all on fire", "-250 ms", "Traducción: es"] {
     assert!(t.contains(want), "missing {want:?}\n{t}");
   }
   // "feel" es la palabra que suena (4000..4800): acento y subrayado.
@@ -262,13 +262,13 @@ fn karaoke_dims_the_lines_around_the_one_being_sung() {
 fn the_header_says_which_mode_is_on() {
   let mut app = karaoke_ready(4200);
   app.lyrics_mode = ketai_tui::config::LyricsMode::Classic;
-  assert!(text(&render(&app)).contains("Modo: clásico  m "));
+  assert!(text(&render(&app)).contains("Modo: clásico   m "));
   app.lyrics_mode = ketai_tui::config::LyricsMode::Karaoke;
-  assert!(text(&render(&app)).contains("Modo: karaoke  m "));
+  assert!(text(&render(&app)).contains("Modo: karaoke   m "));
   ui::take_karaoke();
   // Pedido pero sin tamano de celda: se ve el clasico y se avisa.
   app.cell_px = None;
-  assert!(text(&render(&app)).contains("Modo: karaoke (no disponible)  m "));
+  assert!(text(&render(&app)).contains("Modo: karaoke (no disponible)   m "));
 }
 
 #[test]
@@ -420,12 +420,17 @@ fn the_lyrics_options_are_keycaps_that_respond_to_clicks() {
   app.tab = Tab::Lyrics;
   let buf = render(&app);
   let t = text(&buf);
-  for want in ["Capa: Original  o ", "Traducción (es)  t ", "Offset: -250 ms  [   ] ", "Modo: clásico  m "] {
+  for want in ["Capa: Original   o ", "Traducción: es   t ", "Offset: -250 ms   [   ] ", "Modo: clásico   m "] {
     assert!(t.contains(want), "missing {want:?}\n{t}");
   }
-  // La tecla va en un recuadro, como en Reproduciendo.
-  let (x, y) = find(&buf, " m ");
-  assert_eq!(buf[(x + 1, y)].bg, app.theme.raised);
+  // La tecla va en un recuadro, como en Reproduciendo; etiqueta clara y
+  // valor tenue.
+  let (x, y) = find(&buf, "Modo: clásico   m ");
+  assert_eq!(buf[(x, y)].fg, app.theme.fg, "label");
+  assert_eq!(buf[(x + 6, y)].fg, app.theme.faint, "value");
+  assert_eq!(buf[(x + 16, y)].bg, app.theme.raised, "keycap");
+  // Una fila en blanco entre las dos filas de opciones.
+  assert_eq!(find(&buf, "Modo:").1, find(&buf, "Capa:").1 + 2);
   app.hits = ui::take_hits();
   let click = |app: &mut App, needle: &str| {
     let (x, y) = find(&buf, needle);
@@ -433,14 +438,14 @@ fn the_lyrics_options_are_keycaps_that_respond_to_clicks() {
     app.on_mouse(ev, std::time::Instant::now())
   };
   // Clic en el modo: cambia como con `m`.
-  click(&mut app, "Modo: clásico");
+  click(&mut app, "Modo:");
   assert_eq!(app.lyrics_mode, ketai_tui::config::LyricsMode::Karaoke);
   // Clic en `]`: offset +50 (como la tecla).
-  let cmds = click(&mut app, "]  ");
+  let cmds = click(&mut app, " ] ");
   assert_eq!(cmds, vec![("lyrics.set_offset".to_string(), json!({"track_id": "t_1", "offset_ms": -200}))]);
   // Clic en la traduccion: la oculta.
-  click(&mut app, "Traducción (es)");
+  click(&mut app, "Traducción:");
   assert!(app.lyrics_secondary.is_empty());
   let t = text(&render(&app));
-  assert!(t.contains("Sin traducción  t "), "{t}");
+  assert!(t.contains("Traducción: no   t "), "{t}");
 }

@@ -668,10 +668,13 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
   // Opciones de la letra, arriba a la derecha, como en Reproduciendo: cada
   // una con su tecla en un recuadro, y todo clickeable.
   let keycap = |k: &str| Span::styled(format!(" {k} "), Style::new().fg(t.fg).bg(t.raised));
-  let gap = || (Span::raw("     "), None);
+  let gap = || (Span::raw("        "), None);
+  // Etiqueta clara y valor tenue: se lee que es cada cosa.
+  let label = |s: &str, key: char| (Span::styled(format!("{s}: "), t.text()), Some(key));
+  let value = |s: String, key: Option<char>| (Span::styled(format!("{s}  "), t.faint()), key);
   let translation = match app.lyrics_secondary.first() {
-    Some(id) => Span::styled(format!("{} ", layer_label(app, id)), t.accent().add_modifier(Modifier::BOLD)),
-    None => Span::styled("Sin traducción ", t.dim()),
+    Some(id) => app.lyrics_layers.iter().find(|l| l["id"] == id.as_str()).and_then(|l| l["language"].as_str()).unwrap_or(id).to_string(),
+    None => "no".into(),
   };
   let offset = app.lyrics["user_offset_ms"].as_i64().unwrap_or(0);
   // El modo elegido; si se pidio karaoke y la terminal no puede, se avisa.
@@ -682,26 +685,31 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
   };
   let rows: [Vec<(Span, Option<char>)>; 2] = [
     vec![
-      (Span::styled(format!("Capa: {} ", layer_label(app, &app.lyrics_primary)), t.dim()), Some('o')),
+      label("Capa", 'o'),
+      value(layer_label(app, &app.lyrics_primary), Some('o')),
       (keycap("o"), Some('o')),
       gap(),
-      (translation, Some('t')),
+      label("Traducción", 't'),
+      value(translation, Some('t')),
       (keycap("t"), Some('t')),
     ],
     vec![
-      (Span::styled(format!("Offset: {offset} ms "), t.dim()), None),
+      (Span::styled("Offset: ", t.text()), None),
+      value(format!("{offset} ms"), None),
       (keycap("["), Some('[')),
       (Span::raw(" "), None),
       (keycap("]"), Some(']')),
       gap(),
-      (Span::styled(format!("Modo: {mode} "), t.dim()), Some('m')),
+      label("Modo", 'm'),
+      value(mode.to_string(), Some('m')),
       (keycap("m"), Some('m')),
     ],
   ];
   let buf = f.buffer_mut();
   for (k, row) in rows.into_iter().enumerate() {
     let line = Line::from(row.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>());
-    let y = area.y + 2 + k as u16;
+    // Una fila en blanco entre las dos, a la altura de la caratula.
+    let y = area.y + 1 + 2 * k as u16;
     let mut x = area.x + area.width.saturating_sub(line.width() as u16 + 4);
     put_line(buf, x, y, &line, area.width);
     for (span, key) in &row {

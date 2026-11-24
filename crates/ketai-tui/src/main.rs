@@ -170,6 +170,7 @@ fn main() -> io::Result<()> {
   let (tx, rx) = mpsc::channel::<Input>();
   let mut app = App::default();
   if let Some(path) = config::path() {
+    app.config_path = Some(path.clone());
     match Config::load(&path) {
       Ok(c) => app.config = c,
       Err(e) => app.config_error = Some(e),

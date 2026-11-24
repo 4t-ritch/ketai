@@ -33,7 +33,7 @@ accent = "cover"
 [lyrics]
 # Lyrics view mode: "classic" (terminal text) or "karaoke" (the line being
 # sung fills in inside the letters). `m` switches it in the Lyrics view.
-# mode = "classic"
+# mode = "classic"   (m in the Lyrics view also saves it here)
 # Height in rows of the line being sung in karaoke mode (2 to 8).
 # size = 3
 # Lines shown above (1 to 2) and below (1 to 3) the one being sung.

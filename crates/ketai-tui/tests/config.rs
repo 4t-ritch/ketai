@@ -145,3 +145,33 @@ fn lines_before_and_after_are_kept_between_one_and_the_default() {
   assert_eq!(l("[lyrics]\nlines_before = 7\nlines_after = 10"), (2, 3));
   assert_eq!(Config::parse("[lyrics]\nlines_after = \"3\"").unwrap_err(), "lyrics.lines_after: tiene que ser un número (líneas)");
 }
+
+#[test]
+fn the_lyrics_mode_is_written_without_touching_the_rest() {
+  use ketai_tui::config::{LyricsMode, with_lyrics_mode};
+  let k = LyricsMode::Karaoke;
+  // Cambia solo la linea de [lyrics]; comentarios y otras secciones quedan.
+  let text = "# mine\n[theme]\nmode = \"x\"\n\n[lyrics]\n# the mode\n  mode = \"classic\"\nsize = 4\n";
+  assert_eq!(with_lyrics_mode(text, k), "# mine\n[theme]\nmode = \"x\"\n\n[lyrics]\n# the mode\n  mode = \"karaoke\"\nsize = 4\n");
+  // Un `mode` comentado no cuenta: se agrega debajo de la seccion.
+  assert_eq!(with_lyrics_mode("[lyrics]\n# mode = \"classic\"\n", k), "[lyrics]\nmode = \"karaoke\"\n# mode = \"classic\"\n");
+  // Sin seccion: se agrega al final.
+  assert_eq!(with_lyrics_mode("[keys]\nquit = \"q\"", k), "[keys]\nquit = \"q\"\n\n[lyrics]\nmode = \"karaoke\"\n");
+  assert_eq!(with_lyrics_mode("", LyricsMode::Classic), "[lyrics]\nmode = \"classic\"\n");
+  // Lo escrito se vuelve a leer con el modo nuevo.
+  assert_eq!(Config::parse(&with_lyrics_mode(text, k)).unwrap().lyrics.mode, k);
+}
+
+#[test]
+fn saving_the_mode_creates_or_updates_the_file() {
+  use ketai_tui::config::{LyricsMode, save_lyrics_mode};
+  let dir = std::env::temp_dir().join(format!("ketai-save-mode-{}", std::process::id()));
+  let path = dir.join("ketai").join("config.toml");
+  save_lyrics_mode(&path, LyricsMode::Karaoke).unwrap();
+  assert_eq!(std::fs::read_to_string(&path).unwrap(), "[lyrics]\nmode = \"karaoke\"\n");
+  std::fs::write(&path, "[lyrics]\nmode = \"karaoke\"\nsize = 5\n").unwrap();
+  save_lyrics_mode(&path, LyricsMode::Classic).unwrap();
+  assert_eq!(std::fs::read_to_string(&path).unwrap(), "[lyrics]\nmode = \"classic\"\nsize = 5\n");
+  assert!(!path.with_file_name(".config.toml.ketai-tmp").exists(), "no temp file left");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

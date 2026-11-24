@@ -382,3 +382,24 @@ fn before_the_first_line_karaoke_keeps_its_text_where_the_image_will_put_it() {
   assert_eq!(waiting, slot.area.y + 1, "the waiting text sits on the image's middle row");
   assert_eq!(row_of(&buf, "line number 1"), Some(next_before), "the next line does not move");
 }
+
+#[test]
+fn m_saves_the_mode_in_the_config_file() {
+  use ketai_tui::config::{Config, LyricsMode};
+  let dir = std::env::temp_dir().join(format!("ketai-m-saves-{}", std::process::id()));
+  let path = dir.join("config.toml");
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::write(&path, "# keep me\n[lyrics]\nsize = 4\n").unwrap();
+  let mut app = loaded(4200);
+  app.tab = Tab::Lyrics;
+  app.config_path = Some(path.clone());
+  app.on_key(key(KeyCode::Char('m')));
+  let text = std::fs::read_to_string(&path).unwrap();
+  assert_eq!(text, "# keep me\n[lyrics]\nmode = \"karaoke\"\nsize = 4\n");
+  // Al recargar lo guardado, el modo sigue siendo el elegido.
+  app.config = Config::parse(&text).unwrap();
+  app.apply_lyrics_config();
+  assert_eq!(app.lyrics_mode, LyricsMode::Karaoke);
+  assert!(app.notice.is_none());
+  std::fs::remove_dir_all(&dir).unwrap();
+}

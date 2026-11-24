@@ -269,6 +269,8 @@ pub struct App {
   /// Modo de la vista de Letras (empieza como dice `[lyrics] mode`; `m`
   /// lo cambia).
   pub lyrics_mode: crate::config::LyricsMode,
+  /// `config.toml`, donde `m` guarda el modo (`None` en tests: no se escribe).
+  pub config_path: Option<std::path::PathBuf>,
   /// Ultimo `mode` leido del archivo.
   pub lyrics_mode_file: Option<crate::config::LyricsMode>,
   /// Tamano de una celda en pixeles, si la terminal lo informa (sin el, el
@@ -437,6 +439,7 @@ impl Default for App {
       covers: Default::default(),
       lyrics_mode: Default::default(),
       lyrics_mode_file: None,
+      config_path: None,
       cell_px: None,
       karaoke: crate::karaoke::Karaoke::new(KARAOKE_IDS, None),
       karaoke_fonts: false,
@@ -808,6 +811,12 @@ impl App {
           LyricsMode::Classic => LyricsMode::Karaoke,
           LyricsMode::Karaoke => LyricsMode::Classic,
         };
+        // Queda guardado: al recargar el archivo el modo ya coincide.
+        if let Some(path) = &self.config_path
+          && let Err(e) = crate::config::save_lyrics_mode(path, self.lyrics_mode)
+        {
+          self.notice = Some(format!("No se pudo guardar el modo en config.toml: {e}"));
+        }
         Some(Vec::new())
       }
       _ => None,

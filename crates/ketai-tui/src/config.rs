@@ -333,6 +333,67 @@ pub struct CoverPalette {
 }
 
 /// `$XDG_CONFIG_HOME/ketai/config.toml` o `~/.config/ketai/config.toml`.
+/// Valor de `[lyrics] mode` en el archivo.
+fn mode_name(mode: LyricsMode) -> &'static str {
+  match mode {
+    LyricsMode::Classic => "classic",
+    LyricsMode::Karaoke => "karaoke",
+  }
+}
+
+/// El texto del archivo con `[lyrics] mode` cambiado. Solo toca esa linea
+/// (o la agrega, con la seccion si falta): los comentarios y el resto quedan
+/// como estaban.
+pub fn with_lyrics_mode(text: &str, mode: LyricsMode) -> String {
+  let value = format!("mode = \"{}\"", mode_name(mode));
+  let mut out: Vec<String> = Vec::new();
+  let mut section = String::new();
+  let mut header_at = None;
+  let mut done = false;
+  for line in text.lines() {
+    let t = line.trim();
+    if t.starts_with('[') && !t.starts_with("[[") {
+      section = t.trim_start_matches('[').split(']').next().unwrap_or("").trim().to_string();
+      if section == "lyrics" {
+        header_at = Some(out.len());
+      }
+    } else if section == "lyrics" && !done && t.split('=').next().is_some_and(|k| k.trim() == "mode") && t.contains('=') {
+      let indent = &line[..line.len() - line.trim_start().len()];
+      out.push(format!("{indent}{value}"));
+      done = true;
+      continue;
+    }
+    out.push(line.to_string());
+  }
+  match (done, header_at) {
+    (true, _) => {}
+    (false, Some(at)) => out.insert(at + 1, value),
+    (false, None) => {
+      if out.last().is_some_and(|l| !l.trim().is_empty()) {
+        out.push(String::new());
+      }
+      out.push("[lyrics]".into());
+      out.push(value);
+    }
+  }
+  out.join("\n") + "\n"
+}
+
+/// Guarda el modo en el archivo (lo crea si no existe). Escribe en un
+/// temporal y lo renombra: nunca queda un archivo a medias.
+pub fn save_lyrics_mode(path: &Path, mode: LyricsMode) -> Result<(), String> {
+  let text = match std::fs::read_to_string(path) {
+    Ok(t) => t,
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+    Err(e) => return Err(format!("no se pudo leer: {e}")),
+  };
+  let dir = path.parent().ok_or("ruta sin carpeta")?;
+  std::fs::create_dir_all(dir).map_err(|e| format!("no se pudo crear la carpeta: {e}"))?;
+  let tmp = dir.join(".config.toml.ketai-tmp");
+  std::fs::write(&tmp, with_lyrics_mode(&text, mode)).map_err(|e| format!("no se pudo escribir: {e}"))?;
+  std::fs::rename(&tmp, path).map_err(|e| format!("no se pudo guardar: {e}"))
+}
+
 pub fn path() -> Option<PathBuf> {
   let base = std::env::var_os("XDG_CONFIG_HOME")
     .map(PathBuf::from)

@@ -124,11 +124,11 @@ size = 4
 - **`classic`**: terminal text; the word being sung is highlighted.
 - **`karaoke`**: the line being sung is drawn as an image and fills in
   gradually, inside the letters, as each word is sung (like video karaoke).
-  `m` in the Lyrics view switches between the two modes without touching the
-  file.
+  `m` in the Lyrics view switches between the two modes and saves the choice
+  in the file (only the `mode` line of `[lyrics]` changes; comments and the
+  rest stay as they are), so it is kept the next time.
 - **Live reload**: saving the file applies `size` and `font` right away.
-  `mode` applies when it changes in the file; saving something else keeps
-  the mode chosen with `m`.
+  `mode` applies when it changes in the file.
 - **`size`** is the height, in rows, of the line being sung in karaoke mode.
   Bigger is easier to read from far away. A line that does not fit the width
   is drawn smaller.

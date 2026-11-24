@@ -1,22 +1,22 @@
 ---
-name: Reportar un error
-about: Algo no funciona como deberia
+name: Report a bug / Reportar un error
+about: Something does not work as it should (English or Spanish is fine)
 labels: error
 ---
 
-**Que paso**
+**What happened**
 
-**Que esperabas**
+**What you expected**
 
-**Como reproducirlo**
+**How to reproduce it**
 
 1.
 2.
 
-**Entorno**
+**Environment**
 
-- Distribucion de Linux:
-- Terminal (y multiplexor, si usas uno):
-- Version de ketai (`git log -1 --oneline`):
+- Linux distribution:
+- Terminal (and multiplexer, if you use one):
+- ketai version (`git log -1 --oneline`):
 
-**Registros** (si aplica: `KETAI_LOG=/tmp/ketai.log ketai`, o lo que muestra `ketaid`)
+**Logs** (if relevant: `KETAI_LOG=/tmp/ketai.log ketai`, or what `ketaid` shows)

@@ -57,10 +57,10 @@ En cualquier pestana (salvo mientras se escribe en Buscar):
 | `*` | marcar o desmarcar como favorita la cancion que suena |
 | `P` | agregar la cancion que suena a una playlist |
 | `f` | carpetas de la biblioteca |
-| `Ctrl+P`, `/` o `Ctrl+K` | acciones y busqueda rapida sobre la pantalla actual |
+| `Ctrl+P` | acciones y busqueda rapida sobre la pantalla actual |
 | `q` | salir (`Ctrl+C` sale siempre) |
 
-Letras:
+Letras (configurables en `[keys]`, ver [config.md](config.md#keys)):
 
 | Tecla | Accion |
 |---|---|
@@ -68,6 +68,11 @@ Letras:
 | `o` | cambiar la capa principal (original, romanizada) |
 | `[` / `]` | offset -50 / +50 ms (se guarda por archivo) |
 | `w` | estimar tiempos por palabra cuando la capa no los trae |
+| `k` | cambiar entre el modo clasico y el modo karaoke (ver [config.md](config.md#lyrics)) |
+
+Arriba a la derecha de Letras se ve cada opcion con su tecla, como en
+Reproduciendo: la capa (`o`), la traduccion (`t`), el offset (`[` / `]`) y el
+modo (`k`). Un clic en una opcion hace lo mismo que su tecla.
 
 Biblioteca:
 

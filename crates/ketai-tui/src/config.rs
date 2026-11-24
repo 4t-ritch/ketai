@@ -31,9 +31,58 @@ pub struct ThemeConfig {
   pub fixed: Vec<(&'static str, RColor)>,
 }
 
+/// Como se muestra la letra en la vista de Letras.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LyricsMode {
+  /// Texto de la terminal; resalta la palabra que se canta.
+  #[default]
+  Classic,
+  /// La linea que se canta es una imagen que se pinta por dentro de las
+  /// letras a medida que se canta.
+  Karaoke,
+}
+
+/// `[lyrics]`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LyricsConfig {
+  pub mode: LyricsMode,
+  /// Alto, en filas, de la linea que se canta en modo karaoke.
+  pub size: u16,
+  /// Fuente para el modo karaoke; `None` la elige fontconfig.
+  pub font: Option<std::path::PathBuf>,
+  /// Lineas que se ven arriba y abajo de la que se canta.
+  pub lines_before: u16,
+  pub lines_after: u16,
+}
+
+/// Maximo (y valor por defecto) de `lines_before` y `lines_after`.
+pub const LINES_BEFORE: u16 = 2;
+pub const LINES_AFTER: u16 = 3;
+
+/// Menos de 1 (o negativo) es 1; mas del maximo es el valor por defecto.
+fn lines_around(n: i64, max: u16) -> u16 {
+  if n < 1 {
+    1
+  } else if n > max as i64 {
+    max
+  } else {
+    n as u16
+  }
+}
+
+/// Rango de `[lyrics] size`.
+pub const LYRICS_SIZES: std::ops::RangeInclusive<u16> = 2..=8;
+
+impl Default for LyricsConfig {
+  fn default() -> Self {
+    Self { mode: LyricsMode::Classic, size: 3, font: None, lines_before: LINES_BEFORE, lines_after: LINES_AFTER }
+  }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
   pub theme: ThemeConfig,
+  pub lyrics: LyricsConfig,
   /// Atajos globales (`[keys]`).
   pub keys: crate::keys::Keymap,
   /// Claves que no se reconocen (no frenan la carga).
@@ -43,6 +92,7 @@ pub struct Config {
 impl Default for Config {
   fn default() -> Self {
     Self { theme: ThemeConfig { cover_color: None, background: Color::Cover, accent: Color::Cover, fixed: Vec::new() },
+      lyrics: LyricsConfig::default(),
       keys: crate::keys::Keymap::default(),
       warnings: Vec::new(),
     }
@@ -60,6 +110,14 @@ fn hex(s: &str) -> Option<RColor> {
   }
   let v = u32::from_str_radix(h, 16).ok()?;
   Some(crate::theme::rgb(v))
+}
+
+/// `~/` al principio es el home.
+fn expand_home(path: &str) -> std::path::PathBuf {
+  match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
+    (Some(rest), Some(home)) => std::path::Path::new(&home).join(rest),
+    _ => std::path::PathBuf::from(path),
+  }
 }
 
 impl Config {
@@ -122,6 +180,42 @@ impl Config {
             config.keys.set(action, parsed);
           }
           config.warnings.extend(config.keys.conflicts());
+        }
+        "lyrics" => {
+          let lyrics = value.as_table().ok_or("lyrics: tiene que ser una sección [lyrics]")?;
+          for (k, v) in lyrics {
+            let name = format!("lyrics.{k}");
+            match k.as_str() {
+              "mode" => {
+                config.lyrics.mode = match v.as_str() {
+                  Some("classic") => LyricsMode::Classic,
+                  Some("karaoke") => LyricsMode::Karaoke,
+                  _ => return Err(format!("{name}: tiene que ser \"classic\" o \"karaoke\"")),
+                }
+              }
+              "size" => {
+                let (lo, hi) = (*LYRICS_SIZES.start(), *LYRICS_SIZES.end());
+                config.lyrics.size = v
+                  .as_integer()
+                  .and_then(|n| u16::try_from(n).ok())
+                  .filter(|n| LYRICS_SIZES.contains(n))
+                  .ok_or_else(|| format!("{name}: tiene que ser un número de {lo} a {hi} (filas)"))?;
+              }
+              "lines_before" | "lines_after" => {
+                let n = v.as_integer().ok_or_else(|| format!("{name}: tiene que ser un número (líneas)"))?;
+                if k == "lines_before" {
+                  config.lyrics.lines_before = lines_around(n, LINES_BEFORE);
+                } else {
+                  config.lyrics.lines_after = lines_around(n, LINES_AFTER);
+                }
+              }
+              "font" => {
+                let path = v.as_str().ok_or_else(|| format!("{name}: tiene que ser la ruta de un archivo de fuente"))?;
+                config.lyrics.font = Some(expand_home(path));
+              }
+              _ => config.warnings.push(format!("{name}: clave desconocida, se ignora")),
+            }
+          }
         }
         // La lee el daemon (carpeta de playlists).
         "playlists" => {}
@@ -239,6 +333,67 @@ pub struct CoverPalette {
 }
 
 /// `$XDG_CONFIG_HOME/ketai/config.toml` o `~/.config/ketai/config.toml`.
+/// Valor de `[lyrics] mode` en el archivo.
+fn mode_name(mode: LyricsMode) -> &'static str {
+  match mode {
+    LyricsMode::Classic => "classic",
+    LyricsMode::Karaoke => "karaoke",
+  }
+}
+
+/// El texto del archivo con `[lyrics] mode` cambiado. Solo toca esa linea
+/// (o la agrega, con la seccion si falta): los comentarios y el resto quedan
+/// como estaban.
+pub fn with_lyrics_mode(text: &str, mode: LyricsMode) -> String {
+  let value = format!("mode = \"{}\"", mode_name(mode));
+  let mut out: Vec<String> = Vec::new();
+  let mut section = String::new();
+  let mut header_at = None;
+  let mut done = false;
+  for line in text.lines() {
+    let t = line.trim();
+    if t.starts_with('[') && !t.starts_with("[[") {
+      section = t.trim_start_matches('[').split(']').next().unwrap_or("").trim().to_string();
+      if section == "lyrics" {
+        header_at = Some(out.len());
+      }
+    } else if section == "lyrics" && !done && t.split('=').next().is_some_and(|k| k.trim() == "mode") && t.contains('=') {
+      let indent = &line[..line.len() - line.trim_start().len()];
+      out.push(format!("{indent}{value}"));
+      done = true;
+      continue;
+    }
+    out.push(line.to_string());
+  }
+  match (done, header_at) {
+    (true, _) => {}
+    (false, Some(at)) => out.insert(at + 1, value),
+    (false, None) => {
+      if out.last().is_some_and(|l| !l.trim().is_empty()) {
+        out.push(String::new());
+      }
+      out.push("[lyrics]".into());
+      out.push(value);
+    }
+  }
+  out.join("\n") + "\n"
+}
+
+/// Guarda el modo en el archivo (lo crea si no existe). Escribe en un
+/// temporal y lo renombra: nunca queda un archivo a medias.
+pub fn save_lyrics_mode(path: &Path, mode: LyricsMode) -> Result<(), String> {
+  let text = match std::fs::read_to_string(path) {
+    Ok(t) => t,
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+    Err(e) => return Err(format!("no se pudo leer: {e}")),
+  };
+  let dir = path.parent().ok_or("ruta sin carpeta")?;
+  std::fs::create_dir_all(dir).map_err(|e| format!("no se pudo crear la carpeta: {e}"))?;
+  let tmp = dir.join(".config.toml.ketai-tmp");
+  std::fs::write(&tmp, with_lyrics_mode(&text, mode)).map_err(|e| format!("no se pudo escribir: {e}"))?;
+  std::fs::rename(&tmp, path).map_err(|e| format!("no se pudo guardar: {e}"))
+}
+
 pub fn path() -> Option<PathBuf> {
   let base = std::env::var_os("XDG_CONFIG_HOME")
     .map(PathBuf::from)

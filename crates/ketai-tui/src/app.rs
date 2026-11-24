@@ -114,6 +114,8 @@ pub enum Hit {
   Seek { x: u16, w: u16 },
   /// Barra de volumen.
   Volume { x: u16, w: u16 },
+  /// Una linea de la letra: salta a su inicio (ms).
+  LyricLine(u64),
   LibView(LibView),
   /// Fila de la columna izquierda de Biblioteca (playlist o grupo).
   LibSide(usize),
@@ -264,6 +266,21 @@ pub struct App {
   /// La terminal muestra imagenes (protocolo kitty).
   pub images: bool,
   pub covers: crate::covers::CoverCache,
+  /// Modo de la vista de Letras (empieza como dice `[lyrics] mode`; `m`
+  /// lo cambia).
+  pub lyrics_mode: crate::config::LyricsMode,
+  /// `config.toml`, donde `m` guarda el modo (`None` en tests: no se escribe).
+  pub config_path: Option<std::path::PathBuf>,
+  /// Desplazamiento de la lista de teclas repetidas.
+  pub dup_scroll: u16,
+  /// Ultimo `mode` leido del archivo.
+  pub lyrics_mode_file: Option<crate::config::LyricsMode>,
+  /// Tamano de una celda en pixeles, si la terminal lo informa (sin el, el
+  /// modo karaoke no puede dibujar y se ve el clasico).
+  pub cell_px: Option<(u16, u16)>,
+  pub karaoke: crate::karaoke::Karaoke,
+  /// Hay fuentes para el karaoke (se cargan al activarlo).
+  pub karaoke_fonts: bool,
   /// `output.list` / `output.changed`: dispositivos del servidor de sonido.
   pub outputs: Vec<Value>,
   pub outputs_loaded: bool,
@@ -339,6 +356,26 @@ pub fn fmt_ms(ms: u64) -> String {
   if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
 }
 
+/// Primer id de las imagenes del karaoke en tests; el programa usa
+/// `karaoke_ids` (dentro del rango propio del proceso).
+const KARAOKE_IDS: u32 = 900;
+
+/// Las tres ultimas del rango de ids del proceso: las caratulas cuentan
+/// desde el principio y nunca llegan ahi.
+pub fn karaoke_ids(process_base: u32) -> u32 {
+  process_base + (1 << 20) - 3
+}
+
+/// Tamano de celda a partir de lo que informa la terminal (columnas,
+/// filas, ancho y alto en pixeles). `None` si falta algun dato.
+pub fn cell_px(size: Option<(u16, u16, u16, u16)>) -> Option<(u16, u16)> {
+  let (cols, rows, w, h) = size?;
+  if cols == 0 || rows == 0 || w < cols || h < rows {
+    return None;
+  }
+  Some((w / cols, h / rows))
+}
+
 impl Default for App {
   fn default() -> Self {
     Self {
@@ -402,6 +439,13 @@ impl Default for App {
       seek_preview: None,
       images: false,
       covers: Default::default(),
+      lyrics_mode: Default::default(),
+      lyrics_mode_file: None,
+      dup_scroll: 0,
+      config_path: None,
+      cell_px: None,
+      karaoke: crate::karaoke::Karaoke::new(KARAOKE_IDS, None),
+      karaoke_fonts: false,
       outputs: Vec::new(),
       outputs_loaded: false,
       outputs_asked: false,
@@ -427,6 +471,9 @@ impl App {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
       self.quit = true;
       return Vec::new();
+    }
+    if self.keys_blocked() {
+      return self.blocked_key(key);
     }
     if self.folders_open {
       return self.folders_key(key);
@@ -478,6 +525,15 @@ impl App {
   /// Evento del mouse. Usa lo registrado en el ultimo cuadro: lo de arriba
   /// (un popup) gana sobre lo de atras.
   pub fn on_mouse(&mut self, ev: MouseEvent, now: Instant) -> Vec<Command> {
+    // Con teclas repetidas solo se desplaza la lista.
+    if self.keys_blocked() {
+      match ev.kind {
+        MouseEventKind::ScrollDown => self.dup_scroll = self.dup_scroll.saturating_add(1),
+        MouseEventKind::ScrollUp => self.dup_scroll = self.dup_scroll.saturating_sub(1),
+        _ => {}
+      }
+      return Vec::new();
+    }
     let at = |r: &Rect| ev.column >= r.x && ev.column < r.x + r.width && ev.row >= r.y && ev.row < r.y + r.height;
     let hit = self.hits.iter().rev().find(|(r, _)| at(r)).map(|(r, h)| (*r, *h));
     let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
@@ -538,6 +594,14 @@ impl App {
           Hit::Volume { .. } => {
             self.dragging = Some(hit);
             self.set_volume_at(hit, ev.column)
+          }
+          Hit::LyricLine(ms) => {
+            // Hasta que llegue la posicion nueva del daemon, se muestra esta.
+            if let Some(obj) = self.player.as_object_mut() {
+              obj.insert("position_ms".into(), json!(ms));
+            }
+            self.pos_at = Instant::now();
+            vec![("player.seek".into(), json!({"position_ms": ms}))]
           }
           Hit::LibSideArea | Hit::LibListArea => Vec::new(),
           Hit::Confirm(yes) => self.on_key(key(KeyCode::Char(if yes { 'a' } else { 'n' }))),
@@ -622,6 +686,9 @@ impl App {
   /// Ejecuta una accion global (de una tecla o de un clic).
   pub fn do_action(&mut self, action: crate::keys::Action) -> Vec<Command> {
     use crate::keys::Action as A;
+    if action.is_lyrics() {
+      return self.lyrics_action(action).unwrap_or_default();
+    }
     let cmd = |m: &str| vec![(m.to_string(), json!({}))];
     let volume = |app: &App, step: f64| {
       let v = app.player["volume"].as_f64().unwrap_or(1.0) + step;
@@ -629,6 +696,8 @@ impl App {
       vec![("player.set_volume".into(), json!({"volume": v}))]
     };
     match action {
+      // Ya resueltas arriba.
+      A::LyricsLayer | A::LyricsTranslation | A::LyricsOffsetDown | A::LyricsOffsetUp | A::LyricsMode | A::LyricsEstimate => {}
       A::Devices => return self.open_devices(),
       A::Favorite => return self.toggle_favorite(),
       A::AddToPlaylist if self.now_uri().is_some() => {
@@ -723,19 +792,40 @@ impl App {
 
   /// Teclas propias de la pestana Letras. `None` si la tecla no es suya.
   fn lyrics_key(&mut self, key: KeyEvent) -> Option<Vec<Command>> {
+    let action = self.config.keys.lyrics_action(&key)?;
+    self.lyrics_action(action)
+  }
+
+  /// Una accion de Letras (por tecla o por clic en la cabecera).
+  fn lyrics_action(&mut self, action: crate::keys::Action) -> Option<Vec<Command>> {
+    use crate::keys::Action as A;
+    if action == A::LyricsMode {
+      use crate::config::LyricsMode;
+      self.lyrics_mode = match self.lyrics_mode {
+        LyricsMode::Classic => LyricsMode::Karaoke,
+        LyricsMode::Karaoke => LyricsMode::Classic,
+      };
+      // Queda guardado: al recargar el archivo el modo ya coincide.
+      if let Some(path) = &self.config_path
+        && let Err(e) = crate::config::save_lyrics_mode(path, self.lyrics_mode)
+      {
+        self.notice = Some(format!("No se pudo guardar el modo en config.toml: {e}"));
+      }
+      return Some(Vec::new());
+    }
     let track = self.lyrics_track.clone()?;
-    match key.code {
-      KeyCode::Char(c @ ('[' | ']')) => {
-        let step = if c == ']' { 50 } else { -50 };
+    match action {
+      A::LyricsOffsetDown | A::LyricsOffsetUp => {
+        let step = if action == A::LyricsOffsetUp { 50 } else { -50 };
         let offset = self.lyrics["user_offset_ms"].as_i64().unwrap_or(0) + step;
         Some(vec![("lyrics.set_offset".into(), json!({"track_id": track, "offset_ms": offset}))])
       }
-      KeyCode::Char('t') => {
+      A::LyricsTranslation => {
         self.lyrics_chosen = true;
         self.lyrics_secondary = if self.lyrics_secondary.is_empty() { self.first_translation().into_iter().collect() } else { Vec::new() };
         Some(vec![self.lyrics_get(&track)])
       }
-      KeyCode::Char('o') => {
+      A::LyricsLayer => {
         // Capas que pueden ser principales: original y romanizadas.
         let ids: Vec<String> = self
           .lyrics_layers
@@ -752,7 +842,7 @@ impl App {
         self.lyrics_chosen = true;
         Some(vec![self.lyrics_get(&track)])
       }
-      KeyCode::Char('w') => {
+      A::LyricsEstimate => {
         self.lyrics_estimate = !self.lyrics_estimate;
         Some(vec![self.lyrics_get(&track)])
       }
@@ -1365,6 +1455,50 @@ impl App {
   }
 
   /// Linea actual de la letra: la ultima que ya empezo.
+  /// La vista de Letras dibuja en modo karaoke: lo pidio el usuario, la
+  /// terminal muestra imagenes y dice el tamano de sus celdas, y hay una
+  /// fuente.
+  pub fn karaoke_on(&self) -> bool {
+    self.lyrics_mode == crate::config::LyricsMode::Karaoke && self.images && self.cell_px.is_some() && self.karaoke_fonts
+  }
+
+  /// Hay un popup abierto (tapa parte de la vista).
+  pub fn popup_open(&self) -> bool {
+    self.palette_open || self.devices_open || self.folders_open || self.add_open || self.keys_blocked()
+  }
+
+  /// Hay teclas repetidas en `[keys]`: la TUI no se puede usar hasta
+  /// corregirlas (se desbloquea sola al guardar el archivo arreglado).
+  pub fn keys_blocked(&self) -> bool {
+    !self.config.keys.duplicates().is_empty()
+  }
+
+  /// Teclas con el bloqueo de teclas repetidas: solo desplazar la lista y
+  /// salir.
+  fn blocked_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    match key.code {
+      KeyCode::Char('q') => self.quit = true,
+      KeyCode::Down | KeyCode::Char('j') => self.dup_scroll = self.dup_scroll.saturating_add(1),
+      KeyCode::Up | KeyCode::Char('k') => self.dup_scroll = self.dup_scroll.saturating_sub(1),
+      KeyCode::PageDown => self.dup_scroll = self.dup_scroll.saturating_add(10),
+      KeyCode::PageUp => self.dup_scroll = self.dup_scroll.saturating_sub(10),
+      KeyCode::Home => self.dup_scroll = 0,
+      _ => {}
+    }
+    Vec::new()
+  }
+
+  /// Aplica `[lyrics]` de la configuracion (al iniciar y al recargarla).
+  /// El modo del archivo se aplica al iniciar y cuando cambia `mode`; si se
+  /// guarda otra cosa (por ejemplo `size`), queda el elegido con `m`.
+  pub fn apply_lyrics_config(&mut self) {
+    if self.lyrics_mode_file != Some(self.config.lyrics.mode) {
+      self.lyrics_mode = self.config.lyrics.mode;
+      self.lyrics_mode_file = Some(self.config.lyrics.mode);
+    }
+    self.karaoke.set_font(self.config.lyrics.font.clone());
+  }
+
   pub fn lyrics_line(&self) -> Option<usize> {
     let pos = self.position_ms();
     let lines = self.lyrics["lines"].as_array()?;

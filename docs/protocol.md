@@ -212,8 +212,8 @@ that do not use it ignore it.
       "agent": "v1",
       "background": false,
       "words": [
-        {"start_ms": 12000, "end_ms": 12600, "text": "kimi"},
-        {"start_ms": 12600, "end_ms": 12900, "text": " no"}
+        {"start_ms": 12000, "end_ms": 12600, "text": "kimi "},
+        {"start_ms": 12600, "end_ms": 12900, "text": "no"}
       ],
       "secondary": {"es": "tu voz"}
     }
@@ -227,10 +227,15 @@ that do not use it ignore it.
   common anchor). If the original has no timing (`timing: "none"`), they are
   `null` and the package has `timing: "none"`.
 - `end_ms` can be `null` if the format does not provide it; the client uses
-  the next line's `start_ms`.
+  the next line's `start_ms`. In LRC the line ends where the next one starts,
+  except with A2 (word timing): the closing `<mm:ss.xx>` after the last word
+  ends the line too, so it is not lit longer than it is sung (the same as
+  TTML's `end`). A timestamp with no text (`[00:04.00]`) is a pause: it ends
+  the previous line and is not a line itself.
 - `text`: the primary layer's text for that line.
 - `words`: the primary layer's words with their own timing, or `null` if
-  `timing` is `"none"` or `"line"`.
+  `timing` is `"none"` or `"line"`. Each word carries the space that follows
+  it (`"kimi "`, `"no"`), so joining the words gives the line's text.
 - `secondary`: object `{layer_id: text}`, per line only, no words. A line
   with no text in a secondary layer does not have that key.
 - `agent` and `background` come from TTML (duets and backing vocals); in

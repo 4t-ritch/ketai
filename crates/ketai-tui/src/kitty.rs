@@ -106,6 +106,53 @@ pub fn update(old: &[Placement], new: &[Placement]) -> String {
   out
 }
 
+/// Una imagen a su tamano real en pixeles (sin escalar a las celdas), con
+/// su esquina en la celda `(x, y)`. `crop` muestra solo el rectangulo
+/// `ancho x alto` de arriba a la izquierda. La usa el modo karaoke: la
+/// imagen "cantada" va encima de la "sin cantar" (`z` mayor), recortada
+/// hasta donde va la cancion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Overlay {
+  pub image: u32,
+  pub x: u16,
+  pub y: u16,
+  pub crop: Option<(u32, u32)>,
+  pub z: i32,
+}
+
+fn place_overlay(o: &Overlay) -> String {
+  let crop = match o.crop {
+    Some((w, h)) => format!("x=0,y=0,w={w},h={h},"),
+    None => String::new(),
+  };
+  // Cada imagen tiene una sola ubicacion (p=1): ponerla de nuevo la
+  // reemplaza en el lugar, sin parpadeo.
+  format!("\x1b[{};{}H\x1b_Ga=p,i={},p=1,{crop}C=1,z={},q=2\x1b\\", o.y + 1, o.x + 1, o.image, o.z)
+}
+
+/// Lo que hay que mandar para pasar de `old` a `new`: se quitan las que ya
+/// no estan y se ubican solo las que cambiaron. En cada cuadro del karaoke
+/// cambia solo el recorte de una imagen: se manda solo esa.
+pub fn overlay_update(old: &[Overlay], new: &[Overlay]) -> String {
+  let mut out = String::new();
+  for o in old {
+    if !new.iter().any(|n| n.image == o.image) {
+      let _ = write!(out, "\x1b_Ga=d,d=i,i={},q=2\x1b\\", o.image);
+    }
+  }
+  for n in new {
+    if !old.contains(n) {
+      out.push_str(&place_overlay(n));
+    }
+  }
+  out
+}
+
+/// Vuelve a ubicar todas (para cuando el multiplexor las perdio).
+pub fn overlay_refresh(all: &[Overlay]) -> String {
+  all.iter().map(place_overlay).collect()
+}
+
 /// Pregunta de soporte: una imagen de 1x1 con id 31, seguida de DA1 para
 /// saber cuando termino de responder la terminal.
 pub const QUERY: &str = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c";

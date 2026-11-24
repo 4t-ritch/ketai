@@ -57,3 +57,25 @@ fn examples_do_what_they_say() {
   let media = load("keys/media.toml");
   assert!(media.keys.keys(Action::Toggle).iter().all(|k| !k.is_text()), "media keys are never plain letters");
 }
+
+#[test]
+fn every_action_and_its_default_keys_are_documented() {
+  // Las tablas de acciones de la documentacion (ingles y espanol) tienen
+  // cada accion configurable con sus teclas por defecto: si se agrega una
+  // accion o cambia una tecla, este test lo exige en los cuatro documentos.
+  let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+  for doc in ["docs/config.md", "docs/es/config.md", "examples/keys/README.md", "examples/keys/README.es.md"] {
+    let text = std::fs::read_to_string(root.join(doc)).unwrap();
+    for (name, _, keys, _) in ketai_tui::keys::ACTIONS {
+      let row = text.lines().find(|l| l.starts_with('|') && l.contains(&format!("`{name}`"))).unwrap_or_else(|| panic!("{doc}: {name} is not in the table"));
+      for k in *keys {
+        assert!(row.contains(&format!("`{k}`")), "{doc}: the row of {name} does not show its default key {k:?}: {row}");
+      }
+    }
+  }
+  // El ejemplo con todos los valores por defecto los tiene todos.
+  let defaults = std::fs::read_to_string(root.join("examples/keys/defaults.toml")).unwrap();
+  for (name, _, _, _) in ketai_tui::keys::ACTIONS {
+    assert!(defaults.lines().any(|l| l.starts_with(&format!("{name} ="))), "examples/keys/defaults.toml: {name} is missing");
+  }
+}

@@ -117,3 +117,61 @@ fn cover_color_false_uses_only_manual_colors() {
   assert_eq!(t.faint, Theme::default().faint);
   assert!(Config::parse("[theme]\ncover_color = \"yes\"\n").unwrap_err().contains("theme.cover_color"));
 }
+
+#[test]
+fn lyrics_mode_size_and_font() {
+  use ketai_tui::config::{LyricsConfig, LyricsMode};
+  assert_eq!(Config::parse("").unwrap().lyrics, LyricsConfig { mode: LyricsMode::Classic, size: 3, font: None, lines_before: 2, lines_after: 3 });
+  let c = Config::parse("[lyrics]\nmode = \"karaoke\"\nsize = 5\nfont = \"/fonts/a.ttf\"\n").unwrap();
+  assert_eq!(c.lyrics, LyricsConfig { mode: LyricsMode::Karaoke, size: 5, font: Some("/fonts/a.ttf".into()), lines_before: 2, lines_after: 3 });
+  assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+  assert_eq!(Config::parse("[lyrics]\nmode = \"big\"").unwrap_err(), "lyrics.mode: tiene que ser \"classic\" o \"karaoke\"");
+  for bad in ["1", "9", "\"3\""] {
+    assert_eq!(Config::parse(&format!("[lyrics]\nsize = {bad}")).unwrap_err(), "lyrics.size: tiene que ser un número de 2 a 8 (filas)");
+  }
+  assert_eq!(Config::parse("[lyrics]\nzoom = 2").unwrap().warnings, ["lyrics.zoom: clave desconocida, se ignora"]);
+}
+
+#[test]
+fn lines_before_and_after_are_kept_between_one_and_the_default() {
+  let l = |text: &str| {
+    let c = Config::parse(text).unwrap().lyrics;
+    (c.lines_before, c.lines_after)
+  };
+  assert_eq!(l("[lyrics]\nlines_before = 1\nlines_after = 2"), (1, 2));
+  // Menos de 1 o negativo: 1.
+  assert_eq!(l("[lyrics]\nlines_before = 0\nlines_after = -4"), (1, 1));
+  // Mas del maximo: el valor por defecto, dos arriba y tres abajo.
+  assert_eq!(l("[lyrics]\nlines_before = 7\nlines_after = 10"), (2, 3));
+  assert_eq!(Config::parse("[lyrics]\nlines_after = \"3\"").unwrap_err(), "lyrics.lines_after: tiene que ser un número (líneas)");
+}
+
+#[test]
+fn the_lyrics_mode_is_written_without_touching_the_rest() {
+  use ketai_tui::config::{LyricsMode, with_lyrics_mode};
+  let k = LyricsMode::Karaoke;
+  // Cambia solo la linea de [lyrics]; comentarios y otras secciones quedan.
+  let text = "# mine\n[theme]\nmode = \"x\"\n\n[lyrics]\n# the mode\n  mode = \"classic\"\nsize = 4\n";
+  assert_eq!(with_lyrics_mode(text, k), "# mine\n[theme]\nmode = \"x\"\n\n[lyrics]\n# the mode\n  mode = \"karaoke\"\nsize = 4\n");
+  // Un `mode` comentado no cuenta: se agrega debajo de la seccion.
+  assert_eq!(with_lyrics_mode("[lyrics]\n# mode = \"classic\"\n", k), "[lyrics]\nmode = \"karaoke\"\n# mode = \"classic\"\n");
+  // Sin seccion: se agrega al final.
+  assert_eq!(with_lyrics_mode("[keys]\nquit = \"q\"", k), "[keys]\nquit = \"q\"\n\n[lyrics]\nmode = \"karaoke\"\n");
+  assert_eq!(with_lyrics_mode("", LyricsMode::Classic), "[lyrics]\nmode = \"classic\"\n");
+  // Lo escrito se vuelve a leer con el modo nuevo.
+  assert_eq!(Config::parse(&with_lyrics_mode(text, k)).unwrap().lyrics.mode, k);
+}
+
+#[test]
+fn saving_the_mode_creates_or_updates_the_file() {
+  use ketai_tui::config::{LyricsMode, save_lyrics_mode};
+  let dir = std::env::temp_dir().join(format!("ketai-save-mode-{}", std::process::id()));
+  let path = dir.join("ketai").join("config.toml");
+  save_lyrics_mode(&path, LyricsMode::Karaoke).unwrap();
+  assert_eq!(std::fs::read_to_string(&path).unwrap(), "[lyrics]\nmode = \"karaoke\"\n");
+  std::fs::write(&path, "[lyrics]\nmode = \"karaoke\"\nsize = 5\n").unwrap();
+  save_lyrics_mode(&path, LyricsMode::Classic).unwrap();
+  assert_eq!(std::fs::read_to_string(&path).unwrap(), "[lyrics]\nmode = \"classic\"\nsize = 5\n");
+  assert!(!path.with_file_name(".config.toml.ketai-tmp").exists(), "no temp file left");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

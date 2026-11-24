@@ -41,6 +41,12 @@ colors can be used too (see [examples/theme/](../../examples/theme/README.md)).
   such as the romanized version (`o` changes the primary layer).
 - **Timing adjustment** (`[` / `]`, in 50 ms steps), stored per file.
 - If the lyrics have no word timing, `w` estimates it.
+- The line being sung stays in the middle; clicking a line (with its
+  translation) jumps to that part of the song. How many lines are shown
+  above and below is set in `[lyrics]`.
+- **Karaoke mode** (`k`): the line being sung fills in gradually, inside the
+  letters, like video karaoke, at the size set with `[lyrics] size` (see
+  [../config.md](../config.md#lyrics)).
 - Lyrics are read from files next to the audio (`song.lrc`, `song.ttml`,
   `song.txt`; translation in `song.es.lrc`) or from the lyrics embedded in
   the audio file itself.
@@ -78,7 +84,7 @@ colors can be used too (see [examples/theme/](../../examples/theme/README.md)).
 
 From any screen: type to search songs and playlists, or pick an action
 (audio output, scan the library, lyrics layers, folders). `Enter` plays or
-runs, `Tab` adds to the queue. It also opens with `/` or `Ctrl+K`.
+runs, `Tab` adds to the queue.
 
 ## Playlists and favorites
 

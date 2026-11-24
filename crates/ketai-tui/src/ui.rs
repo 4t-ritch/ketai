@@ -699,15 +699,18 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
       // En modo karaoke la linea actual es una imagen de `size` filas.
       let karaoke = app.karaoke_on() && cur.is_some();
       let size = app.config.lyrics.size;
-      let big = if karaoke { size + 2 } else { 4 };
+      // Antes de la primera linea ya se reserva el lugar de la imagen: asi
+      // nada se mueve cuando empieza a cantarse.
+      let big = if app.karaoke_on() { size + 2 } else { 4 };
       // La linea actual va en el centro de la vista; las otras, hacia
       // arriba y hacia abajo, las que entren.
       let anchor = cur.unwrap_or(0);
       let secondary = app.lyrics_secondary.iter().filter(|id| lines[anchor]["secondary"][id.as_str()].is_string()).count() as u16;
-      let block = if karaoke { size } else { 1 } + secondary;
+      let block = if app.karaoke_on() { size } else { 1 } + secondary;
       let bottom = lines_area.y + lines_area.height;
       let middle = lines_area.y + lines_area.height / 2;
-      let y_cur = middle.saturating_sub(block / 2).max(lines_area.y);
+      // Una fila por encima del centro: abajo estan el espectro y el progreso.
+      let y_cur = middle.saturating_sub(block / 2 + 1).max(lines_area.y);
       let before = (app.config.lyrics.lines_before as usize).min(anchor);
       let after = app.config.lyrics.lines_after as usize;
       let mut slots: Vec<(usize, u16)> = Vec::new();
@@ -725,6 +728,9 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
       }
       for (i, y) in slots {
         let line = &lines[i];
+        // En karaoke, la primera linea que espera va en la fila del medio de
+        // la imagen, donde despues queda su texto (sin salto al empezar).
+        let y = if app.karaoke_on() && cur.is_none() && i == anchor { y + size / 2 } else { y };
         let mut below = y + 1;
         let mut width: u16;
         if karaoke && cur == Some(i) {

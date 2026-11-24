@@ -363,3 +363,22 @@ fn clicking_a_line_seeks_to_its_start() {
   // Solo el parrafo: a los costados del texto no hace nada.
   assert!(app.on_mouse(click(1, y), std::time::Instant::now()).is_empty());
 }
+
+#[test]
+fn before_the_first_line_karaoke_keeps_its_text_where_the_image_will_put_it() {
+  let mut app = karaoke_ready(0);
+  ten_lines(&mut app);
+  app.config.lyrics.size = 3;
+  // Antes de la primera linea (empieza en 1000).
+  app.player["position_ms"] = json!(200);
+  let buf = render(&app);
+  assert!(ui::take_karaoke().is_none(), "nothing is sung yet");
+  let waiting = row_of(&buf, "line number 0").unwrap();
+  let next_before = row_of(&buf, "line number 1").unwrap();
+  // Empieza la primera: la imagen ocupa 3 filas y su texto va en la del medio.
+  app.player["position_ms"] = json!(1500);
+  let buf = render(&app);
+  let slot = ui::take_karaoke().unwrap();
+  assert_eq!(waiting, slot.area.y + 1, "the waiting text sits on the image's middle row");
+  assert_eq!(row_of(&buf, "line number 1"), Some(next_before), "the next line does not move");
+}

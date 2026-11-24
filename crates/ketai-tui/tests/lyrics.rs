@@ -256,3 +256,16 @@ fn karaoke_dims_the_lines_around_the_one_being_sung() {
   let (x, y) = find(&buf, "let the world burn");
   assert_eq!(buf[(x, y)].fg, t.faint);
 }
+
+#[test]
+fn the_header_says_which_mode_is_on() {
+  let mut app = karaoke_ready(4200);
+  app.lyrics_mode = ketai_tui::config::LyricsMode::Classic;
+  assert!(text(&render(&app)).contains("modo: clásico [m]"));
+  app.lyrics_mode = ketai_tui::config::LyricsMode::Karaoke;
+  assert!(text(&render(&app)).contains("modo: karaoke [m]"));
+  ui::take_karaoke();
+  // Pedido pero sin tamano de celda: se ve el clasico y se avisa.
+  app.cell_px = None;
+  assert!(text(&render(&app)).contains("modo: karaoke (no disponible) [m]"));
+}

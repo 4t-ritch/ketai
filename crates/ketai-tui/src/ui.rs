@@ -675,7 +675,13 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
   let right = area.x + area.width.saturating_sub(chips.width() as u16 + 4);
   put_line(buf, right, area.y + 2, &chips, area.width);
   let offset = app.lyrics["user_offset_ms"].as_i64().unwrap_or(0);
-  let info = format!("offset {offset} ms   [ ] ajustar   t traducción   o capa   m karaoke");
+  // El modo elegido; si se pidio karaoke y la terminal no puede, se avisa.
+  let mode = match app.lyrics_mode {
+    crate::config::LyricsMode::Classic => "clásico",
+    crate::config::LyricsMode::Karaoke if app.karaoke_on() || !app.images => "karaoke",
+    crate::config::LyricsMode::Karaoke => "karaoke (no disponible)",
+  };
+  let info = format!("offset {offset} ms   [ ] ajustar   t traducción   o capa   modo: {mode} [m]");
   put(buf, area.x + area.width.saturating_sub(info.chars().count() as u16 + 4), area.y + 3, info, t.faint());
 
   let bottom = 8;

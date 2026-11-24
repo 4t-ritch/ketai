@@ -5,6 +5,7 @@ pub mod app;
 pub mod client;
 pub mod config;
 pub mod covers;
+pub mod karaoke;
 pub mod keys;
 pub mod kitty;
 pub mod log;

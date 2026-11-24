@@ -223,3 +223,24 @@ fn placements_can_be_refreshed_without_deleting_anything() {
   assert!(out.contains("a=p,i=5,p=1,") && out.contains("a=p,i=7,p=2,"), "{out:?}");
   assert_eq!(kitty::refresh(&[]), "");
 }
+
+#[test]
+fn karaoke_overlays_send_only_what_changed() {
+  use kitty::Overlay;
+  let z = kitty::Z_BELOW_BACKGROUND;
+  let unsung = Overlay { image: 40, x: 0, y: 10, crop: None, z: z - 1 };
+  let sung = |w| Overlay { image: 41, x: 0, y: 10, crop: Some((w, 60)), z };
+  // Primera vez: las dos, a tamano real (sin c= ni r=), la cantada recortada.
+  let out = kitty::overlay_update(&[], &[unsung, sung(100)]);
+  assert_eq!(
+    out,
+    format!("\x1b[11;1H\x1b_Ga=p,i=40,p=1,C=1,z={},q=2\x1b\\\x1b[11;1H\x1b_Ga=p,i=41,p=1,x=0,y=0,w=100,h=60,C=1,z={z},q=2\x1b\\", z - 1)
+  );
+  // Avanza el relleno: solo la cantada, sin borrar nada.
+  let out = kitty::overlay_update(&[unsung, sung(100)], &[unsung, sung(130)]);
+  assert_eq!(out, format!("\x1b[11;1H\x1b_Ga=p,i=41,p=1,x=0,y=0,w=130,h=60,C=1,z={z},q=2\x1b\\"));
+  assert_eq!(kitty::overlay_update(&[unsung, sung(130)], &[unsung, sung(130)]), "");
+  // Sale de la vista: se quitan solo sus ubicaciones.
+  assert_eq!(kitty::overlay_update(&[unsung, sung(130)], &[]), "\x1b_Ga=d,d=i,i=40,q=2\x1b\\\x1b_Ga=d,d=i,i=41,q=2\x1b\\");
+  assert!(!kitty::overlay_refresh(&[unsung, sung(130)]).contains("a=d"));
+}

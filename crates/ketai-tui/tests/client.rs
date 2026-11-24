@@ -18,8 +18,11 @@ fn temp_socket() -> std::path::PathBuf {
   dir.join("ctl.sock")
 }
 
+/// Distinto en cada llamada: los tests corren en paralelo en el mismo
+/// proceso y con la hora sola podian compartir la carpeta (y el socket).
 fn rand_suffix() -> u64 {
-  std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos() as u64
+  static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+  NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 #[test]

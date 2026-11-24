@@ -333,8 +333,9 @@ mod tests {
     assert_eq!(p.timing, "word-estimated");
     let w: Vec<(u64, Option<u64>, &str)> =
       p.lines[0].words.as_ref().unwrap().iter().map(|w| (w.start_ms, w.end_ms, w.text.as_str())).collect();
-    // "te" (2) + "amo" (3) sobre 1000..3000.
-    assert_eq!(w, [(1000, Some(1800), "te "), (1800, Some(3000), "amo")]);
+    // "te" (2) + "amo" (3) sobre 1000..2000: la marca final de A2 cierra la
+    // linea original en 2000.
+    assert_eq!(w, [(1000, Some(1400), "te "), (1400, Some(2000), "amo")]);
   }
 
   #[test]

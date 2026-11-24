@@ -21,6 +21,7 @@ toml = "0.8"
 ratatui = "0.29"
 unicode-width = "0.2"
 serde_json.workspace = true
+ab_glyph = "0.2"
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }

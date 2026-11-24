@@ -77,7 +77,7 @@ fn every_screen(config: &str) {
     }
     let mut a = red_app(config);
     a.on_key(key(KeyCode::Char(tab)));
-    a.on_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+    a.on_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
     check(&a, &format!("tab {tab} palette"));
   }
 }

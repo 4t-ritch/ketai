@@ -90,6 +90,15 @@ enum Prep {
 }
 
 /// Escribe secuencias de la capa de imagenes sin perder el cursor.
+/// Tamano de una celda en pixeles, segun la terminal. `None` si no lo
+/// informa (el modo karaoke queda en clasico).
+fn cell_size() -> Option<(u16, u16)> {
+  // SAFETY: TIOCGWINSZ solo escribe la estructura que se le pasa.
+  let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
+  let ok = unsafe { libc::ioctl(1, libc::TIOCGWINSZ, &mut ws) } == 0;
+  ketai_tui::app::cell_px(ok.then_some((ws.ws_col, ws.ws_row, ws.ws_xpixel, ws.ws_ypixel)))
+}
+
 fn emit(seq: &str) {
   if seq.is_empty() {
     return;
@@ -161,10 +170,12 @@ fn main() -> io::Result<()> {
   let (tx, rx) = mpsc::channel::<Input>();
   let mut app = App::default();
   if let Some(path) = config::path() {
+    app.config_path = Some(path.clone());
     match Config::load(&path) {
       Ok(c) => app.config = c,
       Err(e) => app.config_error = Some(e),
     }
+    app.apply_lyrics_config();
     // Al guardar el archivo, la UI cambia sin reiniciar.
     ketai_tui::watch::spawn(path, tx.clone(), Input::Config);
   }
@@ -180,6 +191,8 @@ fn main() -> io::Result<()> {
   let no_images = std::env::var_os("KETAI_NO_IMAGES").is_some_and(|v| v == "1");
   app.images = !no_images && kitty_supported();
   app.covers = covers::CoverCache::with_base(covers::CoverCache::process_base());
+  app.karaoke = ketai_tui::karaoke::Karaoke::new(ketai_tui::app::karaoke_ids(covers::CoverCache::process_base()), app.config.lyrics.font.clone());
+  app.cell_px = cell_size();
   if !no_images && !app.images {
     ratatui::restore();
     eprintln!("{NEEDS_KITTY}");
@@ -250,9 +263,22 @@ fn main() -> io::Result<()> {
   let started = Instant::now();
   // Imagenes ubicadas en el ultimo cuadro.
   let mut placed: Vec<kitty::Placement> = Vec::new();
+  let mut karaoke_live = false;
   let result = (|| -> io::Result<()> {
     loop {
       app.anim_ms = started.elapsed().as_millis() as u64;
+      if app.images && app.lyrics_mode == config::LyricsMode::Karaoke {
+        app.karaoke_fonts = app.karaoke.ensure_fonts();
+        // El tamano de celda se vuelve a medir en cada cuadro: al arrancar
+        // dentro de un multiplexor (herdr) puede no ser el definitivo, y no
+        // siempre llega un aviso de cambio de tamano. Con una medida vieja
+        // la linea salia chica y corrida del centro.
+        let cell = cell_size();
+        if cell != app.cell_px {
+          ketai_tui::log::log(format_args!("cell size {:?} -> {:?}", app.cell_px, cell));
+          app.cell_px = cell;
+        }
+      }
       terminal.draw(|f| ui::draw(f, &app))?;
       app.hits = ui::take_hits();
       if app.images {
@@ -276,6 +302,13 @@ fn main() -> io::Result<()> {
             let _ = prep.send(Prep::Image(uri, img, id));
           }
         }
+        // La linea del karaoke: la primera vez sus imagenes, despues solo
+        // el recorte que avanza.
+        let slot = ui::take_karaoke();
+        karaoke_live = slot.is_some() && app.playing();
+        if let Some(cell) = app.cell_px {
+          emit(&app.karaoke.frame(slot.as_ref(), cell, app.position_ms()));
+        }
         let update = kitty::update(&placed, &frame.placements);
         if !update.is_empty() {
           ketai_tui::log::log(format_args!("place {} images", frame.placements.len()));
@@ -288,6 +321,7 @@ fn main() -> io::Result<()> {
           last_refresh = Instant::now();
         } else if !placed.is_empty() && last_refresh.elapsed() >= REFRESH_PLACEMENTS {
           emit(&kitty::refresh(&placed));
+          emit(&app.karaoke.refresh());
           last_refresh = Instant::now();
         }
         // Las que no se usan hace rato se borran de la terminal.
@@ -303,7 +337,8 @@ fn main() -> io::Result<()> {
       }
       // Con una busqueda esperando, se despierta seguido para mandarla a
       // tiempo.
-      let wait = if app.search_pending() { 30 } else { 250 };
+      // Mientras se pinta una linea del karaoke, unos 30 cuadros por segundo.
+      let wait = if app.search_pending() || karaoke_live { 30 } else { 250 };
       let input = rx.recv_timeout(Duration::from_millis(wait)).ok();
       for (method, params) in app.tick(Instant::now()) {
         send(&mut client, &mut app, &method, params);
@@ -324,6 +359,10 @@ fn main() -> io::Result<()> {
         // imagenes: algunas terminales (herdr) las pierden.
         Some(input @ (Input::Resize | Input::Focus)) => {
           placed.clear();
+          app.karaoke.invalidate();
+          if matches!(input, Input::Resize) {
+            app.cell_px = cell_size();
+          }
           // Al recuperar el foco se redibuja todo: el multiplexor pudo haber
           // borrado el panel y ratatui solo dibuja lo que cambio.
           if matches!(input, Input::Focus) {
@@ -385,6 +424,7 @@ fn main() -> io::Result<()> {
             Ok(c) => {
               app.config = c;
               app.config_error = None;
+              app.apply_lyrics_config();
             }
             // Con error se mantiene la configuracion anterior.
             Err(e) => app.config_error = Some(e),
@@ -432,6 +472,7 @@ fn main() -> io::Result<()> {
   })();
   if app.images {
     emit(&kitty::delete_images(&app.covers.ids()));
+    emit(&kitty::delete_images(&app.karaoke.ids()));
   }
   let _ = ratatui::crossterm::execute!(
     io::stdout(),

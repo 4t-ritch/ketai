@@ -32,6 +32,11 @@ pub fn draw(f: &mut RFrame, app: &App) {
   }
   if is_mini(area) {
     mini(f, app, area);
+    if app.keys_blocked() {
+      dim(f, t);
+      begin_overlay();
+      duplicate_keys(f, app);
+    }
     return;
   }
   header(f, app, Rect::new(area.x, area.y, area.width, 3));
@@ -61,6 +66,11 @@ pub fn draw(f: &mut RFrame, app: &App) {
     dim(f, t);
     begin_overlay();
     add_popup(f, app);
+  }
+  if app.keys_blocked() {
+    dim(f, t);
+    begin_overlay();
+    duplicate_keys(f, app);
   }
   config_notice(f, app);
   if let Some(n) = &app.notice {
@@ -159,6 +169,42 @@ fn popup_frame(f: &mut RFrame, t: &Theme, area: Rect) {
   use ratatui::widgets::{Block, BorderType, Clear, Widget};
   Clear.render(area, f.buffer_mut());
   Block::bordered().border_type(BorderType::Rounded).border_style(t.accent()).style(Style::new().bg(t.popup())).render(area, f.buffer_mut());
+}
+
+/// Bloqueo por teclas repetidas en `[keys]`: la lista completa, agrupada
+/// por tecla, con desplazamiento.
+fn duplicate_keys(f: &mut RFrame, app: &App) {
+  let t = &app.theme;
+  let area = f.area();
+  let mut lines: Vec<Line> = Vec::new();
+  for (key, actions) in app.config.keys.duplicates() {
+    lines.push(Line::from(vec![keycap(t, &key.label()), Span::styled(format!("  en {} acciones", actions.len()), t.dim())]));
+    for a in actions {
+      let desc = crate::keys::ACTIONS.iter().find(|(_, x, _, _)| *x == a).map(|(_, _, _, d)| *d).unwrap_or("");
+      lines.push(Line::from(vec![Span::styled(format!("    {}", crate::keys::name(a)), t.text()), Span::styled(format!("  {desc}"), t.faint())]));
+    }
+    lines.push(Line::raw(""));
+  }
+  let w = 70.min(area.width.saturating_sub(2));
+  let h = (lines.len() as u16 + 8).min(area.height.saturating_sub(2)).max(8.min(area.height));
+  let pop = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 2, w, h);
+  popup_frame(f, t, pop);
+  modal(area, pop);
+  let buf = f.buffer_mut();
+  let x = pop.x + 3;
+  let inner = w.saturating_sub(6) as usize;
+  putn(buf, x, pop.y + 1, "Teclas repetidas en config.toml", inner, t.title());
+  putn(buf, x, pop.y + 2, "Cada tecla tiene que ser de una sola acción.", inner, t.dim());
+  putn(buf, x, pop.y + 3, "Corregí [keys] y guardá: ketai se desbloquea solo.", inner, t.dim());
+  // La lista, desde `dup_scroll` (acotado a lo que hay).
+  let rows = h.saturating_sub(7) as usize;
+  let max = lines.len().saturating_sub(rows);
+  let from = (app.dup_scroll as usize).min(max);
+  for (k, line) in lines.iter().skip(from).take(rows).enumerate() {
+    put_line(buf, x, pop.y + 5 + k as u16, line, inner as u16);
+  }
+  let more = if max > 0 { format!("{}/{}   ↑ ↓ desplazar   ", from + 1, max + 1) } else { String::new() };
+  putn(buf, x, pop.y + h - 2, format!("{more}q salir"), inner, t.faint());
 }
 
 /// Tipo de salida a partir del nombre del sink.
@@ -450,7 +496,7 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   y += if roomy { 4 } else { 3 };
   // Detalles: volumen y salida, favorito y agregar, formato. Cada fila con
   // aire; despues la letra y lo que sigue, y abajo progreso y controles.
-  let keycap = |k: &str| Span::styled(format!(" {k} "), Style::new().fg(t.fg).bg(t.raised));
+  let keycap = |k: &str| keycap(t, k);
   let muted = app.player["muted"].as_bool().unwrap_or(false);
   let vol = app.player["volume"].as_f64().unwrap_or(1.0);
   let filled = (vol * 14.0).round() as usize;
@@ -665,18 +711,63 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
   put(buf, area.x + 14, area.y + 2, track_title(track), t.title());
   put(buf, area.x + 14, area.y + 3, track["artist"].as_str().unwrap_or(""), t.dim());
 
-  // Capas elegidas y offset, arriba a la derecha.
-  let mut chips = vec![Span::styled(layer_label(app, &app.lyrics_primary), t.faint())];
-  for id in &app.lyrics_secondary {
-    chips.push(Span::styled("  ·  ", t.faint()));
-    chips.push(Span::styled(format!("+ {}", layer_label(app, id)), t.accent().add_modifier(Modifier::BOLD)));
-  }
-  let chips = Line::from(chips);
-  let right = area.x + area.width.saturating_sub(chips.width() as u16 + 4);
-  put_line(buf, right, area.y + 2, &chips, area.width);
+  // Opciones de la letra, arriba a la derecha, como en Reproduciendo: cada
+  // una con su tecla en un recuadro, y todo clickeable.
+  use crate::keys::Action as A;
+  // La tecla que muestra cada opcion es la configurada en ese momento.
+  let cap = |a: A| action_keycap(app, a);
+  let gap = || (Span::raw("        "), None);
+  // Etiqueta clara y valor tenue: se lee que es cada cosa.
+  let label = |s: &str, a: A| (Span::styled(format!("{s}: "), t.text()), Some(a));
+  let value = |s: String, a: Option<A>| (Span::styled(format!("{s}  "), t.faint()), a);
+  let translation = match app.lyrics_secondary.first() {
+    Some(id) => app.lyrics_layers.iter().find(|l| l["id"] == id.as_str()).and_then(|l| l["language"].as_str()).unwrap_or(id).to_string(),
+    None => "no".into(),
+  };
   let offset = app.lyrics["user_offset_ms"].as_i64().unwrap_or(0);
-  let info = format!("offset {offset} ms   [ ] ajustar   t traducción   o capa");
-  put(buf, area.x + area.width.saturating_sub(info.chars().count() as u16 + 4), area.y + 3, info, t.faint());
+  // El modo elegido; si se pidio karaoke y la terminal no puede, se avisa.
+  let mode = match app.lyrics_mode {
+    crate::config::LyricsMode::Classic => "clásico",
+    crate::config::LyricsMode::Karaoke if app.karaoke_on() || !app.images => "karaoke",
+    crate::config::LyricsMode::Karaoke => "karaoke (no disponible)",
+  };
+  let rows: [Vec<(Span, Option<A>)>; 2] = [
+    vec![
+      label("Capa", A::LyricsLayer),
+      value(layer_label(app, &app.lyrics_primary), Some(A::LyricsLayer)),
+      (cap(A::LyricsLayer), Some(A::LyricsLayer)),
+      gap(),
+      label("Traducción", A::LyricsTranslation),
+      value(translation, Some(A::LyricsTranslation)),
+      (cap(A::LyricsTranslation), Some(A::LyricsTranslation)),
+    ],
+    vec![
+      (Span::styled("Offset: ", t.text()), None),
+      value(format!("{offset} ms"), None),
+      (cap(A::LyricsOffsetDown), Some(A::LyricsOffsetDown)),
+      (Span::raw(" "), None),
+      (cap(A::LyricsOffsetUp), Some(A::LyricsOffsetUp)),
+      gap(),
+      label("Modo", A::LyricsMode),
+      value(mode.to_string(), Some(A::LyricsMode)),
+      (cap(A::LyricsMode), Some(A::LyricsMode)),
+    ],
+  ];
+  let buf = f.buffer_mut();
+  for (k, row) in rows.into_iter().enumerate() {
+    let line = Line::from(row.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>());
+    // Una fila en blanco entre las dos, a la altura de la caratula.
+    let y = area.y + 1 + 2 * k as u16;
+    let mut x = area.x + area.width.saturating_sub(line.width() as u16 + 4);
+    put_line(buf, x, y, &line, area.width);
+    for (span, key) in &row {
+      let w = span.width() as u16;
+      if let Some(a) = key {
+        hit(Rect::new(x, y, w, 1), Hit::Act(*a));
+      }
+      x += w;
+    }
+  }
 
   let bottom = 8;
   let lines_area = Rect::new(area.x, area.y + 6, area.width, area.height.saturating_sub(6 + bottom));
@@ -690,22 +781,92 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
     Some(lines) => {
       let pos = app.position_ms();
       let cur = app.lyrics_line();
-      let rows = (lines_area.height / 4).max(1) as usize;
-      // La linea actual queda en el segundo tercio de la vista.
-      let first = cur.unwrap_or(0).saturating_sub(rows / 3);
-      for (slot, i) in (first..lines.len()).take(rows).enumerate() {
+      // En modo karaoke la linea actual es una imagen de `size` filas.
+      // Con un popup abierto la linea va como texto: la imagen va encima del
+      // texto y lo taparia.
+      let karaoke_view = app.karaoke_on() && !app.popup_open();
+      let karaoke = karaoke_view && cur.is_some();
+      // Antes de la primera linea (la introduccion) el lugar del karaoke
+      // queda vacio y la primera espera debajo, como las que vienen.
+      let waiting = karaoke_view && cur.is_none();
+      let size = app.config.lyrics.size;
+      let big = if karaoke_view { size + 2 } else { 4 };
+      // La linea actual va en el centro de la vista; las otras, hacia
+      // arriba y hacia abajo, las que entren.
+      let anchor = cur.unwrap_or(0);
+      let secondary = app.lyrics_secondary.iter().filter(|id| lines[anchor]["secondary"][id.as_str()].is_string()).count() as u16;
+      let block = if karaoke_view { size } else { 1 } + secondary;
+      let bottom = lines_area.y + lines_area.height;
+      let middle = lines_area.y + lines_area.height / 2;
+      // Dos filas por encima del centro: abajo estan el espectro y el
+      // progreso, y la ultima linea no queda pegada al espectro.
+      let y_cur = middle.saturating_sub(block / 2 + 2).max(lines_area.y);
+      let before = (app.config.lyrics.lines_before as usize).min(anchor);
+      let after = app.config.lyrics.lines_after as usize;
+      let mut slots: Vec<(usize, u16)> = Vec::new();
+      for k in (1..=before).rev() {
+        if let Some(y) = y_cur.checked_sub(4 * k as u16).filter(|y| *y >= lines_area.y) {
+          slots.push((anchor - k, y));
+        }
+      }
+      if !waiting {
+        slots.push((anchor, y_cur));
+      }
+      // Esperando, la primera linea ocupa el primer lugar de abajo.
+      let first_below = if waiting { 0 } else { anchor + 1 };
+      for k in 0..after {
+        let y = y_cur + big + 4 * k as u16;
+        if first_below + k < lines.len() && y < bottom {
+          slots.push((first_below + k, y));
+        }
+      }
+      for (i, y) in slots {
         let line = &lines[i];
-        let y = lines_area.y + slot as u16 * 4;
-        let main = match cur {
-          Some(c) if i == c => sung_line(app, line, pos),
-          Some(c) if i < c => Line::styled(line["text"].as_str().unwrap_or("").to_string(), t.faint()),
-          _ => Line::styled(line["text"].as_str().unwrap_or("").to_string(), Style::new().fg(app.theme.upcoming()).add_modifier(Modifier::BOLD)),
-        };
-        center(f, y, main);
+        let mut below = y + 1;
+        let mut width: u16;
+        if karaoke && cur == Some(i) {
+          let next = lines.get(i + 1).and_then(|l| l["start_ms"].as_u64());
+          let area = Rect::new(lines_area.x, y, lines_area.width, size.min(bottom.saturating_sub(y)));
+          // Las celdas quedan con el fondo del tema: la imagen va encima, y
+          // si por un instante falta (al cambiar de linea o de tamano) no se
+          // ve el fondo de la terminal.
+          if let Some((words, times)) = crate::karaoke::line_words(line, next) {
+            let colors = crate::karaoke::Colors { background: rgb(t.bg), unsung: rgb(t.upcoming()), sung: rgb(t.accent) };
+            KARAOKE.with(|k| *k.borrow_mut() = Some(crate::karaoke::Slot { area, words, times, colors }));
+          }
+          below = y + area.height;
+          width = lines_area.width;
+        } else {
+          // En karaoke las otras lineas van mas tenues: la que se canta
+          // es la que se lee.
+          let (past, next) = if karaoke {
+            (crate::theme::lerp(t.faint, t.bg, 0.45), crate::theme::lerp(t.upcoming(), t.bg, 0.35))
+          } else {
+            (t.faint, t.upcoming())
+          };
+          let text = line["text"].as_str().unwrap_or("").to_string();
+          let main = match cur {
+            Some(c) if i == c => sung_line(app, line, pos),
+            Some(c) if i < c => Line::styled(text, Style::new().fg(past)),
+            _ => Line::styled(text, Style::new().fg(next).add_modifier(Modifier::BOLD)),
+          };
+          width = main.width() as u16;
+          center(f, y, main);
+        }
+        let mut rows = below - y;
         for (k, id) in app.lyrics_secondary.iter().enumerate() {
           let Some(tr) = line["secondary"][id].as_str() else { continue };
           let color = if cur == Some(i) { t.dim } else { t.upcoming_secondary() };
-          center(f, y + 1 + k as u16, Line::styled(tr.to_string(), Style::new().fg(color).add_modifier(Modifier::ITALIC)));
+          let tr = Line::styled(tr.to_string(), Style::new().fg(color).add_modifier(Modifier::ITALIC));
+          width = width.max(tr.width() as u16);
+          center(f, below + k as u16, tr);
+          rows = rows.max(below + k as u16 + 1 - y);
+        }
+        // El parrafo entero (linea y traducciones) salta a su inicio.
+        if let Some(ms) = line["start_ms"].as_u64() {
+          let w = width.min(lines_area.width);
+          let x = lines_area.x + (lines_area.width - w) / 2;
+          hit(Rect::new(x, y, w, rows.min(bottom.saturating_sub(y))), Hit::LyricLine(ms));
         }
       }
     }
@@ -821,6 +982,17 @@ fn now_column(f: &mut RFrame, app: &App, area: Rect) {
 }
 
 /// Primera tecla configurada para una accion (para mostrarla).
+/// Tecla en un recuadro, como en Reproduciendo y Letras.
+pub fn keycap(t: &crate::theme::Theme, label: &str) -> Span<'static> {
+  Span::styled(format!(" {label} "), Style::new().fg(t.fg).bg(t.raised))
+}
+
+/// La tecla configurada de una accion, en su recuadro. Sale de la
+/// configuracion actual: si se cambia `[keys]`, cambia lo que se ve.
+pub fn action_keycap(app: &App, action: crate::keys::Action) -> Span<'static> {
+  keycap(&app.theme, &key_label(app, action))
+}
+
 fn key_label(app: &App, action: crate::keys::Action) -> String {
   app.config.keys.keys(action).first().map(|k| k.label()).unwrap_or_else(|| "—".into())
 }
@@ -1256,6 +1428,8 @@ thread_local! {
   static WANTED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
   /// Caratulas `Stale` dibujadas en este cuadro.
   static RESEND: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+  /// Linea del karaoke del cuadro que se esta dibujando.
+  static KARAOKE: RefCell<Option<crate::karaoke::Slot>> = const { RefCell::new(None) };
   /// Lo clickeable del cuadro que se esta dibujando.
   static HITS: RefCell<Vec<(Rect, Hit)>> = const { RefCell::new(Vec::new()) };
 }
@@ -1312,6 +1486,19 @@ pub struct Frame {
   /// Caratulas que no se olvidan aunque no esten en pantalla: la que suena
   /// y la siguiente (sus colores se usan al cambiar de pista).
   pub keep: Vec<String>,
+}
+
+/// La linea del karaoke que pidio el ultimo `draw`, si hay.
+pub fn take_karaoke() -> Option<crate::karaoke::Slot> {
+  KARAOKE.with(|k| k.borrow_mut().take())
+}
+
+/// Un color del tema como RGB (los del tema son siempre RGB).
+fn rgb(c: ratatui::style::Color) -> [u8; 3] {
+  match c {
+    ratatui::style::Color::Rgb(r, g, b) => [r, g, b],
+    _ => [128, 128, 128],
+  }
 }
 
 /// Ubicaciones y pedidos del ultimo `draw`.

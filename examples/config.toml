@@ -55,7 +55,7 @@ devices = "d"
 folders = "f"
 favorite = "*"
 add_to_playlist = "P"
-actions = ["ctrl+p", "ctrl+k", "/"]
+actions = "ctrl+p"
 quit = "q"
 
 

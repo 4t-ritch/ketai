@@ -64,6 +64,21 @@ elegir el idioma.
   del protocolo): hoy estan en ingles y los clientes podrian traducirlos por
   codigo de error.
 
+### Secuencias de teclas
+
+Hoy cada atajo es una sola tecla, con modificadores (`ctrl+p`). Esta
+actualizacion permite atajos de varias teclas apretadas una despues de la
+otra, como en Vim o Emacs.
+
+- Secuencias como `g g` o `ctrl+x ctrl+s` en `[keys]` (`top = "g g"`).
+- Mientras una secuencia esta a medio escribir, la TUI espera la tecla
+  siguiente un tiempo corto y muestra lo que se lleva escrito.
+- La revision de teclas repetidas (que bloquea la TUI) tambien cubre las
+  secuencias: una secuencia no puede empezar con una tecla que ya es un
+  atajo entero, porque ese atajo ganaria siempre.
+- Antes de empezar se decide cuanto esperar entre teclas y si se puede
+  configurar.
+
 ### Cliente grafico de karaoke (video y shaders)
 
 Un cliente aparte, con ventana propia, por ejemplo `ketai-karaoke`, que se

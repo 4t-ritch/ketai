@@ -65,14 +65,60 @@ so it reads well. Without a cover the defaults are used.
 
 ## `[keys]`
 
-Global shortcuts. Each action takes a key (`toggle = "x"`) or a list
+Shortcuts. Each action takes a key (`toggle = "x"`) or a list
 (`next = ["n", "ctrl+right"]`); what you set replaces that action's default
 keys and the rest stays the same.
 
-Key format: a character (`"n"`, `"P"`, `"+"`), or a name (`space`, `enter`,
-`esc`, `tab`, `backspace`, `left`, `right`, `up`, `down`, `home`, `end`,
-`pageup`, `pagedown`, `f1` to `f12`), with `ctrl+`, `alt+` or `shift+`
-modifiers in front (`"ctrl+p"`, `"shift+tab"`).
+### Which keys are allowed
+
+Each shortcut is **one key**, optionally with modifiers in front, separated
+by `+`. An action can have several shortcuts with a list
+(`next = ["n", "ctrl+right"]`).
+
+**Allowed:**
+
+| Type | How to write it | Examples |
+|---|---|---|
+| A character | the character itself | `"n"`, `"P"`, `"+"`, `"*"`, `"!"`, `"["` |
+| Space | `space` | `"space"` |
+| Named keys | `enter`, `esc` (or `escape`), `tab`, `backspace` | `"enter"` |
+| Arrows and navigation | `left`, `right`, `up`, `down`, `home`, `end`, `pageup`, `pagedown` | `"ctrl+right"` |
+| Function keys | `f1` to `f12` | `"f5"`, `"alt+f2"` |
+| Ctrl | `ctrl+` (or `control+`) in front | `"ctrl+p"`, `"ctrl+left"` |
+| Alt | `alt+` in front | `"alt+x"`, `"alt+enter"` |
+| Ctrl and Alt together | both in front, in any order | `"ctrl+alt+p"` |
+| Shift with a letter | `shift+` and the letter, or the uppercase letter | `"shift+p"` is the same as `"P"` |
+| Alt, Shift and a letter | `alt+shift+` and the letter | `"alt+shift+p"` (shown as `Alt+P`) |
+| Shift and Tab | `shift+tab` | `"shift+tab"` |
+| The `+` key | `"+"` alone; with modifiers, `"ctrl++"` | `"ctrl++"` |
+
+Names and modifiers are not case sensitive (`"CTRL+P"` is `"ctrl+p"`).
+
+**Not allowed** (each one is an error: it is shown on the last row with the
+action and the key, and the previous configuration is kept):
+
+| What | Example | Why |
+|---|---|---|
+| Key sequences | `"g g"`, `"ctrl+x ctrl+s"` | each shortcut is a single key (sequences are planned, see [roadmap.md](roadmap.md)) |
+| Two keys at once without a modifier | `"a+b"` | only `ctrl`, `alt` and `shift` combine with a key |
+| Shift with anything other than a letter or Tab | `"shift+left"`, `"shift+enter"`, `"shift+f5"`, `"shift+space"` | the terminal does not tell Shift apart there |
+| Shift with a number or symbol | `"shift+1"`, `"shift+/"` | the terminal sends another character: write that one instead (`"!"`, `"?"`) |
+| Ctrl, Shift and a letter | `"ctrl+shift+p"` | with Ctrl the terminal does not tell uppercase apart: it would be `"ctrl+p"` |
+| Other modifiers | `"super+p"`, `"meta+p"`, `"cmd+p"` | the terminal does not send them |
+| Other named keys | `"insert"`, `"delete"`, `"f13"` | not supported for now |
+| Empty or several characters | `""`, `"ab"`, `"ctrl+"` | not a key |
+
+**Allowed but with special rules:**
+
+- `Ctrl+C` always quits, whatever is configured, so a broken configuration
+  never leaves you without a way out.
+- While typing in Search, keys without Ctrl or Alt are text (`toggle = "x"`
+  types an x there); shortcuts with Ctrl or Alt still work.
+- With Ctrl, uppercase and lowercase are the same key (`"ctrl+P"` is
+  `"ctrl+p"`).
+- A key cannot be in two actions; see the rules after the table.
+
+### Actions
 
 | Action | Default | What it does |
 |---|---|---|
@@ -90,17 +136,85 @@ modifiers in front (`"ctrl+p"`, `"shift+tab"`).
 | `folders` | `f` | Library folders |
 | `favorite` | `*` | Mark as favorite |
 | `add_to_playlist` | `P` | Add to a playlist |
-| `actions` | `ctrl+p`, `ctrl+k`, `/` | Actions and quick search |
+| `actions` | `ctrl+p` | Actions and quick search |
 | `quit` | `q` | Quit |
-| `next_tab` / `prev_tab` | `tab` / `shift+tab` | Next / previous tab |
-| `tab_now_playing`, `tab_lyrics`, `tab_library`, `tab_search` | `1` to `4` | Go to each tab |
+| `next_tab` | `tab` | Next tab |
+| `prev_tab` | `shift+tab` | Previous tab |
+| `tab_now_playing` | `1` | Go to Now Playing |
+| `tab_lyrics` | `2` | Go to Lyrics |
+| `tab_library` | `3` | Go to Library |
+| `tab_search` | `4` | Go to Search |
+| `lyrics_layer` | `o` | Lyrics: change the primary layer |
+| `lyrics_translation` | `t` | Lyrics: show or hide the translation |
+| `lyrics_offset_down` | `[` | Lyrics: offset -50 ms |
+| `lyrics_offset_up` | `]` | Lyrics: offset +50 ms |
+| `lyrics_mode` | `k` | Lyrics: classic or karaoke mode |
+| `lyrics_estimate` | `w` | Lyrics: estimate word timing |
 
 - `Ctrl+C` always quits, whatever else is configured.
 - While typing in Search, keys without Ctrl or Alt are text.
 - An invalid key is an error (it is shown and the previous configuration is
-  kept); an unknown action or a key in two actions is reported.
-- Each view's own keys (`h` / `l` in Library, `t` / `o` in Lyrics, etc.) are
-  fixed for now.
+  kept); an unknown action is reported.
+- **A repeated key (by the rule above) blocks the TUI**, at start or when the
+  file is saved: a window lists every repeated key with its actions, grouped
+  by key (it scrolls with the arrows, `j` / `k` or the wheel). Only scrolling
+  and quitting (`q`, `Ctrl+C`) work; the music keeps playing. Fix `[keys]`
+  and save: the TUI unlocks by itself, without restarting.
+- The `lyrics_*` actions only work in the Lyrics view. A key can be used in
+  different views (each one only works in its own view), but never in a view
+  and a global action at the same time, in two global actions, or twice in
+  the same view: that way every function stays reachable everywhere (for
+  example `m` mutes in every view, Lyrics included).
+- The keys shown on screen (for example the ones in the Lyrics header and
+  next to the volume in Now Playing) are always the configured ones: change
+  a key and the screen shows the new one.
+- The other keys of each view (`h` / `l` in Library, etc.) are fixed for
+  now.
+
+## `[lyrics]`
+
+How the Lyrics view (*Letras*) shows the lyrics.
+
+| Key | Values | Default |
+|---|---|---|
+| `mode` | `"classic"` or `"karaoke"` | `"classic"` |
+| `size` | `2` to `8` (rows) | `3` |
+| `lines_before` | `1` to `2` | `2` |
+| `lines_after` | `1` to `3` | `3` |
+| `font` | path to a font file (`.ttf`, `.otf`, `.ttc`), absolute or starting with `~/` | chosen by fontconfig |
+
+```toml
+[lyrics]
+mode = "karaoke"
+size = 4
+# font = "~/.local/share/fonts/MyFont-Bold.ttf"
+```
+
+- **`classic`**: terminal text; the word being sung is highlighted.
+- **`karaoke`**: the line being sung is drawn as an image and fills in
+  gradually, inside the letters, as each word is sung (like video karaoke).
+  `k` in the Lyrics view switches between the two modes and saves the choice
+  in the file (only the `mode` line of `[lyrics]` changes; comments and the
+  rest stay as they are), so it is kept the next time.
+- **Live reload**: saving the file applies `size` and `font` right away.
+  `mode` applies when it changes in the file.
+- **`size`** is the height, in rows, of the line being sung in karaoke mode.
+  Bigger is easier to read from far away. A line that does not fit the width
+  is drawn smaller.
+- **Text size in classic mode cannot be changed by ketai**: there the lyrics
+  are terminal cells, and their size is the terminal's font size, the same
+  for the whole screen. Change it in the terminal (for example
+  `ctrl+shift+equal` in kitty) or use karaoke mode.
+- **`lines_before`** and **`lines_after`** are how many lines are shown
+  above and below the one being sung, which stays in the middle of the view.
+  Less than 1 (or negative) is 1; more than the maximum is the default (2
+  above, 3 below).
+- **`font`** is only used in karaoke mode. Without it, ketai asks fontconfig
+  for a bold monospace font and uses others for the characters it does not
+  have (for example Japanese or Korean).
+- Karaoke mode needs a terminal that reports its cell size in pixels (kitty
+  does, and so do the multiplexers that pass it on). If it does not, or no
+  font is found, the view stays in classic mode.
 
 ## `[playlists]`
 

@@ -1,9 +1,13 @@
-//! Atajos globales configurables (`[keys]` de config.toml).
+//! Atajos configurables (`[keys]` de config.toml).
 //!
 //! Cada accion tiene teclas por defecto; en config.toml se reemplazan por
 //! accion con un texto ("ctrl+p") o una lista (["n", "ctrl+right"]). Las
-//! teclas propias de cada vista (h / l en Biblioteca, t / o en Letras) son
-//! fijas. Ctrl+C siempre sale.
+//! acciones de Letras (`lyrics_*`) valen solo en esa vista. Una tecla no
+//! puede estar en dos globales, en una global y una de vista, ni dos veces
+//! en la misma vista: asi todas las funciones quedan al alcance. Si puede
+//! repetirse entre vistas distintas (cada una se usa en la suya). Las demas
+//! teclas propias de cada vista (h / l en Biblioteca) son fijas. Ctrl+C
+//! siempre sale.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -31,6 +35,47 @@ pub enum Action {
   TabLyrics,
   TabLibrary,
   TabSearch,
+  // Solo en Letras.
+  LyricsLayer,
+  LyricsTranslation,
+  LyricsOffsetDown,
+  LyricsOffsetUp,
+  LyricsMode,
+  LyricsEstimate,
+}
+
+/// Donde vale una accion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+  Global,
+  Lyrics,
+}
+
+impl Scope {
+  /// Dos acciones con la misma tecla chocan salvo que sean de vistas
+  /// distintas (cada una vale solo en la suya).
+  pub fn clashes_with(self, other: Scope) -> bool {
+    self == Scope::Global || other == Scope::Global || self == other
+  }
+}
+
+impl Action {
+  pub fn scope(self) -> Scope {
+    if self.is_lyrics() { Scope::Lyrics } else { Scope::Global }
+  }
+
+  /// Accion de la vista de Letras (no global).
+  pub fn is_lyrics(self) -> bool {
+    matches!(
+      self,
+      Action::LyricsLayer
+        | Action::LyricsTranslation
+        | Action::LyricsOffsetDown
+        | Action::LyricsOffsetUp
+        | Action::LyricsMode
+        | Action::LyricsEstimate
+    )
+  }
 }
 
 /// Nombre en config.toml, accion, teclas por defecto y descripcion.
@@ -49,7 +94,7 @@ pub const ACTIONS: &[(&str, Action, &[&str], &str)] = &[
   ("folders", Action::Folders, &["f"], "Carpetas de la biblioteca"),
   ("favorite", Action::Favorite, &["*"], "Marcar como favorita"),
   ("add_to_playlist", Action::AddToPlaylist, &["P"], "Agregar a una playlist"),
-  ("actions", Action::Actions, &["ctrl+p", "ctrl+k", "/"], "Acciones y búsqueda rápida"),
+  ("actions", Action::Actions, &["ctrl+p"], "Acciones y búsqueda rápida"),
   ("quit", Action::Quit, &["q"], "Salir"),
   ("next_tab", Action::NextTab, &["tab"], "Pestaña siguiente"),
   ("prev_tab", Action::PrevTab, &["shift+tab"], "Pestaña anterior"),
@@ -57,6 +102,12 @@ pub const ACTIONS: &[(&str, Action, &[&str], &str)] = &[
   ("tab_lyrics", Action::TabLyrics, &["2"], "Ir a Letras"),
   ("tab_library", Action::TabLibrary, &["3"], "Ir a Biblioteca"),
   ("tab_search", Action::TabSearch, &["4"], "Ir a Buscar"),
+  ("lyrics_layer", Action::LyricsLayer, &["o"], "Letras: cambiar la capa principal"),
+  ("lyrics_translation", Action::LyricsTranslation, &["t"], "Letras: mostrar u ocultar la traducción"),
+  ("lyrics_offset_down", Action::LyricsOffsetDown, &["["], "Letras: offset -50 ms"),
+  ("lyrics_offset_up", Action::LyricsOffsetUp, &["]"], "Letras: offset +50 ms"),
+  ("lyrics_mode", Action::LyricsMode, &["k"], "Letras: modo clásico o karaoke"),
+  ("lyrics_estimate", Action::LyricsEstimate, &["w"], "Letras: estimar tiempos por palabra"),
 ];
 
 /// Una tecla con sus modificadores.
@@ -116,6 +167,19 @@ impl Key {
         KeyCode::Char(c)
       }
     };
+    // Shift solo se distingue en letras (sin Ctrl) y en Tab. En el resto la
+    // terminal no lo manda o manda otro caracter ("shift+1" llega como "!"):
+    // se rechaza en vez de aceptar un atajo que no responde a lo escrito.
+    if shift {
+      let ok = match key.code {
+        KeyCode::BackTab => true,
+        KeyCode::Char(c) => c.is_ascii_alphabetic() && !key.ctrl,
+        _ => false,
+      };
+      if !ok {
+        return None;
+      }
+    }
     Some(key)
   }
 
@@ -193,12 +257,46 @@ impl Keymap {
     self
       .bindings
       .iter()
+      .filter(|(a, _)| !a.is_lyrics())
       .find(|(_, keys)| keys.iter().any(|k| k.matches(ev) && !(typing && k.is_text())))
       .map(|(a, _)| *a)
   }
 
+  /// Accion de Letras de una tecla (se consulta antes que las globales
+  /// cuando esa vista esta abierta).
+  pub fn lyrics_action(&self, ev: &KeyEvent) -> Option<Action> {
+    self.bindings.iter().filter(|(a, _)| a.is_lyrics()).find(|(_, keys)| keys.iter().any(|k| k.matches(ev))).map(|(a, _)| *a)
+  }
+
   pub fn keys(&self, action: Action) -> &[Key] {
     self.bindings.iter().find(|(a, _)| *a == action).map(|(_, k)| k.as_slice()).unwrap_or(&[])
+  }
+
+  /// Teclas que chocan (ver `Scope::clashes_with`), agrupadas por tecla con
+  /// las acciones que chocan, en el orden de la tabla. Con alguna, la TUI se
+  /// bloquea hasta corregirlas.
+  pub fn duplicates(&self) -> Vec<(Key, Vec<Action>)> {
+    let mut groups: Vec<(Key, Vec<Action>)> = Vec::new();
+    for (action, keys) in &self.bindings {
+      for k in keys {
+        match groups.iter_mut().find(|(g, _)| g == k) {
+          Some((_, actions)) if !actions.contains(action) => actions.push(*action),
+          Some(_) => {}
+          None => groups.push((*k, vec![*action])),
+        }
+      }
+    }
+    groups
+      .into_iter()
+      .filter_map(|(k, actions)| {
+        let clashing: Vec<Action> = actions
+          .iter()
+          .copied()
+          .filter(|a| actions.iter().any(|b| b != a && a.scope().clashes_with(b.scope())))
+          .collect();
+        (!clashing.is_empty()).then_some((k, clashing))
+      })
+      .collect()
   }
 
   /// Teclas repetidas entre acciones, para avisar.
@@ -206,6 +304,9 @@ impl Keymap {
     let mut out = Vec::new();
     for (i, (a, keys)) in self.bindings.iter().enumerate() {
       for (b, other) in &self.bindings[i + 1..] {
+        if !a.scope().clashes_with(b.scope()) {
+          continue;
+        }
         for k in keys {
           if other.contains(k) {
             out.push(format!("keys: {} está en {} y {}", k.label(), name(*a), name(*b)));

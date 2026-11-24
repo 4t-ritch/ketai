@@ -212,8 +212,8 @@ clientes que no lo usan lo ignoran.
       "agent": "v1",
       "background": false,
       "words": [
-        {"start_ms": 12000, "end_ms": 12600, "text": "kimi"},
-        {"start_ms": 12600, "end_ms": 12900, "text": " no"}
+        {"start_ms": 12000, "end_ms": 12600, "text": "kimi "},
+        {"start_ms": 12600, "end_ms": 12900, "text": "no"}
       ],
       "secondary": {"es": "tu voz"}
     }
@@ -227,10 +227,16 @@ clientes que no lo usan lo ignoran.
   (ancla comun). Si la original no tiene tiempos (`timing: "none"`), son
   `null` y el paquete tiene `timing: "none"`.
 - `end_ms` puede ser `null` si el formato no lo da; el cliente usa el
-  `start_ms` de la linea siguiente.
+  `start_ms` de la linea siguiente. En LRC la linea termina donde empieza la
+  siguiente, salvo con A2 (tiempo por palabra): la marca final `<mm:ss.xx>`
+  despues de la ultima palabra tambien cierra la linea, asi no queda
+  encendida mas de lo que se canta (igual que el `end` de TTML). Una marca
+  sin texto (`[00:04.00]`) es una pausa: cierra la linea anterior y no es una
+  linea.
 - `text`: texto de la capa principal para esa linea.
 - `words`: palabras de la capa principal con su propio tiempo, o `null` si
-  `timing` es `"none"` o `"line"`.
+  `timing` es `"none"` o `"line"`. Cada palabra lleva el espacio que la sigue
+  (`"kimi "`, `"no"`): uniendo las palabras se obtiene el texto de la linea.
 - `secondary`: objeto `{id_de_capa: texto}` solo por linea, sin palabras.
   Una linea sin texto en una capa secundaria no tiene esa clave.
 - `agent` y `background` vienen de TTML (duetos y coros); en otros formatos

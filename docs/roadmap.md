@@ -66,6 +66,22 @@ the language.
   (protocol errors): today they are in English and clients could translate
   them by error code.
 
+### Key sequences
+
+Today each shortcut is a single key, with modifiers (`ctrl+p`). This update
+allows shortcuts made of several keys pressed one after the other, like in
+Vim or Emacs.
+
+- Sequences such as `g g` or `ctrl+x ctrl+s` in `[keys]`
+  (`top = "g g"`).
+- While a sequence is half typed, the TUI waits for the next key for a
+  short time and shows what has been typed so far.
+- The repeated keys check (which blocks the TUI) also covers sequences: a
+  sequence cannot start with a key that is already a whole shortcut,
+  because that shortcut would always win.
+- Before starting, it is decided how long to wait between keys and whether
+  it can be configured.
+
 ### Graphical karaoke client (video and shaders)
 
 A separate window client, for example `ketai-karaoke`, that connects to the

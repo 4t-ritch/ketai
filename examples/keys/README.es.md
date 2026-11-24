@@ -50,6 +50,11 @@ next = ["n", "ctrl+right"]    # varias teclas para la misma accion
 - Con Ctrl, mayusculas y minusculas son la misma tecla (`"ctrl+p"` y
   `"ctrl+P"` son iguales): la terminal no las distingue.
 - Para la tecla `+` sola se escribe `"+"`; con Ctrl, `"ctrl++"`.
+- `shift+` solo funciona con letras (sin Ctrl) y con `tab`: para un simbolo
+  se escribe el simbolo (`"!"`, no `"shift+1"`).
+- Las secuencias de teclas (`"g g"`) todavia no se soportan. La lista
+  completa de teclas permitidas y no permitidas esta en
+  [docs/es/config.md](../../docs/es/config.md#que-teclas-se-permiten).
 
 ## Acciones
 
@@ -69,7 +74,7 @@ next = ["n", "ctrl+right"]    # varias teclas para la misma accion
 | `folders` | `f` | Carpetas de la biblioteca |
 | `favorite` | `*` | Marcar o desmarcar como favorita la cancion que suena |
 | `add_to_playlist` | `P` | Agregar la cancion que suena a una playlist |
-| `actions` | `ctrl+p`, `ctrl+k`, `/` | Popup de acciones y busqueda rapida |
+| `actions` | `ctrl+p` | Popup de acciones y busqueda rapida |
 | `quit` | `q` | Salir |
 | `next_tab` | `tab` | Pestana siguiente |
 | `prev_tab` | `shift+tab` | Pestana anterior |
@@ -77,6 +82,12 @@ next = ["n", "ctrl+right"]    # varias teclas para la misma accion
 | `tab_lyrics` | `2` | Ir a Letras |
 | `tab_library` | `3` | Ir a Biblioteca |
 | `tab_search` | `4` | Ir a Buscar |
+| `lyrics_layer` | `o` | Letras: cambiar la capa principal |
+| `lyrics_translation` | `t` | Letras: mostrar u ocultar la traduccion |
+| `lyrics_offset_down` | `[` | Letras: offset -50 ms |
+| `lyrics_offset_up` | `]` | Letras: offset +50 ms |
+| `lyrics_mode` | `k` | Letras: modo clasico o karaoke |
+| `lyrics_estimate` | `w` | Letras: estimar tiempos por palabra |
 
 ## Reglas que conviene saber
 
@@ -90,10 +101,13 @@ next = ["n", "ctrl+right"]    # varias teclas para la misma accion
   configuracion anterior hasta que lo corrijas.
 - **Una accion que no existe** (`dance = "x"`) se avisa y se ignora; el resto
   se aplica.
-- **La misma tecla en dos acciones** se avisa en la ultima fila. Gana la que
-  aparece primero en la tabla de arriba.
-- **Las teclas de cada vista son fijas por ahora**: `h` / `l` para cambiar de
-  vista en Biblioteca, `t` / `o` en Letras, `a` para agregar a la cola, `c`
+- **Una tecla repetida bloquea ketai** hasta que la corrijas: la misma tecla
+  en dos acciones globales, en una global y una de vista (`lyrics_*`), o dos
+  veces en la misma vista. Una ventana muestra todas las teclas repetidas con
+  sus acciones; al guardar el archivo corregido, ketai se desbloquea solo. La
+  misma tecla en dos vistas distintas si vale.
+- **Las demas teclas de cada vista son fijas por ahora**: `h` / `l` para
+  cambiar de vista en Biblioteca, `a` para agregar a la cola, `c`
   para crear una playlist, `x` para quitar, `Esc`, `Enter` y las flechas dentro de listas y
   popups. Ver `docs/es/tui.md`.
 

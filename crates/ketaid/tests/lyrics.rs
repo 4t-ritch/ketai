@@ -116,7 +116,7 @@ fn get_defaults_to_the_original() {
   assert_eq!(p["timing"], "word");
   assert_eq!((p["offset_ms"].clone(), p["user_offset_ms"].clone()), (json!(0), json!(0)));
   let l0 = &p["lines"][0];
-  assert_eq!((l0["start_ms"].clone(), l0["end_ms"].clone(), l0["text"].clone()), (json!(1000), json!(3000), json!("kimi no")));
+  assert_eq!((l0["start_ms"].clone(), l0["end_ms"].clone(), l0["text"].clone()), (json!(1000), json!(2000), json!("kimi no")), "the A2 closing tag ends the line");
   assert_eq!(l0["words"][0], json!({"start_ms": 1000, "end_ms": 1500, "text": "kimi "}));
   assert_eq!((l0["agent"].clone(), l0["background"].clone(), l0["secondary"].clone()), (Value::Null, json!(false), json!({})));
   assert_eq!(p["lines"][1]["words"], Value::Null);

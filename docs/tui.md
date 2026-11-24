@@ -61,10 +61,10 @@ On any tab (except while typing in Search):
 | `*` | mark or unmark the playing song as a favorite |
 | `P` | add the playing song to a playlist |
 | `f` | library folders |
-| `Ctrl+P`, `/` or `Ctrl+K` | actions and quick search over the current screen |
+| `Ctrl+P` | actions and quick search over the current screen |
 | `q` | quit (`Ctrl+C` always quits) |
 
-Lyrics:
+Lyrics (configurable in `[keys]`, see [config.md](config.md#keys)):
 
 | Key | Action |
 |---|---|
@@ -72,6 +72,11 @@ Lyrics:
 | `o` | change the primary layer (original, romanized) |
 | `[` / `]` | offset -50 / +50 ms (stored per file) |
 | `w` | estimate word timing when the layer does not have it |
+| `k` | switch between classic and karaoke mode (see [config.md](config.md#lyrics)) |
+
+The top right of Lyrics shows each option with its key, like Now Playing:
+the layer (`o`), the translation (`t`), the offset (`[` / `]`) and the mode
+(`k`). Clicking an option does the same as its key.
 
 Library:
 

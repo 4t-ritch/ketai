@@ -268,6 +268,15 @@ fn main() -> io::Result<()> {
       app.anim_ms = started.elapsed().as_millis() as u64;
       if app.images && app.lyrics_mode == config::LyricsMode::Karaoke {
         app.karaoke_fonts = app.karaoke.ensure_fonts();
+        // El tamano de celda se vuelve a medir en cada cuadro: al arrancar
+        // dentro de un multiplexor (herdr) puede no ser el definitivo, y no
+        // siempre llega un aviso de cambio de tamano. Con una medida vieja
+        // la linea salia chica y corrida del centro.
+        let cell = cell_size();
+        if cell != app.cell_px {
+          ketai_tui::log::log(format_args!("cell size {:?} -> {:?}", app.cell_px, cell));
+          app.cell_px = cell;
+        }
       }
       terminal.draw(|f| ui::draw(f, &app))?;
       app.hits = ui::take_hits();

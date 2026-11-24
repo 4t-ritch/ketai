@@ -121,13 +121,27 @@ fn cover_color_false_uses_only_manual_colors() {
 #[test]
 fn lyrics_mode_size_and_font() {
   use ketai_tui::config::{LyricsConfig, LyricsMode};
-  assert_eq!(Config::parse("").unwrap().lyrics, LyricsConfig { mode: LyricsMode::Classic, size: 3, font: None });
+  assert_eq!(Config::parse("").unwrap().lyrics, LyricsConfig { mode: LyricsMode::Classic, size: 3, font: None, lines_before: 2, lines_after: 3 });
   let c = Config::parse("[lyrics]\nmode = \"karaoke\"\nsize = 5\nfont = \"/fonts/a.ttf\"\n").unwrap();
-  assert_eq!(c.lyrics, LyricsConfig { mode: LyricsMode::Karaoke, size: 5, font: Some("/fonts/a.ttf".into()) });
+  assert_eq!(c.lyrics, LyricsConfig { mode: LyricsMode::Karaoke, size: 5, font: Some("/fonts/a.ttf".into()), lines_before: 2, lines_after: 3 });
   assert!(c.warnings.is_empty(), "{:?}", c.warnings);
   assert_eq!(Config::parse("[lyrics]\nmode = \"big\"").unwrap_err(), "lyrics.mode: tiene que ser \"classic\" o \"karaoke\"");
   for bad in ["1", "9", "\"3\""] {
     assert_eq!(Config::parse(&format!("[lyrics]\nsize = {bad}")).unwrap_err(), "lyrics.size: tiene que ser un número de 2 a 8 (filas)");
   }
   assert_eq!(Config::parse("[lyrics]\nzoom = 2").unwrap().warnings, ["lyrics.zoom: clave desconocida, se ignora"]);
+}
+
+#[test]
+fn lines_before_and_after_are_kept_between_one_and_the_default() {
+  let l = |text: &str| {
+    let c = Config::parse(text).unwrap().lyrics;
+    (c.lines_before, c.lines_after)
+  };
+  assert_eq!(l("[lyrics]\nlines_before = 1\nlines_after = 2"), (1, 2));
+  // Menos de 1 o negativo: 1.
+  assert_eq!(l("[lyrics]\nlines_before = 0\nlines_after = -4"), (1, 1));
+  // Mas del maximo: el valor por defecto, dos arriba y tres abajo.
+  assert_eq!(l("[lyrics]\nlines_before = 7\nlines_after = 10"), (2, 3));
+  assert_eq!(Config::parse("[lyrics]\nlines_after = \"3\"").unwrap_err(), "lyrics.lines_after: tiene que ser un número (líneas)");
 }

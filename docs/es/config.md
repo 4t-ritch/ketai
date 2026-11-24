@@ -114,6 +114,8 @@ Como muestra la letra la vista de Letras.
 |---|---|---|
 | `mode` | `"classic"` o `"karaoke"` | `"classic"` |
 | `size` | `2` a `8` (filas) | `3` |
+| `lines_before` | `1` a `2` | `2` |
+| `lines_after` | `1` a `3` | `3` |
 | `font` | ruta a un archivo de fuente (`.ttf`, `.otf`, `.ttc`), absoluta o que empiece con `~/` | la elige fontconfig |
 
 ```toml
@@ -138,6 +140,10 @@ size = 4
   letra son celdas de la terminal, y su tamano es el de la fuente de la
   terminal, el mismo para toda la pantalla. Se cambia en la terminal (por
   ejemplo `ctrl+shift+equal` en kitty) o se usa el modo karaoke.
+- **`lines_before`** y **`lines_after`** son cuantas lineas se ven arriba y
+  abajo de la que se canta, que queda en el centro de la vista. Menos de 1 (o
+  negativo) es 1; mas del maximo es el valor por defecto (2 arriba, 3
+  abajo).
 - **`font`** solo se usa en modo karaoke. Sin ella, ketai le pide a
   fontconfig una fuente monoespaciada en negrita y usa otras para los
   caracteres que esa no tiene (por ejemplo japones o coreano).

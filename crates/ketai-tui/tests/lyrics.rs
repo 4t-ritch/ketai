@@ -302,3 +302,64 @@ fn saving_the_config_keeps_the_mode_chosen_with_m_unless_mode_changed() {
   app.apply_lyrics_config();
   assert_eq!(app.lyrics_mode, LyricsMode::Classic);
 }
+
+/// Paquete con diez lineas, una cada 3 s, sin traducciones.
+fn ten_lines(app: &mut App) {
+  let lines: Vec<Value> = (0..10)
+    .map(|i| json!({"start_ms": 1000 + i * 3000, "end_ms": 4000 + i * 3000, "text": format!("line number {i}"), "words": null,
+                    "agent": null, "background": false, "secondary": {}}))
+    .collect();
+  app.lyrics["lines"] = json!(lines);
+  app.lyrics_secondary.clear();
+}
+
+fn row_of(buf: &Buffer, needle: &str) -> Option<u16> {
+  (0..buf.area.height).find(|&y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>().contains(needle))
+}
+
+#[test]
+fn the_current_line_sits_in_the_middle_with_the_configured_lines_around() {
+  let mut app = loaded(0);
+  app.tab = Tab::Lyrics;
+  ten_lines(&mut app);
+  // Linea 5 (16000..19000).
+  app.player["position_ms"] = json!(17000);
+  let buf = render(&app);
+  let y5 = row_of(&buf, "line number 5").unwrap();
+  // Cerca del centro de la pantalla (44 filas), no arriba.
+  assert!((20..=24).contains(&y5), "current at {y5}");
+  // Por defecto, dos arriba y tres abajo, cada una a 4 filas.
+  for (n, dy) in [(3, -8), (4, -4), (6, 4), (7, 8), (8, 12)] {
+    assert_eq!(row_of(&buf, &format!("line number {n}")), Some((y5 as i32 + dy) as u16), "line {n}");
+  }
+  for n in [2, 9] {
+    assert!(row_of(&buf, &format!("line number {n}")).is_none(), "line {n} is not shown");
+  }
+  // Configurable: una arriba y una abajo.
+  app.config.lyrics.lines_before = 1;
+  app.config.lyrics.lines_after = 1;
+  let buf = render(&app);
+  assert!(row_of(&buf, "line number 4").is_some() && row_of(&buf, "line number 6").is_some());
+  assert!(row_of(&buf, "line number 3").is_none() && row_of(&buf, "line number 7").is_none());
+  // Al principio no hay lineas arriba: la actual sigue en el centro.
+  app.player["position_ms"] = json!(1500);
+  let buf = render(&app);
+  assert_eq!(row_of(&buf, "line number 0"), Some(y5));
+}
+
+#[test]
+fn clicking_a_line_seeks_to_its_start() {
+  use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+  let mut app = loaded(0);
+  app.tab = Tab::Lyrics;
+  ten_lines(&mut app);
+  app.player["position_ms"] = json!(17000);
+  let buf = render(&app);
+  app.hits = ui::take_hits();
+  let (x, y) = find(&buf, "line number 7");
+  let click = |x, y| MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: x, row: y, modifiers: KeyModifiers::NONE };
+  let cmds = app.on_mouse(click(x + 3, y), std::time::Instant::now());
+  assert_eq!(cmds, vec![("player.seek".to_string(), json!({"position_ms": 22000}))]);
+  // Solo el parrafo: a los costados del texto no hace nada.
+  assert!(app.on_mouse(click(1, y), std::time::Instant::now()).is_empty());
+}

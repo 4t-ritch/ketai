@@ -50,6 +50,24 @@ pub struct LyricsConfig {
   pub size: u16,
   /// Fuente para el modo karaoke; `None` la elige fontconfig.
   pub font: Option<std::path::PathBuf>,
+  /// Lineas que se ven arriba y abajo de la que se canta.
+  pub lines_before: u16,
+  pub lines_after: u16,
+}
+
+/// Maximo (y valor por defecto) de `lines_before` y `lines_after`.
+pub const LINES_BEFORE: u16 = 2;
+pub const LINES_AFTER: u16 = 3;
+
+/// Menos de 1 (o negativo) es 1; mas del maximo es el valor por defecto.
+fn lines_around(n: i64, max: u16) -> u16 {
+  if n < 1 {
+    1
+  } else if n > max as i64 {
+    max
+  } else {
+    n as u16
+  }
 }
 
 /// Rango de `[lyrics] size`.
@@ -57,7 +75,7 @@ pub const LYRICS_SIZES: std::ops::RangeInclusive<u16> = 2..=8;
 
 impl Default for LyricsConfig {
   fn default() -> Self {
-    Self { mode: LyricsMode::Classic, size: 3, font: None }
+    Self { mode: LyricsMode::Classic, size: 3, font: None, lines_before: LINES_BEFORE, lines_after: LINES_AFTER }
   }
 }
 
@@ -182,6 +200,14 @@ impl Config {
                   .and_then(|n| u16::try_from(n).ok())
                   .filter(|n| LYRICS_SIZES.contains(n))
                   .ok_or_else(|| format!("{name}: tiene que ser un número de {lo} a {hi} (filas)"))?;
+              }
+              "lines_before" | "lines_after" => {
+                let n = v.as_integer().ok_or_else(|| format!("{name}: tiene que ser un número (líneas)"))?;
+                if k == "lines_before" {
+                  config.lyrics.lines_before = lines_around(n, LINES_BEFORE);
+                } else {
+                  config.lyrics.lines_after = lines_around(n, LINES_AFTER);
+                }
               }
               "font" => {
                 let path = v.as_str().ok_or_else(|| format!("{name}: tiene que ser la ruta de un archivo de fuente"))?;

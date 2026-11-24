@@ -698,19 +698,38 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
       let cur = app.lyrics_line();
       // En modo karaoke la linea actual es una imagen de `size` filas.
       let karaoke = app.karaoke_on() && cur.is_some();
-      let big = if karaoke { app.config.lyrics.size + 2 } else { 4 };
-      // Cuantas lineas entran (la actual ocupa `big` filas).
-      let rows = if karaoke { (lines_area.height.saturating_sub(big) / 4) as usize + 1 } else { (lines_area.height / 4).max(1) as usize };
-      // La linea actual queda en el segundo tercio de la vista.
-      let first = cur.unwrap_or(0).saturating_sub(rows / 3);
-      let mut y = lines_area.y;
-      for i in (first..lines.len()).take(rows) {
+      let size = app.config.lyrics.size;
+      let big = if karaoke { size + 2 } else { 4 };
+      // La linea actual va en el centro de la vista; las otras, hacia
+      // arriba y hacia abajo, las que entren.
+      let anchor = cur.unwrap_or(0);
+      let secondary = app.lyrics_secondary.iter().filter(|id| lines[anchor]["secondary"][id.as_str()].is_string()).count() as u16;
+      let block = if karaoke { size } else { 1 } + secondary;
+      let bottom = lines_area.y + lines_area.height;
+      let middle = lines_area.y + lines_area.height / 2;
+      let y_cur = middle.saturating_sub(block / 2).max(lines_area.y);
+      let before = (app.config.lyrics.lines_before as usize).min(anchor);
+      let after = app.config.lyrics.lines_after as usize;
+      let mut slots: Vec<(usize, u16)> = Vec::new();
+      for k in (1..=before).rev() {
+        if let Some(y) = y_cur.checked_sub(4 * k as u16).filter(|y| *y >= lines_area.y) {
+          slots.push((anchor - k, y));
+        }
+      }
+      slots.push((anchor, y_cur));
+      for k in 1..=after {
+        let y = y_cur + big + 4 * (k as u16 - 1);
+        if anchor + k < lines.len() && y < bottom {
+          slots.push((anchor + k, y));
+        }
+      }
+      for (i, y) in slots {
         let line = &lines[i];
-        let height = if cur == Some(i) { big } else { 4 };
         let mut below = y + 1;
+        let mut width: u16;
         if karaoke && cur == Some(i) {
           let next = lines.get(i + 1).and_then(|l| l["start_ms"].as_u64());
-          let area = Rect::new(lines_area.x, y, lines_area.width, app.config.lyrics.size);
+          let area = Rect::new(lines_area.x, y, lines_area.width, size.min(bottom.saturating_sub(y)));
           if let Some((words, times)) = crate::karaoke::line_words(line, next) {
             let buf = f.buffer_mut();
             for yy in area.y..area.y + area.height {
@@ -722,6 +741,7 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
             KARAOKE.with(|k| *k.borrow_mut() = Some(crate::karaoke::Slot { area, words, times, colors }));
           }
           below = y + area.height;
+          width = lines_area.width;
         } else {
           // En karaoke las otras lineas van mas tenues: la que se canta
           // es la que se lee.
@@ -736,14 +756,24 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
             Some(c) if i < c => Line::styled(text, Style::new().fg(past)),
             _ => Line::styled(text, Style::new().fg(next).add_modifier(Modifier::BOLD)),
           };
+          width = main.width() as u16;
           center(f, y, main);
         }
+        let mut rows = below - y;
         for (k, id) in app.lyrics_secondary.iter().enumerate() {
           let Some(tr) = line["secondary"][id].as_str() else { continue };
           let color = if cur == Some(i) { t.dim } else { t.upcoming_secondary() };
-          center(f, below + k as u16, Line::styled(tr.to_string(), Style::new().fg(color).add_modifier(Modifier::ITALIC)));
+          let tr = Line::styled(tr.to_string(), Style::new().fg(color).add_modifier(Modifier::ITALIC));
+          width = width.max(tr.width() as u16);
+          center(f, below + k as u16, tr);
+          rows = rows.max(below + k as u16 + 1 - y);
         }
-        y += height;
+        // El parrafo entero (linea y traducciones) salta a su inicio.
+        if let Some(ms) = line["start_ms"].as_u64() {
+          let w = width.min(lines_area.width);
+          let x = lines_area.x + (lines_area.width - w) / 2;
+          hit(Rect::new(x, y, w, rows.min(bottom.saturating_sub(y))), Hit::LyricLine(ms));
+        }
       }
     }
   }

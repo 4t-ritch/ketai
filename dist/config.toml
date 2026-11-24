@@ -36,6 +36,9 @@ accent = "cover"
 # mode = "classic"
 # Height in rows of the line being sung in karaoke mode (2 to 8).
 # size = 3
+# Lines shown above (1 to 2) and below (1 to 3) the one being sung.
+# lines_before = 2
+# lines_after = 3
 # Font for karaoke mode. Default: chosen by fontconfig.
 # font = "~/.local/share/fonts/MyFont-Bold.ttf"
 

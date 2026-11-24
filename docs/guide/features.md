@@ -41,6 +41,9 @@ colors can be used too (see [examples/theme/](../../examples/theme/README.md)).
   such as the romanized version (`o` changes the primary layer).
 - **Timing adjustment** (`[` / `]`, in 50 ms steps), stored per file.
 - If the lyrics have no word timing, `w` estimates it.
+- The line being sung stays in the middle; clicking a line (with its
+  translation) jumps to that part of the song. How many lines are shown
+  above and below is set in `[lyrics]`.
 - **Karaoke mode** (`m`): the line being sung fills in gradually, inside the
   letters, like video karaoke, at the size set with `[lyrics] size` (see
   [../config.md](../config.md#lyrics)).

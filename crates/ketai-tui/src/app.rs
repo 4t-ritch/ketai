@@ -114,6 +114,8 @@ pub enum Hit {
   Seek { x: u16, w: u16 },
   /// Barra de volumen.
   Volume { x: u16, w: u16 },
+  /// Una linea de la letra: salta a su inicio (ms).
+  LyricLine(u64),
   LibView(LibView),
   /// Fila de la columna izquierda de Biblioteca (playlist o grupo).
   LibSide(usize),
@@ -574,6 +576,14 @@ impl App {
           Hit::Volume { .. } => {
             self.dragging = Some(hit);
             self.set_volume_at(hit, ev.column)
+          }
+          Hit::LyricLine(ms) => {
+            // Hasta que llegue la posicion nueva del daemon, se muestra esta.
+            if let Some(obj) = self.player.as_object_mut() {
+              obj.insert("position_ms".into(), json!(ms));
+            }
+            self.pos_at = Instant::now();
+            vec![("player.seek".into(), json!({"position_ms": ms}))]
           }
           Hit::LibSideArea | Hit::LibListArea => Vec::new(),
           Hit::Confirm(yes) => self.on_key(key(KeyCode::Char(if yes { 'a' } else { 'n' }))),

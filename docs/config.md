@@ -110,6 +110,8 @@ How the Lyrics view (*Letras*) shows the lyrics.
 |---|---|---|
 | `mode` | `"classic"` or `"karaoke"` | `"classic"` |
 | `size` | `2` to `8` (rows) | `3` |
+| `lines_before` | `1` to `2` | `2` |
+| `lines_after` | `1` to `3` | `3` |
 | `font` | path to a font file (`.ttf`, `.otf`, `.ttc`), absolute or starting with `~/` | chosen by fontconfig |
 
 ```toml
@@ -134,6 +136,10 @@ size = 4
   are terminal cells, and their size is the terminal's font size, the same
   for the whole screen. Change it in the terminal (for example
   `ctrl+shift+equal` in kitty) or use karaoke mode.
+- **`lines_before`** and **`lines_after`** are how many lines are shown
+  above and below the one being sung, which stays in the middle of the view.
+  Less than 1 (or negative) is 1; more than the maximum is the default (2
+  above, 3 below).
 - **`font`** is only used in karaoke mode. Without it, ketai asks fontconfig
   for a bold monospace font and uses others for the characters it does not
   have (for example Japanese or Korean).

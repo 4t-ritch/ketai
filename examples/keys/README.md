@@ -75,6 +75,11 @@ next = ["n", "ctrl+right"]    # several keys for the same action
 | `tab_lyrics` | `2` | Go to Lyrics |
 | `tab_library` | `3` | Go to Library |
 | `tab_search` | `4` | Go to Search |
+| `lyrics_layer` | `o` | Lyrics: change the primary layer |
+| `lyrics_translation` | `t` | Lyrics: show or hide the translation |
+| `lyrics_offset_down` / `lyrics_offset_up` | `[` / `]` | Lyrics: offset -50 / +50 ms |
+| `lyrics_mode` | `k` | Lyrics: classic or karaoke mode |
+| `lyrics_estimate` | `w` | Lyrics: estimate word timing |
 
 ## Rules worth knowing
 
@@ -89,10 +94,13 @@ next = ["n", "ctrl+right"]    # several keys for the same action
   configuration until you fix it.
 - **An action that does not exist** (`dance = "x"`) is reported and ignored;
   the rest is applied.
-- **The same key in two actions** is reported on the last row. The one that
-  comes first in the table above wins.
-- **Each view's keys are fixed for now**: `h` / `l` to change view in
-  Library, `t` / `o` in Lyrics, `a` to add to the queue, `c` to create a
+- **A repeated key blocks ketai** until you fix it: the same key in two
+  global actions, in a global action and a view action (`lyrics_*`), or
+  twice in the same view. A window lists every repeated key with its
+  actions; save the fixed file and ketai unlocks by itself. The same key in
+  two different views is fine.
+- **The other keys of each view are fixed for now**: `h` / `l` to change
+  view in Library, `a` to add to the queue, `c` to create a
   playlist, `x` to remove, and `Esc`, `Enter` and the arrows inside lists and
   popups. See `docs/tui.md`.
 

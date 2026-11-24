@@ -101,23 +101,24 @@ Formato de una tecla: un caracter (`"n"`, `"P"`, `"+"`), o un nombre
 | `lyrics_layer` | `o` | Letras: cambiar la capa principal |
 | `lyrics_translation` | `t` | Letras: mostrar u ocultar la traduccion |
 | `lyrics_offset_down` / `lyrics_offset_up` | `[` / `]` | Letras: offset -50 / +50 ms |
-| `lyrics_mode` | `m` | Letras: modo clasico o karaoke |
+| `lyrics_mode` | `k` | Letras: modo clasico o karaoke |
 | `lyrics_estimate` | `w` | Letras: estimar tiempos por palabra |
 
 - `Ctrl+C` siempre sale, aunque se configure otra cosa.
 - Mientras se escribe en Buscar, las teclas sin Ctrl ni Alt son texto.
 - Una tecla invalida es un error (se muestra y se mantiene la configuracion
   anterior); una accion desconocida se avisa.
-- **Una tecla en dos o mas acciones bloquea la TUI**, al iniciar o al
+- **Una tecla repetida (segun la regla de arriba) bloquea la TUI**, al iniciar o al
   guardar el archivo: una ventana muestra todas las teclas repetidas con sus
   acciones, agrupadas por tecla (se desplaza con las flechas, `j` / `k` o la
   rueda). Solo se puede desplazar y salir (`q`, `Ctrl+C`); la musica sigue
   sonando. Al corregir `[keys]` y guardar, la TUI se desbloquea sola, sin
   reiniciar.
-- Las acciones `lyrics_*` solo valen en la vista de Letras, y ahi tienen
-  prioridad sobre las globales: por defecto `m` silencia en todas las vistas
-  menos en Letras, donde cambia el modo. Eso no se avisa como conflicto; dos
-  acciones de Letras con la misma tecla, si (y bloquean la TUI, ver abajo).
+- Las acciones `lyrics_*` solo valen en la vista de Letras. Una tecla puede
+  usarse en vistas distintas (cada una vale solo en la suya), pero nunca en
+  una vista y una accion global a la vez, en dos acciones globales, ni dos
+  veces en la misma vista: asi todas las funciones quedan al alcance en todas
+  las vistas (por ejemplo, `m` silencia en todas, Letras incluida).
 - Las teclas que se ven en pantalla (por ejemplo las de la cabecera de Letras
   y las del volumen en Reproduciendo) son siempre las configuradas: si se
   cambia una tecla, la pantalla muestra la nueva.
@@ -146,7 +147,7 @@ size = 4
 - **`classic`**: texto de la terminal; se resalta la palabra que se canta.
 - **`karaoke`**: la linea que se canta se dibuja como imagen y se va
   pintando de a poco, por dentro de las letras, a medida que se canta cada
-  palabra (como los karaokes de video). `m` en la vista de Letras cambia
+  palabra (como los karaokes de video). `k` en la vista de Letras cambia
   entre los dos modos y guarda la eleccion en el archivo (solo cambia la
   linea `mode` de `[lyrics]`; los comentarios y el resto quedan como estan),
   asi se mantiene la proxima vez.

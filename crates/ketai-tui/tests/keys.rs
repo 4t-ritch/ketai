@@ -87,31 +87,41 @@ fn now_playing_shows_the_configured_keys() {
 }
 
 #[test]
-fn lyrics_keys_only_conflict_among_themselves() {
+fn a_lyrics_key_cannot_repeat_a_global_one() {
   use ketai_tui::config::Config;
-  // `m` silencia en todas las vistas y cambia el modo en Letras: no es un
-  // conflicto (en Letras manda la de Letras).
+  // Por defecto no hay repetidas: `m` silencia y `k` cambia el modo.
   assert!(Config::parse("").unwrap().warnings.is_empty());
-  let c = Config::parse("[keys]\nlyrics_layer = \"t\"").unwrap();
-  assert_eq!(c.warnings.len(), 1, "{:?}", c.warnings);
-  assert!(c.warnings[0].contains("lyrics_layer") && c.warnings[0].contains("lyrics_translation"), "{:?}", c.warnings);
+  // Una de Letras con la tecla de una global taparia la global en Letras.
+  let c = Config::parse("[keys]\nlyrics_mode = \"m\"").unwrap();
+  assert_eq!(c.warnings, ["keys: m está en mute y lyrics_mode"]);
+  assert_eq!(c.keys.duplicates().len(), 1);
 }
 
 #[test]
-fn duplicates_are_grouped_by_key_within_the_same_scope() {
+fn duplicates_are_grouped_by_key() {
   use ketai_tui::config::Config;
   use ketai_tui::keys::name;
-  assert!(Config::parse("").unwrap().keys.duplicates().is_empty(), "the defaults have none (m in Lyrics is not one)");
-  let c = Config::parse("[keys]\nnext = \"x\"\nprevious = \"x\"\nshuffle = \"x\"\nrepeat = \"z\"\nmute = \"z\"\nlyrics_layer = \"t\"").unwrap();
+  assert!(Config::parse("").unwrap().keys.duplicates().is_empty(), "the defaults have none");
+  let c = Config::parse("[keys]\nnext = \"x\"\nprevious = \"x\"\nshuffle = \"x\"\nrepeat = \"z\"\nmute = \"z\"\nlyrics_layer = \"t\"\nlyrics_estimate = \"d\"").unwrap();
   let got: Vec<(String, Vec<&str>)> = c.keys.duplicates().into_iter().map(|(k, a)| (k.label(), a.into_iter().map(name).collect())).collect();
-  // Una tecla en tres acciones es un solo grupo; las acciones van en el
-  // orden de la tabla.
+  // Una tecla en tres acciones es un solo grupo; grupos y acciones van en
+  // el orden de la tabla.
   assert_eq!(
     got,
     vec![
       ("x".to_string(), vec!["next", "previous", "shuffle"]),
       ("z".to_string(), vec!["mute", "repeat"]),
+      // Una de Letras con una global tambien.
+      ("d".to_string(), vec!["devices", "lyrics_estimate"]),
       ("t".to_string(), vec!["lyrics_layer", "lyrics_translation"]),
     ]
   );
+}
+
+#[test]
+fn the_same_key_is_valid_in_different_views_but_not_with_a_global_one() {
+  use ketai_tui::keys::Scope::{Global, Lyrics};
+  assert!(Global.clashes_with(Global));
+  assert!(Global.clashes_with(Lyrics) && Lyrics.clashes_with(Global), "a view key would hide a global one");
+  assert!(Lyrics.clashes_with(Lyrics), "twice in the same view");
 }

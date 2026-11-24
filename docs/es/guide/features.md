@@ -43,7 +43,7 @@ instantaneo. Tambien se pueden usar colores fijos (ver
 - La linea que se canta queda en el centro; un clic en una linea (con su
   traduccion) salta a ese tramo de la cancion. Cuantas lineas se ven arriba
   y abajo se configura en `[lyrics]`.
-- **Modo karaoke** (`m`): la linea que se canta se va pintando de a poco, por
+- **Modo karaoke** (`k`): la linea que se canta se va pintando de a poco, por
   dentro de las letras, como los karaokes de video, con el tamano de
   `[lyrics] size` (ver [../config.md](../config.md#lyrics)).
 - Las letras se leen de archivos junto al audio (`cancion.lrc`,

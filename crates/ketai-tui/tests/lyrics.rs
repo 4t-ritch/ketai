@@ -186,14 +186,14 @@ fn karaoke_ready(pos: u64) -> App {
 }
 
 #[test]
-fn m_switches_between_classic_and_karaoke() {
+fn k_switches_between_classic_and_karaoke() {
   use ketai_tui::config::LyricsMode;
   let mut app = loaded(4200);
   app.tab = Tab::Lyrics;
   assert_eq!(app.lyrics_mode, LyricsMode::Classic);
-  assert_eq!(app.on_key(key(KeyCode::Char('m'))), Vec::<(String, Value)>::new());
+  assert_eq!(app.on_key(key(KeyCode::Char('k'))), Vec::<(String, Value)>::new());
   assert_eq!(app.lyrics_mode, LyricsMode::Karaoke);
-  app.on_key(key(KeyCode::Char('m')));
+  app.on_key(key(KeyCode::Char('k')));
   assert_eq!(app.lyrics_mode, LyricsMode::Classic);
 }
 
@@ -262,23 +262,23 @@ fn karaoke_dims_the_lines_around_the_one_being_sung() {
 fn the_header_says_which_mode_is_on() {
   let mut app = karaoke_ready(4200);
   app.lyrics_mode = ketai_tui::config::LyricsMode::Classic;
-  assert!(text(&render(&app)).contains("Modo: clásico   m "));
+  assert!(text(&render(&app)).contains("Modo: clásico   k "));
   app.lyrics_mode = ketai_tui::config::LyricsMode::Karaoke;
-  assert!(text(&render(&app)).contains("Modo: karaoke   m "));
+  assert!(text(&render(&app)).contains("Modo: karaoke   k "));
   ui::take_karaoke();
   // Pedido pero sin tamano de celda: se ve el clasico y se avisa.
   app.cell_px = None;
-  assert!(text(&render(&app)).contains("Modo: karaoke (no disponible)   m "));
+  assert!(text(&render(&app)).contains("Modo: karaoke (no disponible)   k "));
 }
 
 #[test]
-fn saving_the_config_keeps_the_mode_chosen_with_m_unless_mode_changed() {
+fn saving_the_config_keeps_the_mode_chosen_with_the_key_unless_mode_changed() {
   use ketai_tui::config::{Config, LyricsMode};
   let mut app = karaoke_ready(4200);
   app.config = Config::parse("[lyrics]\nsize = 3").unwrap();
   app.apply_lyrics_config();
   assert_eq!(app.lyrics_mode, LyricsMode::Classic, "first load takes the file's mode");
-  app.on_key(key(KeyCode::Char('m')));
+  app.on_key(key(KeyCode::Char('k')));
   // Se guarda otro tamano: el modo elegido con `m` se mantiene y el tamano cambia.
   app.config = Config::parse("[lyrics]\nsize = 5").unwrap();
   app.apply_lyrics_config();
@@ -288,14 +288,14 @@ fn saving_the_config_keeps_the_mode_chosen_with_m_unless_mode_changed() {
   // Cambiar `mode` en el archivo si lo aplica.
   app.config = Config::parse("[lyrics]\nmode = \"karaoke\"\nsize = 5").unwrap();
   app.apply_lyrics_config();
-  app.on_key(key(KeyCode::Char('m')));
+  app.on_key(key(KeyCode::Char('k')));
   assert_eq!(app.lyrics_mode, LyricsMode::Classic);
   app.config = Config::parse("[lyrics]\nmode = \"karaoke\"\nsize = 4").unwrap();
   app.apply_lyrics_config();
   assert_eq!(app.lyrics_mode, LyricsMode::Classic, "mode did not change in the file");
   app.config = Config::parse("[lyrics]\nmode = \"classic\"\nsize = 4").unwrap();
   app.apply_lyrics_config();
-  app.on_key(key(KeyCode::Char('m')));
+  app.on_key(key(KeyCode::Char('k')));
   app.config = Config::parse("[lyrics]\nmode = \"karaoke\"\nsize = 4").unwrap();
   app.apply_lyrics_config();
   assert_eq!(app.lyrics_mode, LyricsMode::Karaoke);
@@ -393,7 +393,7 @@ fn with_a_popup_open_the_karaoke_line_is_text() {
 }
 
 #[test]
-fn m_saves_the_mode_in_the_config_file() {
+fn the_mode_key_saves_the_mode_in_the_config_file() {
   use ketai_tui::config::{Config, LyricsMode};
   let dir = std::env::temp_dir().join(format!("ketai-m-saves-{}", std::process::id()));
   let path = dir.join("config.toml");
@@ -402,7 +402,7 @@ fn m_saves_the_mode_in_the_config_file() {
   let mut app = loaded(4200);
   app.tab = Tab::Lyrics;
   app.config_path = Some(path.clone());
-  app.on_key(key(KeyCode::Char('m')));
+  app.on_key(key(KeyCode::Char('k')));
   let text = std::fs::read_to_string(&path).unwrap();
   assert_eq!(text, "# keep me\n[lyrics]\nmode = \"karaoke\"\nsize = 4\n");
   // Al recargar lo guardado, el modo sigue siendo el elegido.
@@ -420,12 +420,12 @@ fn the_lyrics_options_are_keycaps_that_respond_to_clicks() {
   app.tab = Tab::Lyrics;
   let buf = render(&app);
   let t = text(&buf);
-  for want in ["Capa: Original   o ", "Traducción: es   t ", "Offset: -250 ms   [   ] ", "Modo: clásico   m "] {
+  for want in ["Capa: Original   o ", "Traducción: es   t ", "Offset: -250 ms   [   ] ", "Modo: clásico   k "] {
     assert!(t.contains(want), "missing {want:?}\n{t}");
   }
   // La tecla va en un recuadro, como en Reproduciendo; etiqueta clara y
   // valor tenue.
-  let (x, y) = find(&buf, "Modo: clásico   m ");
+  let (x, y) = find(&buf, "Modo: clásico   k ");
   assert_eq!(buf[(x, y)].fg, app.theme.fg, "label");
   assert_eq!(buf[(x + 6, y)].fg, app.theme.faint, "value");
   assert_eq!(buf[(x + 16, y)].bg, app.theme.raised, "keycap");
@@ -455,22 +455,20 @@ fn lyrics_keys_come_from_the_config_and_the_header_shows_them_live() {
   use ketai_tui::config::{Config, LyricsMode};
   let mut app = loaded(4200);
   app.tab = Tab::Lyrics;
-  // Por defecto, `m` cambia el modo en Letras.
-  assert!(text(&render(&app)).contains("Modo: clásico   m "));
-  app.on_key(key(KeyCode::Char('m')));
-  assert_eq!(app.lyrics_mode, LyricsMode::Karaoke);
-  // Se cambia la tecla en config.toml: la cabecera muestra la nueva.
-  app.config = Config::parse("[keys]\nlyrics_mode = \"k\"\nlyrics_offset_up = \"ctrl+u\"").unwrap();
-  let t = text(&render(&app));
-  assert!(t.contains("Modo: karaoke   k "), "{t}");
-  assert!(t.contains(" Ctrl+U "), "{t}");
-  assert!(!t.contains("   m "), "the old key is not shown\n{t}");
-  // Y es la que responde; `m` vuelve a ser la global (silenciar).
+  // Por defecto, `k` cambia el modo en Letras y `m` silencia (tambien ahi).
+  assert!(text(&render(&app)).contains("Modo: clásico   k "));
   app.on_key(key(KeyCode::Char('k')));
+  assert_eq!(app.lyrics_mode, LyricsMode::Karaoke);
+  assert_eq!(methods(&app.on_key(key(KeyCode::Char('m')))), ["player.set_muted"]);
+  // Se cambia la tecla en config.toml: la cabecera muestra la nueva.
+  app.config = Config::parse("[keys]\nlyrics_mode = \"x\"\nlyrics_offset_up = \"ctrl+u\"").unwrap();
+  let t = text(&render(&app));
+  assert!(t.contains("Modo: karaoke   x "), "{t}");
+  assert!(t.contains(" Ctrl+U "), "{t}");
+  assert!(!t.contains("   k "), "the old key is not shown\n{t}");
+  // Y es la que responde.
+  app.on_key(key(KeyCode::Char('x')));
   assert_eq!(app.lyrics_mode, LyricsMode::Classic);
-  let cmds = app.on_key(key(KeyCode::Char('m')));
-  assert_eq!(app.lyrics_mode, LyricsMode::Classic);
-  assert_eq!(methods(&cmds), ["player.set_muted"]);
 }
 
 #[test]

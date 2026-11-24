@@ -97,22 +97,23 @@ modifiers in front (`"ctrl+p"`, `"shift+tab"`).
 | `lyrics_layer` | `o` | Lyrics: change the primary layer |
 | `lyrics_translation` | `t` | Lyrics: show or hide the translation |
 | `lyrics_offset_down` / `lyrics_offset_up` | `[` / `]` | Lyrics: offset -50 / +50 ms |
-| `lyrics_mode` | `m` | Lyrics: classic or karaoke mode |
+| `lyrics_mode` | `k` | Lyrics: classic or karaoke mode |
 | `lyrics_estimate` | `w` | Lyrics: estimate word timing |
 
 - `Ctrl+C` always quits, whatever else is configured.
 - While typing in Search, keys without Ctrl or Alt are text.
 - An invalid key is an error (it is shown and the previous configuration is
   kept); an unknown action is reported.
-- **A key in two or more actions blocks the TUI**, at start or when the
+- **A repeated key (by the rule above) blocks the TUI**, at start or when the
   file is saved: a window lists every repeated key with its actions, grouped
   by key (it scrolls with the arrows, `j` / `k` or the wheel). Only scrolling
   and quitting (`q`, `Ctrl+C`) work; the music keeps playing. Fix `[keys]`
   and save: the TUI unlocks by itself, without restarting.
-- The `lyrics_*` actions only work in the Lyrics view, and there they take
-  priority over the global ones: by default `m` mutes everywhere except in
-  Lyrics, where it changes the mode. That is not reported as a conflict; two
-  Lyrics actions with the same key are (and block the TUI, see below).
+- The `lyrics_*` actions only work in the Lyrics view. A key can be used in
+  different views (each one only works in its own view), but never in a view
+  and a global action at the same time, in two global actions, or twice in
+  the same view: that way every function stays reachable everywhere (for
+  example `m` mutes in every view, Lyrics included).
 - The keys shown on screen (for example the ones in the Lyrics header and
   next to the volume in Now Playing) are always the configured ones: change
   a key and the screen shows the new one.
@@ -141,7 +142,7 @@ size = 4
 - **`classic`**: terminal text; the word being sung is highlighted.
 - **`karaoke`**: the line being sung is drawn as an image and fills in
   gradually, inside the letters, as each word is sung (like video karaoke).
-  `m` in the Lyrics view switches between the two modes and saves the choice
+  `k` in the Lyrics view switches between the two modes and saves the choice
   in the file (only the `mode` line of `[lyrics]` changes; comments and the
   rest stay as they are), so it is kept the next time.
 - **Live reload**: saving the file applies `size` and `font` right away.

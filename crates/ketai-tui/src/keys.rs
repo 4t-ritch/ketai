@@ -2,9 +2,12 @@
 //!
 //! Cada accion tiene teclas por defecto; en config.toml se reemplazan por
 //! accion con un texto ("ctrl+p") o una lista (["n", "ctrl+right"]). Las
-//! acciones de Letras (`lyrics_*`) valen solo en esa vista y ahi tienen
-//! prioridad sobre las globales. Las demas teclas propias de cada vista (h /
-//! l en Biblioteca) son fijas. Ctrl+C siempre sale.
+//! acciones de Letras (`lyrics_*`) valen solo en esa vista. Una tecla no
+//! puede estar en dos globales, en una global y una de vista, ni dos veces
+//! en la misma vista: asi todas las funciones quedan al alcance. Si puede
+//! repetirse entre vistas distintas (cada una se usa en la suya). Las demas
+//! teclas propias de cada vista (h / l en Biblioteca) son fijas. Ctrl+C
+//! siempre sale.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -41,7 +44,26 @@ pub enum Action {
   LyricsEstimate,
 }
 
+/// Donde vale una accion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+  Global,
+  Lyrics,
+}
+
+impl Scope {
+  /// Dos acciones con la misma tecla chocan salvo que sean de vistas
+  /// distintas (cada una vale solo en la suya).
+  pub fn clashes_with(self, other: Scope) -> bool {
+    self == Scope::Global || other == Scope::Global || self == other
+  }
+}
+
 impl Action {
+  pub fn scope(self) -> Scope {
+    if self.is_lyrics() { Scope::Lyrics } else { Scope::Global }
+  }
+
   /// Accion de la vista de Letras (no global).
   pub fn is_lyrics(self) -> bool {
     matches!(
@@ -84,7 +106,7 @@ pub const ACTIONS: &[(&str, Action, &[&str], &str)] = &[
   ("lyrics_translation", Action::LyricsTranslation, &["t"], "Letras: mostrar u ocultar la traducción"),
   ("lyrics_offset_down", Action::LyricsOffsetDown, &["["], "Letras: offset -50 ms"),
   ("lyrics_offset_up", Action::LyricsOffsetUp, &["]"], "Letras: offset +50 ms"),
-  ("lyrics_mode", Action::LyricsMode, &["m"], "Letras: modo clásico o karaoke"),
+  ("lyrics_mode", Action::LyricsMode, &["k"], "Letras: modo clásico o karaoke"),
   ("lyrics_estimate", Action::LyricsEstimate, &["w"], "Letras: estimar tiempos por palabra"),
 ];
 
@@ -237,22 +259,31 @@ impl Keymap {
     self.bindings.iter().find(|(a, _)| *a == action).map(|(_, k)| k.as_slice()).unwrap_or(&[])
   }
 
-  /// Teclas en dos o mas acciones del mismo alcance (globales entre si, de
-  /// Letras entre si), agrupadas por tecla, en el orden de las acciones.
-  /// Una tecla de Letras que repite una global no cuenta: en Letras manda
-  /// la de Letras. Con alguna, la TUI se bloquea hasta corregirlas.
+  /// Teclas que chocan (ver `Scope::clashes_with`), agrupadas por tecla con
+  /// las acciones que chocan, en el orden de la tabla. Con alguna, la TUI se
+  /// bloquea hasta corregirlas.
   pub fn duplicates(&self) -> Vec<(Key, Vec<Action>)> {
-    let mut groups: Vec<(Key, bool, Vec<Action>)> = Vec::new();
+    let mut groups: Vec<(Key, Vec<Action>)> = Vec::new();
     for (action, keys) in &self.bindings {
       for k in keys {
-        match groups.iter_mut().find(|(g, lyrics, _)| g == k && *lyrics == action.is_lyrics()) {
-          Some((_, _, actions)) if !actions.contains(action) => actions.push(*action),
+        match groups.iter_mut().find(|(g, _)| g == k) {
+          Some((_, actions)) if !actions.contains(action) => actions.push(*action),
           Some(_) => {}
-          None => groups.push((*k, action.is_lyrics(), vec![*action])),
+          None => groups.push((*k, vec![*action])),
         }
       }
     }
-    groups.into_iter().filter(|(_, _, a)| a.len() > 1).map(|(k, _, a)| (k, a)).collect()
+    groups
+      .into_iter()
+      .filter_map(|(k, actions)| {
+        let clashing: Vec<Action> = actions
+          .iter()
+          .copied()
+          .filter(|a| actions.iter().any(|b| b != a && a.scope().clashes_with(b.scope())))
+          .collect();
+        (!clashing.is_empty()).then_some((k, clashing))
+      })
+      .collect()
   }
 
   /// Teclas repetidas entre acciones, para avisar.
@@ -260,9 +291,7 @@ impl Keymap {
     let mut out = Vec::new();
     for (i, (a, keys)) in self.bindings.iter().enumerate() {
       for (b, other) in &self.bindings[i + 1..] {
-        // Una tecla de Letras puede repetir una global: en esa vista manda
-        // la de Letras (la global sigue en las demas).
-        if a.is_lyrics() != b.is_lyrics() {
+        if !a.scope().clashes_with(b.scope()) {
           continue;
         }
         for k in keys {

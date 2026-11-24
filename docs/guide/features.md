@@ -44,7 +44,7 @@ colors can be used too (see [examples/theme/](../../examples/theme/README.md)).
 - The line being sung stays in the middle; clicking a line (with its
   translation) jumps to that part of the song. How many lines are shown
   above and below is set in `[lyrics]`.
-- **Karaoke mode** (`m`): the line being sung fills in gradually, inside the
+- **Karaoke mode** (`k`): the line being sung fills in gradually, inside the
   letters, like video karaoke, at the size set with `[lyrics] size` (see
   [../config.md](../config.md#lyrics)).
 - Lyrics are read from files next to the audio (`song.lrc`, `song.ttml`,

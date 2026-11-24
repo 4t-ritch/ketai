@@ -206,16 +206,27 @@ struct Shown {
   size: (u32, u32),
   colors: Colors,
   xs: Vec<(f32, f32)>,
+  unsung: RgbaImage,
+  sung: RgbaImage,
   /// Los datos estan en la terminal (se pierden al cambiar de tamano en
   /// algunos multiplexores).
   sent: bool,
 }
 
-/// Estado del modo karaoke: dos ids de imagen propios, que se reusan para
+/// Estado del modo karaoke: tres ids de imagen propios, que se reusan para
 /// cada linea (mandar datos nuevos con el mismo id reemplaza la imagen).
+///
+/// La cantada se recorta siempre en celdas enteras: un multiplexor que
+/// vuelve a dibujar las imagenes (herdr) puede estirar un recorte que no
+/// llena su ultima celda, y la letra se sacudia de lado a lado mientras
+/// avanzaba. El borde dentro de la ultima celda es una imagen aparte de una
+/// celda (mitad cantada, mitad sin cantar), chica, que se manda al cambiar.
 pub struct Karaoke {
   unsung_id: u32,
   sung_id: u32,
+  edge_id: u32,
+  /// Celda y pixeles del borde mandado.
+  edge_sent: Option<(u32, u32)>,
   fonts: Option<Option<Fonts>>,
   font: Option<PathBuf>,
   shown: Option<Shown>,
@@ -241,7 +252,17 @@ fn steady(last: Option<u64>, pos: u64) -> u64 {
 
 impl Karaoke {
   pub fn new(unsung_id: u32, font: Option<PathBuf>) -> Self {
-    Karaoke { unsung_id, sung_id: unsung_id + 1, fonts: None, font, shown: None, placed: Vec::new(), last_pos: None }
+    Karaoke {
+      unsung_id,
+      sung_id: unsung_id + 1,
+      edge_id: unsung_id + 2,
+      edge_sent: None,
+      fonts: None,
+      font,
+      shown: None,
+      placed: Vec::new(),
+      last_pos: None,
+    }
   }
 
   /// Carga las fuentes la primera vez. `false` si no hay ninguna (la vista
@@ -272,10 +293,11 @@ impl Karaoke {
       s.sent = false;
     }
     self.placed.clear();
+    self.edge_sent = None;
   }
 
-  pub fn ids(&self) -> [u32; 2] {
-    [self.unsung_id, self.sung_id]
+  pub fn ids(&self) -> [u32; 3] {
+    [self.unsung_id, self.sung_id, self.edge_id]
   }
 
   /// Lo que hay que mandar a la terminal en este cuadro: la linea nueva si
@@ -295,10 +317,11 @@ impl Karaoke {
         self.shown = render(fonts, &words, size.0, size.1, slot.colors).map(|r| {
           out.push_str(&crate::kitty::transmit(self.unsung_id, &png(&r.unsung)));
           out.push_str(&crate::kitty::transmit(self.sung_id, &png(&r.sung)));
-          Shown { words: slot.words.clone(), size, colors: slot.colors, xs: r.words, sent: true }
+          Shown { words: slot.words.clone(), size, colors: slot.colors, xs: r.words, unsung: r.unsung, sung: r.sung, sent: true }
         });
         // Datos nuevos con el mismo id borran las ubicaciones anteriores.
         self.placed.clear();
+        self.edge_sent = None;
         if !same {
           self.last_pos = None;
         }
@@ -308,9 +331,24 @@ impl Karaoke {
         overlays.push(Overlay { image: self.unsung_id, x, y, crop: None, z: Z_BELOW_BACKGROUND - 1 });
         let pos_ms = steady(self.last_pos, pos_ms);
         self.last_pos = Some(pos_ms);
-        let edge = fill_x(&slot.times, &s.xs, pos_ms).round() as u32;
-        if edge > 0 {
-          overlays.push(Overlay { image: self.sung_id, x, y, crop: Some((edge.min(s.size.0), s.size.1)), z: Z_BELOW_BACKGROUND });
+        let edge = (fill_x(&slot.times, &s.xs, pos_ms).round() as u32).min(s.size.0);
+        let cw = cell.0.max(1) as u32;
+        let (full, rest) = (edge / cw, edge % cw);
+        if full > 0 {
+          overlays.push(Overlay { image: self.sung_id, x, y, crop: Some((full * cw, s.size.1)), z: Z_BELOW_BACKGROUND });
+        }
+        if rest > 0 {
+          if self.edge_sent != Some((full, rest)) {
+            let cell_img = RgbaImage::from_fn(cw, s.size.1, |px, py| {
+              let src = if px < rest { &s.sung } else { &s.unsung };
+              *src.get_pixel((full * cw + px).min(s.size.0 - 1), py)
+            });
+            out.push_str(&crate::kitty::transmit(self.edge_id, &png(&cell_img)));
+            self.edge_sent = Some((full, rest));
+            // Los datos nuevos borraron su ubicacion: se vuelve a poner.
+            self.placed.retain(|o| o.image != self.edge_id);
+          }
+          overlays.push(Overlay { image: self.edge_id, x: x + full as u16, y, crop: None, z: Z_BELOW_BACKGROUND });
         }
       }
     }
@@ -458,7 +496,7 @@ mod tests {
     assert!(other.contains("a=t,f=100,i=500,"));
     // Fuera de la vista: se quitan las ubicaciones, sin borrar otras imagenes.
     let gone = k.frame(None, (10, 20), 1500);
-    assert_eq!(gone, "\x1b_Ga=d,d=i,i=500,q=2\x1b\\\x1b_Ga=d,d=i,i=501,q=2\x1b\\");
+    assert_eq!(gone, "\x1b_Ga=d,d=i,i=500,q=2\x1b\\\x1b_Ga=d,d=i,i=501,q=2\x1b\\\x1b_Ga=d,d=i,i=502,q=2\x1b\\");
     assert!(!k.refresh().contains("i=500"));
   }
 
@@ -487,5 +525,35 @@ mod tests {
     k.frame(Some(&s), (10, 20), 1500);
     assert_eq!(k.frame(Some(&s), (10, 20), 1450), "", "nothing goes back");
     assert!(k.frame(Some(&s), (10, 20), 1100).is_empty());
+  }
+
+  /// Ancho del recorte de la cantada en una salida, si se ubico.
+  fn sung_crop(out: &str) -> Option<u32> {
+    let at = out.find("a=p,i=501,p=1,x=0,y=0,w=")? + "a=p,i=501,p=1,x=0,y=0,w=".len();
+    out[at..].split(',').next()?.parse().ok()
+  }
+
+  #[test]
+  fn the_sung_crop_is_always_whole_cells_and_the_edge_is_one_cell_image() {
+    let Some(fonts) = test_fonts() else { return };
+    let mut k = Karaoke::new(500, None).with_fonts(fonts);
+    let s = slot(&["hold ", "me"]);
+    k.frame(Some(&s), (10, 20), 0);
+    let mut seen_edge = false;
+    for pos in (1000..3000).step_by(37) {
+      let out = k.frame(Some(&s), (10, 20), pos);
+      if let Some(w) = sung_crop(&out) {
+        assert_eq!(w % 10, 0, "crop {w} at {pos} is not whole cells");
+      }
+      if out.contains("a=t,f=100,i=502,") {
+        seen_edge = true;
+        // El borde se ubica sin recorte (una celda exacta).
+        assert!(out.contains("a=p,i=502,p=1,C=1,"), "{out:?}");
+      }
+    }
+    assert!(seen_edge, "the edge inside a cell is drawn as its own image");
+    // Mismo borde: no se vuelve a mandar.
+    let a = k.frame(Some(&s), (10, 20), 2999);
+    assert!(!a.contains("i=502"), "{a:?}");
   }
 }

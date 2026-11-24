@@ -348,14 +348,14 @@ pub fn fmt_ms(ms: u64) -> String {
   if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
 }
 
-/// Ids de las dos imagenes del karaoke en tests; el programa usa
+/// Primer id de las imagenes del karaoke en tests; el programa usa
 /// `karaoke_ids` (dentro del rango propio del proceso).
 const KARAOKE_IDS: u32 = 900;
 
-/// Las dos ultimas del rango de ids del proceso: las caratulas cuentan
+/// Las tres ultimas del rango de ids del proceso: las caratulas cuentan
 /// desde el principio y nunca llegan ahi.
 pub fn karaoke_ids(process_base: u32) -> u32 {
-  process_base + (1 << 20) - 2
+  process_base + (1 << 20) - 3
 }
 
 /// Tamano de celda a partir de lo que informa la terminal (columnas,

@@ -68,6 +68,7 @@ Letras:
 | `o` | cambiar la capa principal (original, romanizada) |
 | `[` / `]` | offset -50 / +50 ms (se guarda por archivo) |
 | `w` | estimar tiempos por palabra cuando la capa no los trae |
+| `m` | cambiar entre el modo clasico y el modo karaoke (ver [config.md](config.md#lyrics)) |
 
 Biblioteca:
 

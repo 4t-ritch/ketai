@@ -30,6 +30,15 @@ accent = "cover"
 # toggle = "space"
 # next = ["n", "ctrl+right"]
 
+[lyrics]
+# Lyrics view mode: "classic" (terminal text) or "karaoke" (the line being
+# sung fills in inside the letters). `m` switches it in the Lyrics view.
+# mode = "classic"
+# Height in rows of the line being sung in karaoke mode (2 to 8).
+# size = 3
+# Font for karaoke mode. Default: chosen by fontconfig.
+# font = "~/.local/share/fonts/MyFont-Bold.ttf"
+
 [playlists]
 # Playlists folder (.m3u8). Default XDG_MUSIC_DIR/playlists
 # (~/music/playlists). It is created if missing.

@@ -31,9 +31,40 @@ pub struct ThemeConfig {
   pub fixed: Vec<(&'static str, RColor)>,
 }
 
+/// Como se muestra la letra en la vista de Letras.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LyricsMode {
+  /// Texto de la terminal; resalta la palabra que se canta.
+  #[default]
+  Classic,
+  /// La linea que se canta es una imagen que se pinta por dentro de las
+  /// letras a medida que se canta.
+  Karaoke,
+}
+
+/// `[lyrics]`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LyricsConfig {
+  pub mode: LyricsMode,
+  /// Alto, en filas, de la linea que se canta en modo karaoke.
+  pub size: u16,
+  /// Fuente para el modo karaoke; `None` la elige fontconfig.
+  pub font: Option<std::path::PathBuf>,
+}
+
+/// Rango de `[lyrics] size`.
+pub const LYRICS_SIZES: std::ops::RangeInclusive<u16> = 2..=8;
+
+impl Default for LyricsConfig {
+  fn default() -> Self {
+    Self { mode: LyricsMode::Classic, size: 3, font: None }
+  }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
   pub theme: ThemeConfig,
+  pub lyrics: LyricsConfig,
   /// Atajos globales (`[keys]`).
   pub keys: crate::keys::Keymap,
   /// Claves que no se reconocen (no frenan la carga).
@@ -43,6 +74,7 @@ pub struct Config {
 impl Default for Config {
   fn default() -> Self {
     Self { theme: ThemeConfig { cover_color: None, background: Color::Cover, accent: Color::Cover, fixed: Vec::new() },
+      lyrics: LyricsConfig::default(),
       keys: crate::keys::Keymap::default(),
       warnings: Vec::new(),
     }
@@ -60,6 +92,14 @@ fn hex(s: &str) -> Option<RColor> {
   }
   let v = u32::from_str_radix(h, 16).ok()?;
   Some(crate::theme::rgb(v))
+}
+
+/// `~/` al principio es el home.
+fn expand_home(path: &str) -> std::path::PathBuf {
+  match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
+    (Some(rest), Some(home)) => std::path::Path::new(&home).join(rest),
+    _ => std::path::PathBuf::from(path),
+  }
 }
 
 impl Config {
@@ -122,6 +162,34 @@ impl Config {
             config.keys.set(action, parsed);
           }
           config.warnings.extend(config.keys.conflicts());
+        }
+        "lyrics" => {
+          let lyrics = value.as_table().ok_or("lyrics: tiene que ser una sección [lyrics]")?;
+          for (k, v) in lyrics {
+            let name = format!("lyrics.{k}");
+            match k.as_str() {
+              "mode" => {
+                config.lyrics.mode = match v.as_str() {
+                  Some("classic") => LyricsMode::Classic,
+                  Some("karaoke") => LyricsMode::Karaoke,
+                  _ => return Err(format!("{name}: tiene que ser \"classic\" o \"karaoke\"")),
+                }
+              }
+              "size" => {
+                let (lo, hi) = (*LYRICS_SIZES.start(), *LYRICS_SIZES.end());
+                config.lyrics.size = v
+                  .as_integer()
+                  .and_then(|n| u16::try_from(n).ok())
+                  .filter(|n| LYRICS_SIZES.contains(n))
+                  .ok_or_else(|| format!("{name}: tiene que ser un número de {lo} a {hi} (filas)"))?;
+              }
+              "font" => {
+                let path = v.as_str().ok_or_else(|| format!("{name}: tiene que ser la ruta de un archivo de fuente"))?;
+                config.lyrics.font = Some(expand_home(path));
+              }
+              _ => config.warnings.push(format!("{name}: clave desconocida, se ignora")),
+            }
+          }
         }
         // La lee el daemon (carpeta de playlists).
         "playlists" => {}

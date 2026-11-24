@@ -103,8 +103,45 @@ Formato de una tecla: un caracter (`"n"`, `"P"`, `"+"`), o un nombre
 - Mientras se escribe en Buscar, las teclas sin Ctrl ni Alt son texto.
 - Una tecla invalida es un error (se muestra y se mantiene la configuracion
   anterior); una accion desconocida o una tecla en dos acciones se avisa.
-- Las teclas propias de cada vista (`h` / `l` en Biblioteca, `t` / `o` en
+- Las teclas propias de cada vista (`h` / `l` en Biblioteca, `t` / `o` / `m` en
   Letras, etc.) son fijas por ahora.
+
+## `[lyrics]`
+
+Como muestra la letra la vista de Letras.
+
+| Clave | Valores | Por defecto |
+|---|---|---|
+| `mode` | `"classic"` o `"karaoke"` | `"classic"` |
+| `size` | `2` a `8` (filas) | `3` |
+| `font` | ruta a un archivo de fuente (`.ttf`, `.otf`, `.ttc`), absoluta o que empiece con `~/` | la elige fontconfig |
+
+```toml
+[lyrics]
+mode = "karaoke"
+size = 4
+# font = "~/.local/share/fonts/MiFuente-Bold.ttf"
+```
+
+- **`classic`**: texto de la terminal; se resalta la palabra que se canta.
+- **`karaoke`**: la linea que se canta se dibuja como imagen y se va
+  pintando de a poco, por dentro de las letras, a medida que se canta cada
+  palabra (como los karaokes de video). `m` en la vista de Letras cambia
+  entre los dos modos sin tocar el archivo.
+- **`size`** es el alto, en filas, de la linea que se canta en modo
+  karaoke. Mas grande se lee mejor de lejos. Una linea que no entra a lo
+  ancho se dibuja mas chica.
+- **En modo clasico ketai no puede cambiar el tamano del texto**: ahi la
+  letra son celdas de la terminal, y su tamano es el de la fuente de la
+  terminal, el mismo para toda la pantalla. Se cambia en la terminal (por
+  ejemplo `ctrl+shift+equal` en kitty) o se usa el modo karaoke.
+- **`font`** solo se usa en modo karaoke. Sin ella, ketai le pide a
+  fontconfig una fuente monoespaciada en negrita y usa otras para los
+  caracteres que esa no tiene (por ejemplo japones o coreano).
+- El modo karaoke necesita una terminal que informe el tamano de sus celdas
+  en pixeles (kitty lo hace, y tambien los multiplexores que lo pasan). Si no
+  lo informa, o no se encuentra ninguna fuente, la vista queda en modo
+  clasico.
 
 ## `[playlists]`
 

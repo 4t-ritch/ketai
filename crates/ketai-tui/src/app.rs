@@ -264,6 +264,15 @@ pub struct App {
   /// La terminal muestra imagenes (protocolo kitty).
   pub images: bool,
   pub covers: crate::covers::CoverCache,
+  /// Modo de la vista de Letras (empieza como dice `[lyrics] mode`; `m`
+  /// lo cambia).
+  pub lyrics_mode: crate::config::LyricsMode,
+  /// Tamano de una celda en pixeles, si la terminal lo informa (sin el, el
+  /// modo karaoke no puede dibujar y se ve el clasico).
+  pub cell_px: Option<(u16, u16)>,
+  pub karaoke: crate::karaoke::Karaoke,
+  /// Hay fuentes para el karaoke (se cargan al activarlo).
+  pub karaoke_fonts: bool,
   /// `output.list` / `output.changed`: dispositivos del servidor de sonido.
   pub outputs: Vec<Value>,
   pub outputs_loaded: bool,
@@ -339,6 +348,26 @@ pub fn fmt_ms(ms: u64) -> String {
   if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
 }
 
+/// Ids de las dos imagenes del karaoke en tests; el programa usa
+/// `karaoke_ids` (dentro del rango propio del proceso).
+const KARAOKE_IDS: u32 = 900;
+
+/// Las dos ultimas del rango de ids del proceso: las caratulas cuentan
+/// desde el principio y nunca llegan ahi.
+pub fn karaoke_ids(process_base: u32) -> u32 {
+  process_base + (1 << 20) - 2
+}
+
+/// Tamano de celda a partir de lo que informa la terminal (columnas,
+/// filas, ancho y alto en pixeles). `None` si falta algun dato.
+pub fn cell_px(size: Option<(u16, u16, u16, u16)>) -> Option<(u16, u16)> {
+  let (cols, rows, w, h) = size?;
+  if cols == 0 || rows == 0 || w < cols || h < rows {
+    return None;
+  }
+  Some((w / cols, h / rows))
+}
+
 impl Default for App {
   fn default() -> Self {
     Self {
@@ -402,6 +431,10 @@ impl Default for App {
       seek_preview: None,
       images: false,
       covers: Default::default(),
+      lyrics_mode: Default::default(),
+      cell_px: None,
+      karaoke: crate::karaoke::Karaoke::new(KARAOKE_IDS, None),
+      karaoke_fonts: false,
       outputs: Vec::new(),
       outputs_loaded: false,
       outputs_asked: false,
@@ -755,6 +788,14 @@ impl App {
       KeyCode::Char('w') => {
         self.lyrics_estimate = !self.lyrics_estimate;
         Some(vec![self.lyrics_get(&track)])
+      }
+      KeyCode::Char('m') => {
+        use crate::config::LyricsMode;
+        self.lyrics_mode = match self.lyrics_mode {
+          LyricsMode::Classic => LyricsMode::Karaoke,
+          LyricsMode::Karaoke => LyricsMode::Classic,
+        };
+        Some(Vec::new())
       }
       _ => None,
     }
@@ -1365,6 +1406,19 @@ impl App {
   }
 
   /// Linea actual de la letra: la ultima que ya empezo.
+  /// La vista de Letras dibuja en modo karaoke: lo pidio el usuario, la
+  /// terminal muestra imagenes y dice el tamano de sus celdas, y hay una
+  /// fuente.
+  pub fn karaoke_on(&self) -> bool {
+    self.lyrics_mode == crate::config::LyricsMode::Karaoke && self.images && self.cell_px.is_some() && self.karaoke_fonts
+  }
+
+  /// Aplica `[lyrics]` de la configuracion (al iniciar y al recargarla).
+  pub fn apply_lyrics_config(&mut self) {
+    self.lyrics_mode = self.config.lyrics.mode;
+    self.karaoke.set_font(self.config.lyrics.font.clone());
+  }
+
   pub fn lyrics_line(&self) -> Option<usize> {
     let pos = self.position_ms();
     let lines = self.lyrics["lines"].as_array()?;

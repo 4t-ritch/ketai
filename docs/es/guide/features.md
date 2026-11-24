@@ -40,6 +40,9 @@ instantaneo. Tambien se pueden usar colores fijos (ver
   extra, como la version romanizada (`o` cambia la capa principal).
 - **Ajuste de tiempo** (`[` / `]`, de a 50 ms), que se guarda por archivo.
 - Si la letra no trae tiempos por palabra, `w` los estima.
+- **Modo karaoke** (`m`): la linea que se canta se va pintando de a poco, por
+  dentro de las letras, como los karaokes de video, con el tamano de
+  `[lyrics] size` (ver [../config.md](../config.md#lyrics)).
 - Las letras se leen de archivos junto al audio (`cancion.lrc`,
   `cancion.ttml`, `cancion.txt`; traduccion en `cancion.es.lrc`) o de las
   letras que traiga el propio archivo de audio.

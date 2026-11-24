@@ -186,6 +186,146 @@ pub fn fill_x(times: &[(u64, u64)], xs: &[(f32, f32)], pos_ms: u64) -> f32 {
   edge
 }
 
+/// La linea que la vista pide mostrar en este cuadro.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Slot {
+  /// Celdas que ocupa (todo el ancho de la vista, `size` filas).
+  pub area: ratatui::layout::Rect,
+  /// Palabras, cada una con el espacio que la sigue.
+  pub words: Vec<String>,
+  /// Inicio y fin de cada palabra, en ms.
+  pub times: Vec<(u64, u64)>,
+  pub colors: Colors,
+}
+
+/// Lo que ya esta dibujado y mandado.
+struct Shown {
+  words: Vec<String>,
+  size: (u32, u32),
+  colors: Colors,
+  xs: Vec<(f32, f32)>,
+  /// Los datos estan en la terminal (se pierden al cambiar de tamano en
+  /// algunos multiplexores).
+  sent: bool,
+}
+
+/// Estado del modo karaoke: dos ids de imagen propios, que se reusan para
+/// cada linea (mandar datos nuevos con el mismo id reemplaza la imagen).
+pub struct Karaoke {
+  unsung_id: u32,
+  sung_id: u32,
+  fonts: Option<Option<Fonts>>,
+  font: Option<PathBuf>,
+  shown: Option<Shown>,
+  placed: Vec<crate::kitty::Overlay>,
+}
+
+impl Karaoke {
+  pub fn new(unsung_id: u32, font: Option<PathBuf>) -> Self {
+    Karaoke { unsung_id, sung_id: unsung_id + 1, fonts: None, font, shown: None, placed: Vec::new() }
+  }
+
+  /// Carga las fuentes la primera vez. `false` si no hay ninguna (la vista
+  /// vuelve al modo clasico).
+  pub fn ensure_fonts(&mut self) -> bool {
+    let font = self.font.clone();
+    self.fonts.get_or_insert_with(|| Fonts::system(font.as_deref())).is_some()
+  }
+
+  /// Fuentes ya cargadas (para tests o fuentes elegidas a mano).
+  pub fn with_fonts(mut self, fonts: Fonts) -> Self {
+    self.fonts = Some(Some(fonts));
+    self
+  }
+
+  /// Cambio la fuente elegida: se vuelve a cargar y a dibujar.
+  pub fn set_font(&mut self, font: Option<PathBuf>) {
+    if self.font != font {
+      self.font = font;
+      self.fonts = None;
+      self.shown = None;
+    }
+  }
+
+  /// La terminal pudo perder las imagenes: se vuelven a mandar y ubicar.
+  pub fn invalidate(&mut self) {
+    if let Some(s) = &mut self.shown {
+      s.sent = false;
+    }
+    self.placed.clear();
+  }
+
+  pub fn ids(&self) -> [u32; 2] {
+    [self.unsung_id, self.sung_id]
+  }
+
+  /// Lo que hay que mandar a la terminal en este cuadro: la linea nueva si
+  /// cambio (las dos imagenes) y las ubicaciones que cambiaron (en general,
+  /// solo el recorte de la cantada). `cell` es el tamano de una celda en
+  /// pixeles.
+  pub fn frame(&mut self, slot: Option<&Slot>, cell: (u16, u16), pos_ms: u64) -> String {
+    use crate::kitty::{Overlay, Z_BELOW_BACKGROUND};
+    let mut out = String::new();
+    let mut overlays = Vec::new();
+    if let (Some(slot), Some(Some(fonts))) = (slot, &self.fonts) {
+      let size = (slot.area.width as u32 * cell.0 as u32, slot.area.height as u32 * cell.1 as u32);
+      let same = self.shown.as_ref().is_some_and(|s| s.words == slot.words && s.size == size && s.colors == slot.colors);
+      let sent = self.shown.as_ref().is_some_and(|s| s.sent);
+      if !same || !sent {
+        let words: Vec<&str> = slot.words.iter().map(String::as_str).collect();
+        self.shown = render(fonts, &words, size.0, size.1, slot.colors).map(|r| {
+          out.push_str(&crate::kitty::transmit(self.unsung_id, &png(&r.unsung)));
+          out.push_str(&crate::kitty::transmit(self.sung_id, &png(&r.sung)));
+          Shown { words: slot.words.clone(), size, colors: slot.colors, xs: r.words, sent: true }
+        });
+        // Datos nuevos con el mismo id borran las ubicaciones anteriores.
+        self.placed.clear();
+      }
+      if let Some(s) = &self.shown {
+        let (x, y) = (slot.area.x, slot.area.y);
+        overlays.push(Overlay { image: self.unsung_id, x, y, crop: None, z: Z_BELOW_BACKGROUND - 1 });
+        let edge = fill_x(&slot.times, &s.xs, pos_ms).round() as u32;
+        if edge > 0 {
+          overlays.push(Overlay { image: self.sung_id, x, y, crop: Some((edge.min(s.size.0), s.size.1)), z: Z_BELOW_BACKGROUND });
+        }
+      }
+    }
+    out.push_str(&crate::kitty::overlay_update(&self.placed, &overlays));
+    self.placed = overlays;
+    out
+  }
+
+  /// Ubicaciones actuales, para volver a ponerlas cada tanto.
+  pub fn refresh(&self) -> String {
+    crate::kitty::overlay_refresh(&self.placed)
+  }
+}
+
+/// Palabras de una linea y el inicio y fin de cada una, en ms.
+pub type LineWords = (Vec<String>, Vec<(u64, u64)>);
+
+/// Palabras y tiempos de una linea de `lyrics.get`. Sin tiempo por palabra,
+/// la linea entera es una sola palabra que dura toda la linea. Una palabra
+/// sin fin termina donde empieza la siguiente (o con la linea).
+pub fn line_words(line: &serde_json::Value, next_start: Option<u64>) -> Option<LineWords> {
+  let start = line["start_ms"].as_u64()?;
+  let line_end = line["end_ms"].as_u64().or(next_start).unwrap_or(start + 5000).max(start + 1);
+  let Some(words) = line["words"].as_array().filter(|w| !w.is_empty()) else {
+    let text = line["text"].as_str().unwrap_or("").to_string();
+    return (!text.trim().is_empty()).then(|| (vec![text], vec![(start, line_end)]));
+  };
+  let mut texts = Vec::new();
+  let mut times = Vec::new();
+  for (i, w) in words.iter().enumerate() {
+    let s = w["start_ms"].as_u64().unwrap_or(start);
+    let next = words.get(i + 1).and_then(|n| n["start_ms"].as_u64()).unwrap_or(line_end);
+    let e = w["end_ms"].as_u64().unwrap_or(next).max(s + 1);
+    texts.push(w["text"].as_str().unwrap_or("").to_string());
+    times.push((s, e));
+  }
+  Some((texts, times))
+}
+
 /// PNG de una imagen con transparencia.
 pub fn png(img: &RgbaImage) -> Vec<u8> {
   let mut out = Vec::new();
@@ -260,5 +400,54 @@ mod tests {
   fn render_skips_empty_lines() {
     let Some(fonts) = test_fonts() else { return };
     assert!(render(&fonts, &["  "], 200, 40, C).is_none());
+  }
+
+  fn slot(words: &[&str]) -> Slot {
+    Slot {
+      area: ratatui::layout::Rect::new(0, 10, 30, 3),
+      words: words.iter().map(|w| w.to_string()).collect(),
+      times: vec![(1000, 2000), (2000, 3000)],
+      colors: C,
+    }
+  }
+
+  #[test]
+  fn frames_send_a_line_once_and_then_only_the_crop() {
+    let Some(fonts) = test_fonts() else { return };
+    let mut k = Karaoke::new(500, None).with_fonts(fonts);
+    let s = slot(&["hold ", "me"]);
+    let first = k.frame(Some(&s), (10, 20), 0);
+    assert!(first.contains("a=t,f=100,i=500,") && first.contains("a=t,f=100,i=501,"), "both images go out");
+    assert!(first.contains("a=p,i=500,p=1,C=1,"), "unsung placed whole");
+    assert!(!first.contains("a=p,i=501"), "nothing sung yet");
+    // Avanza: solo la ubicacion de la cantada, recortada (300x60 pixeles).
+    let next = k.frame(Some(&s), (10, 20), 1500);
+    assert!(!next.contains("a=t") && !next.contains("i=500"), "{next:?}");
+    assert!(next.contains("a=p,i=501,p=1,x=0,y=0,w=") && next.contains(",h=60,"), "{next:?}");
+    assert_eq!(k.frame(Some(&s), (10, 20), 1500), "", "same position: nothing");
+    // El multiplexor perdio las imagenes: se mandan de nuevo.
+    k.invalidate();
+    let again = k.frame(Some(&s), (10, 20), 1500);
+    assert!(again.contains("a=t,f=100,i=500,") && again.contains("a=p,i=501,"), "{again:?}");
+    // Otra linea: imagenes nuevas con los mismos ids.
+    let other = k.frame(Some(&slot(&["so ", "sweet"])), (10, 20), 1500);
+    assert!(other.contains("a=t,f=100,i=500,"));
+    // Fuera de la vista: se quitan las ubicaciones, sin borrar otras imagenes.
+    let gone = k.frame(None, (10, 20), 1500);
+    assert_eq!(gone, "\x1b_Ga=d,d=i,i=500,q=2\x1b\\\x1b_Ga=d,d=i,i=501,q=2\x1b\\");
+    assert!(!k.refresh().contains("i=500"));
+  }
+
+  #[test]
+  fn words_and_times_come_from_the_protocol_line() {
+    use serde_json::json;
+    let line = json!({"start_ms": 1000, "end_ms": 3000, "text": "a b", "words": [
+      {"start_ms": 1000, "end_ms": null, "text": "a "}, {"start_ms": 1600, "end_ms": null, "text": "b"}]});
+    assert_eq!(line_words(&line, Some(4000)), Some((vec!["a ".into(), "b".into()], vec![(1000, 1600), (1600, 3000)])));
+    // Sin tiempo por palabra: toda la linea como una palabra, hasta la siguiente.
+    let line = json!({"start_ms": 1000, "end_ms": null, "text": "whole line", "words": null});
+    assert_eq!(line_words(&line, Some(4000)), Some((vec!["whole line".into()], vec![(1000, 4000)])));
+    assert_eq!(line_words(&json!({"start_ms": 5, "text": " "}), None), None);
+    assert_eq!(line_words(&json!({"start_ms": null, "text": "x"}), None), None);
   }
 }

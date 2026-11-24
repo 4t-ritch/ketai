@@ -173,3 +173,68 @@ fn a_track_without_lyrics_says_so() {
   let t = text(&render(&app));
   assert!(t.contains("Esta canción no tiene letra"), "{t}");
 }
+
+/// App en Letras, lista para el karaoke (imagenes, celdas y fuentes).
+fn karaoke_ready(pos: u64) -> App {
+  let mut app = loaded(pos);
+  app.tab = Tab::Lyrics;
+  app.images = true;
+  app.cell_px = Some((10, 20));
+  app.karaoke_fonts = true;
+  app.lyrics_mode = ketai_tui::config::LyricsMode::Karaoke;
+  app
+}
+
+#[test]
+fn m_switches_between_classic_and_karaoke() {
+  use ketai_tui::config::LyricsMode;
+  let mut app = loaded(4200);
+  app.tab = Tab::Lyrics;
+  assert_eq!(app.lyrics_mode, LyricsMode::Classic);
+  assert_eq!(app.on_key(key(KeyCode::Char('m'))), Vec::<(String, Value)>::new());
+  assert_eq!(app.lyrics_mode, LyricsMode::Karaoke);
+  app.on_key(key(KeyCode::Char('m')));
+  assert_eq!(app.lyrics_mode, LyricsMode::Classic);
+}
+
+#[test]
+fn karaoke_needs_images_cell_size_and_a_font() {
+  let mut app = karaoke_ready(4200);
+  assert!(app.karaoke_on());
+  for off in [|a: &mut App| a.images = false, |a: &mut App| a.cell_px = None, |a: &mut App| a.karaoke_fonts = false] {
+    let mut a = karaoke_ready(4200);
+    off(&mut a);
+    assert!(!a.karaoke_on());
+  }
+  app.lyrics_mode = ketai_tui::config::LyricsMode::Classic;
+  assert!(!app.karaoke_on());
+  assert_eq!(ketai_tui::app::cell_px(Some((100, 40, 1000, 800))), Some((10, 20)));
+  assert_eq!(ketai_tui::app::cell_px(Some((100, 40, 0, 0))), None, "the terminal does not report pixels");
+  assert_eq!(ketai_tui::app::cell_px(None), None);
+}
+
+#[test]
+fn karaoke_leaves_the_current_line_to_the_image_and_keeps_the_rest_as_text() {
+  let mut app = karaoke_ready(4200);
+  app.config.lyrics.size = 4;
+  let buf = render(&app);
+  let t = text(&buf);
+  let slot = ui::take_karaoke().expect("the current line goes to the karaoke");
+  assert_eq!(slot.words, ["just ", "to ", "feel ", "something"]);
+  assert_eq!(slot.times, [(3000, 3500), (3500, 4000), (4000, 4800), (4800, 6000)]);
+  assert_eq!((slot.area.width, slot.area.height), (160, 4), "the whole width, `size` rows");
+  // Sin texto en esas celdas y con el fondo de la terminal (lo tapa la imagen).
+  assert!(!t.contains("just to feel something"), "{t}");
+  for y in slot.area.y..slot.area.y + slot.area.height {
+    assert_eq!(buf[(5, y)].bg, ratatui::style::Color::Reset);
+  }
+  // Las otras lineas y la traduccion de la actual siguen como texto, debajo.
+  for want in ["let the world burn", "i'd set it all on fire", "solo para sentir algo"] {
+    assert!(t.contains(want), "missing {want:?}\n{t}");
+  }
+  assert!(find(&buf, "solo para sentir algo").1 >= slot.area.y + slot.area.height);
+  // Modo clasico: no hay linea de karaoke.
+  app.lyrics_mode = ketai_tui::config::LyricsMode::Classic;
+  render(&app);
+  assert!(ui::take_karaoke().is_none());
+}

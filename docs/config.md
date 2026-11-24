@@ -99,8 +99,44 @@ modifiers in front (`"ctrl+p"`, `"shift+tab"`).
 - While typing in Search, keys without Ctrl or Alt are text.
 - An invalid key is an error (it is shown and the previous configuration is
   kept); an unknown action or a key in two actions is reported.
-- Each view's own keys (`h` / `l` in Library, `t` / `o` in Lyrics, etc.) are
+- Each view's own keys (`h` / `l` in Library, `t` / `o` / `m` in Lyrics, etc.) are
   fixed for now.
+
+## `[lyrics]`
+
+How the Lyrics view (*Letras*) shows the lyrics.
+
+| Key | Values | Default |
+|---|---|---|
+| `mode` | `"classic"` or `"karaoke"` | `"classic"` |
+| `size` | `2` to `8` (rows) | `3` |
+| `font` | path to a font file (`.ttf`, `.otf`, `.ttc`), absolute or starting with `~/` | chosen by fontconfig |
+
+```toml
+[lyrics]
+mode = "karaoke"
+size = 4
+# font = "~/.local/share/fonts/MyFont-Bold.ttf"
+```
+
+- **`classic`**: terminal text; the word being sung is highlighted.
+- **`karaoke`**: the line being sung is drawn as an image and fills in
+  gradually, inside the letters, as each word is sung (like video karaoke).
+  `m` in the Lyrics view switches between the two modes without touching the
+  file.
+- **`size`** is the height, in rows, of the line being sung in karaoke mode.
+  Bigger is easier to read from far away. A line that does not fit the width
+  is drawn smaller.
+- **Text size in classic mode cannot be changed by ketai**: there the lyrics
+  are terminal cells, and their size is the terminal's font size, the same
+  for the whole screen. Change it in the terminal (for example
+  `ctrl+shift+equal` in kitty) or use karaoke mode.
+- **`font`** is only used in karaoke mode. Without it, ketai asks fontconfig
+  for a bold monospace font and uses others for the characters it does not
+  have (for example Japanese or Korean).
+- Karaoke mode needs a terminal that reports its cell size in pixels (kitty
+  does, and so do the multiplexers that pass it on). If it does not, or no
+  font is found, the view stays in classic mode.
 
 ## `[playlists]`
 

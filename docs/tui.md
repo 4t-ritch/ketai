@@ -72,6 +72,7 @@ Lyrics:
 | `o` | change the primary layer (original, romanized) |
 | `[` / `]` | offset -50 / +50 ms (stored per file) |
 | `w` | estimate word timing when the layer does not have it |
+| `m` | switch between classic and karaoke mode (see [config.md](config.md#lyrics)) |
 
 Library:
 

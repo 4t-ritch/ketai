@@ -665,15 +665,14 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
   put(buf, area.x + 14, area.y + 2, track_title(track), t.title());
   put(buf, area.x + 14, area.y + 3, track["artist"].as_str().unwrap_or(""), t.dim());
 
-  // Capas elegidas y offset, arriba a la derecha.
-  let mut chips = vec![Span::styled(layer_label(app, &app.lyrics_primary), t.faint())];
-  for id in &app.lyrics_secondary {
-    chips.push(Span::styled("  ·  ", t.faint()));
-    chips.push(Span::styled(format!("+ {}", layer_label(app, id)), t.accent().add_modifier(Modifier::BOLD)));
-  }
-  let chips = Line::from(chips);
-  let right = area.x + area.width.saturating_sub(chips.width() as u16 + 4);
-  put_line(buf, right, area.y + 2, &chips, area.width);
+  // Opciones de la letra, arriba a la derecha, como en Reproduciendo: cada
+  // una con su tecla en un recuadro, y todo clickeable.
+  let keycap = |k: &str| Span::styled(format!(" {k} "), Style::new().fg(t.fg).bg(t.raised));
+  let gap = || (Span::raw("     "), None);
+  let translation = match app.lyrics_secondary.first() {
+    Some(id) => Span::styled(format!("{} ", layer_label(app, id)), t.accent().add_modifier(Modifier::BOLD)),
+    None => Span::styled("Sin traducción ", t.dim()),
+  };
   let offset = app.lyrics["user_offset_ms"].as_i64().unwrap_or(0);
   // El modo elegido; si se pidio karaoke y la terminal no puede, se avisa.
   let mode = match app.lyrics_mode {
@@ -681,8 +680,38 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
     crate::config::LyricsMode::Karaoke if app.karaoke_on() || !app.images => "karaoke",
     crate::config::LyricsMode::Karaoke => "karaoke (no disponible)",
   };
-  let info = format!("offset {offset} ms   [ ] ajustar   t traducción   o capa   modo: {mode} [m]");
-  put(buf, area.x + area.width.saturating_sub(info.chars().count() as u16 + 4), area.y + 3, info, t.faint());
+  let rows: [Vec<(Span, Option<char>)>; 2] = [
+    vec![
+      (Span::styled(format!("Capa: {} ", layer_label(app, &app.lyrics_primary)), t.dim()), Some('o')),
+      (keycap("o"), Some('o')),
+      gap(),
+      (translation, Some('t')),
+      (keycap("t"), Some('t')),
+    ],
+    vec![
+      (Span::styled(format!("Offset: {offset} ms "), t.dim()), None),
+      (keycap("["), Some('[')),
+      (Span::raw(" "), None),
+      (keycap("]"), Some(']')),
+      gap(),
+      (Span::styled(format!("Modo: {mode} "), t.dim()), Some('m')),
+      (keycap("m"), Some('m')),
+    ],
+  ];
+  let buf = f.buffer_mut();
+  for (k, row) in rows.into_iter().enumerate() {
+    let line = Line::from(row.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>());
+    let y = area.y + 2 + k as u16;
+    let mut x = area.x + area.width.saturating_sub(line.width() as u16 + 4);
+    put_line(buf, x, y, &line, area.width);
+    for (span, key) in &row {
+      let w = span.width() as u16;
+      if let Some(c) = key {
+        hit(Rect::new(x, y, w, 1), Hit::LyricsKey(*c));
+      }
+      x += w;
+    }
+  }
 
   let bottom = 8;
   let lines_area = Rect::new(area.x, area.y + 6, area.width, area.height.saturating_sub(6 + bottom));

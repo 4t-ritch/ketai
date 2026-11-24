@@ -72,7 +72,11 @@ Lyrics:
 | `o` | change the primary layer (original, romanized) |
 | `[` / `]` | offset -50 / +50 ms (stored per file) |
 | `w` | estimate word timing when the layer does not have it |
-| `m` | switch between classic and karaoke mode; the header shows the current one (`modo: clásico [m]` / `modo: karaoke [m]`), see [config.md](config.md#lyrics) |
+| `m` | switch between classic and karaoke mode (see [config.md](config.md#lyrics)) |
+
+The top right of Lyrics shows each option with its key, like Now Playing:
+the layer (`o`), the translation (`t`), the offset (`[` / `]`) and the mode
+(`m`). Clicking an option does the same as its key.
 
 Library:
 

@@ -114,6 +114,8 @@ pub enum Hit {
   Seek { x: u16, w: u16 },
   /// Barra de volumen.
   Volume { x: u16, w: u16 },
+  /// Una opcion de Letras: como apretar su tecla.
+  LyricsKey(char),
   /// Una linea de la letra: salta a su inicio (ms).
   LyricLine(u64),
   LibView(LibView),
@@ -580,6 +582,7 @@ impl App {
             self.dragging = Some(hit);
             self.set_volume_at(hit, ev.column)
           }
+          Hit::LyricsKey(c) => self.on_key(key(KeyCode::Char(c))),
           Hit::LyricLine(ms) => {
             // Hasta que llegue la posicion nueva del daemon, se muestra esta.
             if let Some(obj) = self.player.as_object_mut() {

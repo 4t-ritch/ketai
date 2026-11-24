@@ -262,13 +262,13 @@ fn karaoke_dims_the_lines_around_the_one_being_sung() {
 fn the_header_says_which_mode_is_on() {
   let mut app = karaoke_ready(4200);
   app.lyrics_mode = ketai_tui::config::LyricsMode::Classic;
-  assert!(text(&render(&app)).contains("modo: clásico [m]"));
+  assert!(text(&render(&app)).contains("Modo: clásico  m "));
   app.lyrics_mode = ketai_tui::config::LyricsMode::Karaoke;
-  assert!(text(&render(&app)).contains("modo: karaoke [m]"));
+  assert!(text(&render(&app)).contains("Modo: karaoke  m "));
   ui::take_karaoke();
   // Pedido pero sin tamano de celda: se ve el clasico y se avisa.
   app.cell_px = None;
-  assert!(text(&render(&app)).contains("modo: karaoke (no disponible) [m]"));
+  assert!(text(&render(&app)).contains("Modo: karaoke (no disponible)  m "));
 }
 
 #[test]
@@ -411,4 +411,36 @@ fn m_saves_the_mode_in_the_config_file() {
   assert_eq!(app.lyrics_mode, LyricsMode::Karaoke);
   assert!(app.notice.is_none());
   std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_lyrics_options_are_keycaps_that_respond_to_clicks() {
+  use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+  let mut app = loaded(4200);
+  app.tab = Tab::Lyrics;
+  let buf = render(&app);
+  let t = text(&buf);
+  for want in ["Capa: Original  o ", "Traducción (es)  t ", "Offset: -250 ms  [   ] ", "Modo: clásico  m "] {
+    assert!(t.contains(want), "missing {want:?}\n{t}");
+  }
+  // La tecla va en un recuadro, como en Reproduciendo.
+  let (x, y) = find(&buf, " m ");
+  assert_eq!(buf[(x + 1, y)].bg, app.theme.raised);
+  app.hits = ui::take_hits();
+  let click = |app: &mut App, needle: &str| {
+    let (x, y) = find(&buf, needle);
+    let ev = MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: x + 1, row: y, modifiers: KeyModifiers::NONE };
+    app.on_mouse(ev, std::time::Instant::now())
+  };
+  // Clic en el modo: cambia como con `m`.
+  click(&mut app, "Modo: clásico");
+  assert_eq!(app.lyrics_mode, ketai_tui::config::LyricsMode::Karaoke);
+  // Clic en `]`: offset +50 (como la tecla).
+  let cmds = click(&mut app, "]  ");
+  assert_eq!(cmds, vec![("lyrics.set_offset".to_string(), json!({"track_id": "t_1", "offset_ms": -200}))]);
+  // Clic en la traduccion: la oculta.
+  click(&mut app, "Traducción (es)");
+  assert!(app.lyrics_secondary.is_empty());
+  let t = text(&render(&app));
+  assert!(t.contains("Sin traducción  t "), "{t}");
 }

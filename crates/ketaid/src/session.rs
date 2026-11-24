@@ -1,4 +1,4 @@
-//! Persistencia de sesion (docs/servicio.md, "Persistencia de sesion").
+//! Persistencia de sesion (docs/service.md, "Session persistence").
 //!
 //! La escritura a disco ocurre en un thread propio: el loop central solo le
 //! manda el JSON a guardar y nunca espera, salvo en el guardado final.

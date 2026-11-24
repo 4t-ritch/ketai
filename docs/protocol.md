@@ -1,68 +1,133 @@
-# Protocolo IPC de ketai - v1 (borrador)
+**English** | [Espanol](es/protocol.md)
 
-Este documento es el contrato entre `ketaid` (el daemon) y todos los clientes
-(TUI, scripts de waybar, GUIs). Cualquier implementacion del core (Rust o C)
-es correcta si y solo si cumple este documento y pasa la suite de conformidad.
+# ketai IPC protocol - v1 (draft)
 
-Los nombres de metodos, eventos y campos JSON se mantienen en ingles porque
-son parte del contrato.
+This document is the contract between `ketaid` (the daemon) and every client
+(the TUI, waybar scripts, GUIs). Any implementation of the core (Rust or C)
+is correct if and only if it follows this document and passes the
+conformance suite.
 
-## 1. Transporte
+## 0. Quick start: talking to the daemon
 
-| Canal        | Ruta                                 | Formato                          |
-|--------------|--------------------------------------|----------------------------------|
-| Control      | `$XDG_RUNTIME_DIR/ketai/ctl.sock`    | JSON delimitado por saltos de linea |
-| Visualizador | `$XDG_RUNTIME_DIR/ketai/viz.sock`    | Frames binarios fijos (seccion 7) |
+The daemon listens on a Unix socket. Each message is one line of JSON: you
+send a request with an `id`, and the daemon answers with the same `id`.
 
-- Ambos son `AF_UNIX`, `SOCK_STREAM`, con permisos `0600`.
-- Si `XDG_RUNTIME_DIR` no esta definido, el daemon se niega a iniciar.
-- Los sockets pueden venir de systemd (socket activation); ver
-  `docs/servicio.md`.
-- Pueden conectarse muchos clientes a la vez. El daemon es el unico dueno de
-  la salida de audio; los clientes nunca abren dispositivos de audio.
+With `socat`, interactively:
 
-## 2. Framing (canal de control)
+```sh
+socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/ketai/ctl.sock"
+```
 
-- Un objeto JSON por linea, UTF-8, terminado en `\n`.
-- Los mensajes no pueden contener saltos de linea crudos (JSON los escapa).
-- Longitud maxima de linea: 1 MiB. Una linea mas larga cierra la conexion con
-  el error `-32600`.
+Then type one request per line:
 
-## 3. Forma de los mensajes
+```json
+{"id": 1, "method": "daemon.hello", "params": {"client": "my-script", "protocol": 1}}
+{"id": 2, "method": "player.state"}
+{"id": 3, "method": "player.toggle"}
+{"id": 4, "method": "events.subscribe", "params": {"topics": ["player"]}}
+```
 
-**Peticion** (cliente -> daemon):
+The daemon answers each one on its own line:
+
+```json
+{"id": 1, "result": {"server": "ketaid", "protocol": 1, "version": "0.1.0"}}
+{"id": 2, "result": {"status": "playing", "track": {"title": "...", "...": "..."}, "position_ms": 53400, "volume": 0.8, "muted": false, "repeat": "off", "shuffle": false, "output": null}}
+{"id": 3, "result": {}}
+{"id": 4, "result": {}}
+{"event": "player.state", "data": {"status": "paused", "...": "..."}}
+```
+
+After `events.subscribe`, events (`{"event": ..., "data": ...}`, no `id`)
+arrive whenever something changes.
+
+The same in Python, with no dependencies:
+
+```python
+import json, os, socket
+
+sock = socket.socket(socket.AF_UNIX)
+sock.connect(os.path.join(os.environ["XDG_RUNTIME_DIR"], "ketai", "ctl.sock"))
+f = sock.makefile("rw")
+next_id = 0
+
+def request(method, params=None):
+    global next_id
+    next_id += 1
+    f.write(json.dumps({"id": next_id, "method": method, "params": params or {}}) + "\n")
+    f.flush()
+    while True:  # skip events until our answer arrives
+        msg = json.loads(f.readline())
+        if msg.get("id") == next_id:
+            if "error" in msg:
+                raise RuntimeError(msg["error"])
+            return msg["result"]
+
+request("daemon.hello", {"client": "my-script", "protocol": 1})
+state = request("player.state")
+print(state["status"], (state["track"] or {}).get("title"))  # track is null when nothing is loaded
+request("queue.add", {"uris": ["file:///home/me/music/song.flac"]})
+```
+
+The rest of this document describes every message in detail.
+
+Method, event and JSON field names are in English and are part of the
+contract.
+
+## 1. Transport
+
+| Channel    | Path                                 | Format                          |
+|------------|--------------------------------------|---------------------------------|
+| Control    | `$XDG_RUNTIME_DIR/ketai/ctl.sock`    | Newline-delimited JSON          |
+| Visualizer | `$XDG_RUNTIME_DIR/ketai/viz.sock`    | Fixed binary frames (section 7) |
+
+- Both are `AF_UNIX`, `SOCK_STREAM`, with permissions `0600`.
+- If `XDG_RUNTIME_DIR` is not set, the daemon refuses to start.
+- The sockets may come from systemd (socket activation); see
+  `docs/service.md`.
+- Many clients can connect at once. The daemon is the only owner of the audio
+  output; clients never open audio devices.
+
+## 2. Framing (control channel)
+
+- One JSON object per line, UTF-8, terminated by `\n`.
+- Messages cannot contain raw newlines (JSON escapes them).
+- Maximum line length: 1 MiB. A longer line closes the connection with error
+  `-32600`.
+
+## 3. Message shape
+
+**Request** (client -> daemon):
 ```json
 {"id": 1, "method": "player.play", "params": {}}
 ```
 
-**Respuesta** (daemon -> cliente, mismo `id`):
+**Response** (daemon -> client, same `id`):
 ```json
 {"id": 1, "result": {}}
 {"id": 1, "error": {"code": -32601, "message": "method not found"}}
 ```
-Algunos errores traen `error.data` con el detalle (por ejemplo `1009`); los
-clientes que no lo usan lo ignoran.
+Some errors carry `error.data` with details (for example `1009`); clients
+that do not use it ignore it.
 
-**Evento** (daemon -> cliente, sin `id`, solo despues de `events.subscribe`):
+**Event** (daemon -> client, no `id`, only after `events.subscribe`):
 ```json
 {"event": "track.changed", "data": {"track": { ... }}}
 ```
 
-- `id` es un entero sin signo elegido por el cliente, unico por conexion.
-- Las respuestas pueden intercalarse con eventos; el cliente las empareja por `id`.
-- Las peticiones de un mismo cliente se ejecutan en el orden en que llegaron,
-  aunque el cliente las envie sin esperar respuesta. Ejemplo: `queue.add`
-  seguido de `queue.list` siempre ve las pistas agregadas. Las respuestas a
-  un mismo cliente salen en ese mismo orden.
-- Un cliente puede tener hasta 64 peticiones sin respuesta (la respuesta
-  cuenta cuando ya se escribio en el socket). Al llegar a ese tope el daemon
-  deja de leer su socket hasta que el cliente lea respuestas, y sus
-  escrituras se bloquean. No se pierde ni se rechaza nada: un cliente que
-  nunca lee simplemente queda frenado, sin hacer crecer la memoria del
-  daemon.
-- `params` puede omitirse cuando esta vacio.
+- `id` is an unsigned integer chosen by the client, unique per connection.
+- Responses can be interleaved with events; the client matches them by `id`.
+- Requests from the same client run in the order they arrived, even if the
+  client sends them without waiting for a response. Example: `queue.add`
+  followed by `queue.list` always sees the added tracks. Responses to a
+  client go out in that same order.
+- A client can have up to 64 requests without a response (a response counts
+  once it has been written to the socket). At that limit the daemon stops
+  reading its socket until the client reads responses, and its writes block.
+  Nothing is lost or rejected: a client that never reads simply stalls,
+  without growing the daemon's memory.
+- `params` can be omitted when empty.
 
-## 4. Tipos de datos
+## 4. Data types
 
 **Track**
 ```json
@@ -87,16 +152,16 @@ clientes que no lo usan lo ignoran.
 }
 ```
 - `source`: `"local"` | `"remote"`.
-- `album_artist`, `genre`, `year`, `track_number` y `disc_number` vienen de
-  los tags (por ahora solo en resultados de biblioteca). `year` son los
-  primeros cuatro digitos de la fecha; de "3/12" queda `3`.
-- Los campos desconocidos valen `null`. Los clientes deben ignorar claves desconocidas.
+- `album_artist`, `genre`, `year`, `track_number` and `disc_number` come from
+  the tags (for now only in library results). `year` is the first four
+  digits of the date; "3/12" becomes `3`.
+- Unknown fields are `null`. Clients must ignore unknown keys.
 
 **PlayerState**
 ```json
 {
   "status": "playing",
-  "track": { "...": "Track o null" },
+  "track": { "...": "Track or null" },
   "position_ms": 53400,
   "volume": 0.8,
   "muted": false,
@@ -108,9 +173,9 @@ clientes que no lo usan lo ignoran.
 - `status`: `"stopped"` | `"playing"` | `"paused"` | `"buffering"`.
 - `volume`: `0.0`-`1.0`.
 - `repeat`: `"off"` | `"track"` | `"queue"`.
-- `output`: id del dispositivo, o `null` que significa "seguir el default del sistema".
+- `output`: device id, or `null`, which means "follow the system default".
 
-**LyricsLayer** (una capa de letra disponible)
+**LyricsLayer** (one available lyrics layer)
 ```json
 {
   "id": "ja-Latn-hepburn",
@@ -121,16 +186,16 @@ clientes que no lo usan lo ignoran.
   "origin": "sidecar"
 }
 ```
-- `id`: identificador estable de la capa dentro de la pista. La capa
-  original siempre tiene `id: "original"`. Las demas usan su etiqueta
-  BCP 47 (ver seccion 11).
+- `id`: stable identifier of the layer within the track. The original layer
+  always has `id: "original"`. The others use their BCP 47 tag (see
+  section 11).
 - `kind`: `"original"` | `"romanized"` | `"translation"`.
-- `timing`: nivel de tiempo propio de la capa (ver seccion 11):
+- `timing`: the layer's own timing level (see section 11):
   `"none"` | `"line"` | `"word"` | `"word-paired"`.
 - `format`: `"text"` | `"lrc"` | `"ttml"`.
-- `origin`: `"sidecar"` (archivo local) | `"embedded"` (tags del audio).
+- `origin`: `"sidecar"` (local file) | `"embedded"` (audio tags).
 
-**LyricsPackage** (letra armada segun lo que pidio el cliente)
+**LyricsPackage** (lyrics assembled as the client asked)
 ```json
 {
   "primary": "ja-Latn-hepburn",
@@ -155,44 +220,43 @@ clientes que no lo usan lo ignoran.
   ]
 }
 ```
-- `timing`: nivel de tiempo efectivo de `words` en este paquete. Es el de la
-  capa principal, o `"word-estimated"` si el cliente lo pidio y la capa no
-  tenia tiempo por palabra.
-- `start_ms` / `end_ms` de cada linea vienen siempre de la capa original
-  (ancla comun). Si la original no tiene tiempos (`timing: "none"`), son
-  `null` y el paquete tiene `timing: "none"`.
-- `end_ms` puede ser `null` si el formato no lo da; el cliente usa el
-  `start_ms` de la linea siguiente.
-- `text`: texto de la capa principal para esa linea.
-- `words`: palabras de la capa principal con su propio tiempo, o `null` si
-  `timing` es `"none"` o `"line"`.
-- `secondary`: objeto `{id_de_capa: texto}` solo por linea, sin palabras.
-  Una linea sin texto en una capa secundaria no tiene esa clave.
-- `agent` y `background` vienen de TTML (duetos y coros); en otros formatos
-  son `null` y `false`.
-- Los tiempos ya vienen con los offsets aplicados. Los campos de offset son
-  informativos.
-- La animacion por letra la calcula el cliente repartiendo el tiempo de cada
-  palabra entre sus caracteres.
+- `timing`: effective timing level of `words` in this package. It is the
+  primary layer's, or `"word-estimated"` if the client asked for it and the
+  layer had no word timing.
+- Each line's `start_ms` / `end_ms` always come from the original layer (the
+  common anchor). If the original has no timing (`timing: "none"`), they are
+  `null` and the package has `timing: "none"`.
+- `end_ms` can be `null` if the format does not provide it; the client uses
+  the next line's `start_ms`.
+- `text`: the primary layer's text for that line.
+- `words`: the primary layer's words with their own timing, or `null` if
+  `timing` is `"none"` or `"line"`.
+- `secondary`: object `{layer_id: text}`, per line only, no words. A line
+  with no text in a secondary layer does not have that key.
+- `agent` and `background` come from TTML (duets and backing vocals); in
+  other formats they are `null` and `false`.
+- Times already include the offsets. The offset fields are informational.
+- The per-letter animation is computed by the client, spreading each word's
+  time across its characters.
 
 **Device**
 ```json
 {"id": "alsa_output.usb-headset", "name": "USB Headset", "is_default": true}
 ```
 
-## 5. Metodos
+## 5. Methods
 
 ### Daemon
-| Metodo            | Params | Resultado |
-|-------------------|--------|-----------|
+| Method            | Params | Result |
+|-------------------|--------|--------|
 | `daemon.hello`    | `{"client": "ketai-tui", "protocol": 1}` | `{"server": "ketaid", "protocol": 1, "version": "0.1.0"}` |
 | `daemon.shutdown` | -      | `{}` |
 
-Los clientes deben llamar primero a `daemon.hello`. Si la version de protocolo
-no coincide, se devuelve el error `1000`.
+Clients must call `daemon.hello` first. If the protocol version does not
+match, error `1000` is returned.
 
-### Reproductor
-| Metodo                 | Params                   | Resultado     |
+### Player
+| Method                 | Params                   | Result        |
 |------------------------|--------------------------|---------------|
 | `player.state`         | -                        | `PlayerState` |
 | `player.play`          | -                        | `{}`          |
@@ -208,34 +272,36 @@ no coincide, se devuelve el error `1000`.
 | `player.set_repeat`    | `{"repeat": "queue"}`    | `{}`          |
 | `player.set_shuffle`   | `{"shuffle": true}`      | `{}`          |
 
-Reglas del reproductor:
+Player rules:
 
-- `player.play` con la cola vacia, o `player.next` sin pista siguiente,
-  devuelven `1001`. Con la cola sin pista seleccionada, `player.play`
-  reproduce la primera.
-- `player.next` y `player.previous` mantienen el estado: si sonaba sigue
-  sonando; si estaba en pausa queda en pausa al inicio de la nueva pista; si
-  estaba detenido solo cambia la seleccion.
-- `player.previous` reinicia la pista actual si ya sonaron mas de 3 segundos
-  o si es la primera de la cola (sin `repeat: "queue"`).
-- `player.seek` y `player.seek_relative` necesitan una pista cargada
-  (`playing` o `paused`); si no, `1001`. La posicion se limita al rango
+- `player.play` with an empty queue, or `player.next` with no next track,
+  return `1001`. With a queue but no selected track, `player.play` plays the
+  first one.
+- `player.next` and `player.previous` keep the state: if it was playing it
+  keeps playing; if paused it stays paused at the start of the new track; if
+  stopped only the selection changes.
+- `player.previous` restarts the current track if more than 3 seconds have
+  played or if it is the first in the queue (without `repeat: "queue"`).
+- `player.seek` and `player.seek_relative` need a loaded track (`playing` or
+  `paused`); otherwise `1001`. The position is clamped to
   `0`..`duration_ms`.
-- `player.stop` deja la pista seleccionada y la posicion en `0`.
-- `volume` fuera de `0.0`..`1.0` devuelve `-32602`. `muted` no cambia
+- `player.stop` keeps the track selected and the position at `0`.
+- `volume` outside `0.0`..`1.0` returns `-32602`. `muted` does not change
   `volume`.
-- Fin de pista: con `repeat: "track"` se repite; si no, pasa a la siguiente.
-  Sin siguiente, el estado queda `stopped` con la ultima pista seleccionada.
-- Si una pista no se puede reproducir, se salta a la siguiente. Si fallan
-  todas las de la cola seguidas, el estado queda `stopped`.
-- Con `shuffle: true`, la siguiente pista se elige al azar entre las que no
-  sonaron en el ciclo actual, y `player.previous` recorre ese historial.
-  Cuando sonaron todas: con `repeat: "queue"` empieza un ciclo nuevo; si no,
-  no hay siguiente. `shuffle` no cambia el orden de `queue.list`.
+- End of track: with `repeat: "track"` it repeats; otherwise it moves to the
+  next one. With no next track, the state becomes `stopped` with the last
+  track selected.
+- If a track cannot be played, it is skipped. If every track in the queue
+  fails in a row, the state becomes `stopped`.
+- With `shuffle: true`, the next track is picked at random among those not
+  played in the current cycle, and `player.previous` walks that history.
+  When all have played: with `repeat: "queue"` a new cycle starts; otherwise
+  there is no next track. `shuffle` does not change the order of
+  `queue.list`.
 
-### Cola
-| Metodo         | Params                                          | Resultado |
-|----------------|-------------------------------------------------|-----------|
+### Queue
+| Method         | Params                                          | Result |
+|----------------|-------------------------------------------------|--------|
 | `queue.list`   | -                                               | `{"current": 2, "tracks": [Track]}` |
 | `queue.add`    | `{"uris": ["file:///a.ogg", "file:///b.ogg"], "position": null}` | `{"added": 2}` |
 | `queue.remove` | `{"indexes": [3, 5]}`                           | `{"removed": 2}` |
@@ -243,25 +309,25 @@ Reglas del reproductor:
 | `queue.clear`  | -                                               | `{}` |
 | `queue.jump`   | `{"index": 4}`                                  | `{}` |
 
-- `queue.add` acepta una o varias `uris`. Se insertan juntas, en el orden
-  enviado, a partir de `position`. `position: null` agrega al final.
-- `uris` acepta `file://`, `http://` y `https://`.
-- `queue.remove` acepta uno o varios `indexes`, sin repetidos, contados sobre
-  la cola antes de quitar nada. Para uno solo: `{"indexes": [3]}`.
-- Si se quita la pista que esta sonando, la reproduccion pasa a la siguiente
-  que quede en la cola; si no queda ninguna, el estado pasa a `stopped`.
-- `queue.add` y `queue.remove` son atomicas: ante una URI invalida o un
-  indice fuera de rango o repetido, la cola no cambia.
-- `queue.add` lee los metadatos de cada archivo local. Una URI con esquema
-  no soportado devuelve `-32602`; un archivo inexistente o que no se puede
-  decodificar devuelve `1003`. Las rutas `file://` admiten caracteres
-  codificados con `%` (por ejemplo `%20` para un espacio).
-- `queue.jump` selecciona la pista y la reproduce desde el principio.
-- `queue.clear` deja el estado `stopped` y sin pista seleccionada.
+- `queue.add` accepts one or more `uris`. They are inserted together, in the
+  order sent, starting at `position`. `position: null` appends at the end.
+- `uris` accepts `file://`, `http://` and `https://`.
+- `queue.remove` accepts one or more `indexes`, without repeats, counted on
+  the queue before removing anything. For a single one: `{"indexes": [3]}`.
+- If the playing track is removed, playback moves to the next one left in the
+  queue; if none is left, the state becomes `stopped`.
+- `queue.add` and `queue.remove` are atomic: on an invalid URI or an index
+  out of range or repeated, the queue does not change.
+- `queue.add` reads the metadata of each local file. A URI with an
+  unsupported scheme returns `-32602`; a missing file or one that cannot be
+  decoded returns `1003`. `file://` paths accept `%`-encoded characters (for
+  example `%20` for a space).
+- `queue.jump` selects the track and plays it from the start.
+- `queue.clear` leaves the state `stopped` with no track selected.
 
 ### Playlists
-| Metodo            | Params                                  | Resultado |
-|-------------------|-----------------------------------------|-----------|
+| Method            | Params                                  | Result |
+|-------------------|-----------------------------------------|--------|
 | `playlist.list`   | -                                       | `{"playlists": [{"name": "chill", "count": 12}]}` |
 | `playlist.get`    | `{"name": "chill"}`                     | `{"name": "chill", "path": "/home/u/music/playlists/chill.m3u8", "tracks": [Track]}` |
 | `playlist.save`   | `{"name": "chill", "from_queue": true}` | `{}` |
@@ -276,113 +342,116 @@ Reglas del reproductor:
 | `favorites.set`   | `{"uri": "file:///a.ogg", "favorite": true}` | `{}` |
 | `track.playlists` | `{"uri": "file:///a.ogg"}`              | `{"playlists": ["chill", "rock"], "favorite": true}` |
 
-- Las playlists viven en la base de ketai (`library.db`, ver biblioteca),
-  que manda. Cada cambio es una transaccion y pasa por un solo thread: dos
-  clientes que agregan a la misma playlist al mismo tiempo nunca pierden
-  pistas. Una cancion puede estar en varias playlists, y varias veces en la
-  misma.
-- Favoritos es una playlist mas, llamada `Favoritos`, que en
-  `playlist.list` trae `"kind": "favorites"` (las demas no traen `kind`). Se
-  crea con el primer `favorites.set`. `favorites.set` con `favorite: true`
-  la agrega si no estaba; con `false` la quita. `uri` y `favorite` son
-  obligatorios (`-32602`). Emite `playlist.changed` con `Favoritos`.
-- `playlist.add` con pistas que ya estan en la playlist: `duplicates`
-  decide. `"ask"` (o sin el campo) no agrega nada y devuelve el error
-  `1009` con `data: {"duplicates": [uris]}`, para que el cliente pregunte
-  al usuario; `"add"` las agrega igual; `"skip"` agrega solo las que
-  faltan (`added` cuenta las agregadas). Otro valor devuelve `-32602`.
-- `playlist.remove` quita por posicion (`indexes`) o por cancion (`uris`:
-  todas las copias de cada una); hay que dar uno de los dos (`-32602` si
-  no, o si vienen ambos). `removed` cuenta las pistas quitadas; con `uris`
-  que no estan, `removed: 0` y no cambia nada.
-- `track.playlists` dice en que playlists esta una URI (sin Favoritos, por
-  orden de nombre) y si es favorita.
-- Cada playlist tiene una copia `.m3u8` en la carpeta de playlists,
-  compatible con otros reproductores, que escribe ketai. La carpeta es `[playlists] dir` de
-  `config.toml` (ver `docs/config.md`) o, si no esta, `XDG_MUSIC_DIR/playlists`
-  (`XDG_MUSIC_DIR` del entorno, de `~/.config/user-dirs.dirs` o `~/music`).
-  Se resuelve en cada operacion, asi un cambio en `config.toml` se aplica sin
-  reiniciar, y se crea si no existe. `playlist.get` devuelve en `path` la
-  ruta del archivo. Las pistas locales se guardan como rutas absolutas. Un
-  `.m3u8` nuevo copiado a esa carpeta se importa como playlist; al leerlo se
-  aceptan rutas absolutas, rutas relativas a la carpeta y URIs. Un archivo
-  de una playlist que ya existe, editado o borrado a mano, se vuelve a
-  escribir desde la base. Si cambia la carpeta, todas las playlists se
-  copian a la nueva. La primera vez, las playlists que ya estaban en la
-  carpeta se importan.
-- Al modificar una playlist se reescribe el archivo solo con las rutas: se
-  pierden comentarios y lineas `#EXTINF` que tuviera un `.m3u8` creado por
-  otro programa.
-- Solo se reconocen archivos con extension `.m3u8` en minusculas.
-- El nombre es tambien el del archivo: no puede estar vacio, empezar con `.`
-  ni contener `/`. Un nombre invalido devuelve `-32602`.
-- `playlist.save` crea la playlist o reemplaza la existente. Con
-  `from_queue: false` queda vacia.
-- `playlist.rename` a un nombre que ya existe devuelve `1008`.
-- `playlist.get` muestra tambien las pistas cuyo archivo ya no existe, con
-  los metadatos en `null`.
-- `playlist.load` agrega a la cola solo las pistas que se pueden reproducir.
-  Con `replace: true` vacia la cola antes y deja el estado `stopped`; con
-  `replace: false` agrega al final sin cambiar la reproduccion.
-- `playlist.move` reordena la playlist: saca la pista en `from` y la inserta
-  en `to`. Los indices se cuentan sobre la lista antes del movimiento.
-- `playlist.transfer` pasa una o varias pistas de una playlist a otra:
-  - `from_name` y `to_name` deben ser distintos (`-32602`); para reordenar
-    dentro de una playlist se usa `playlist.move`.
-  - `indexes` son posiciones en el origen, sin repetidos. Las pistas llegan
-    al destino en el orden de su posicion en el origen, no en el orden de
-    la lista enviada.
-  - `mode: "copy"` las deja en el origen y agrega copias en el destino.
-  - `mode: "move"` las quita del origen y las agrega en el destino.
-  - Si algun indice esta fuera de rango o repetido, no se transfiere ninguna
-    y se devuelve el error `1002` o `-32602`.
-  - `position: null` agrega al final del destino.
-  - La operacion es atomica: si falla el destino, el origen no cambia.
-  - Si `from_name` o `to_name` no existen, devuelve el error `1005`.
-  - Emite `playlist.changed` para cada playlist modificada: con `copy` solo
-    el destino.
-  - Si con `move` falla la escritura del origen despues de escribir el
-    destino, las pistas quedan en las dos playlists, la operacion devuelve
-    error y se emite `playlist.changed` para el destino.
-- `playlist.add` acepta una o varias `uris`. Se insertan juntas, en el orden
-  enviado, a partir de `position`. `position: null` agrega al final.
-- `playlist.remove` acepta uno o varios `indexes`, sin repetidos. Los indices
-  se cuentan sobre la lista antes de quitar nada. Para un solo elemento se
-  envia una lista de un item: `{"indexes": [3]}`.
-- `playlist.add` y `playlist.remove` son atomicas: si una URI es invalida o
-  un indice esta fuera de rango o repetido, la playlist no cambia.
-- Indices fuera de rango devuelven el error `1002`.
-- Cada cambio emite el evento `playlist.changed`.
+- Playlists live in ketai's database (`library.db`, see the library section),
+  which is the source of truth. Each change is a transaction and goes through
+  a single thread: two clients adding to the same playlist at the same time
+  never lose tracks. A song can be in several playlists, and several times in
+  the same one.
+- Favorites is one more playlist, named `Favoritos`, which in
+  `playlist.list` carries `"kind": "favorites"` (the others have no `kind`).
+  It is created by the first `favorites.set`. `favorites.set` with
+  `favorite: true` adds the track if it was not there; with `false` it
+  removes it. `uri` and `favorite` are required (`-32602`). It emits
+  `playlist.changed` with `Favoritos`.
+- `playlist.add` with tracks already in the playlist: `duplicates` decides.
+  `"ask"` (or no field) adds nothing and returns error `1009` with
+  `data: {"duplicates": [uris]}`, so the client can ask the user; `"add"`
+  adds them anyway; `"skip"` adds only the missing ones (`added` counts the
+  added tracks). Any other value returns `-32602`.
+- `playlist.remove` removes by position (`indexes`) or by song (`uris`: every
+  copy of each one); exactly one of the two must be given (`-32602`
+  otherwise, or if both are given). `removed` counts the removed tracks; with
+  `uris` that are not there, `removed: 0` and nothing changes.
+- `track.playlists` tells which playlists contain a URI (without Favorites,
+  ordered by name) and whether it is a favorite.
+- Each playlist has a `.m3u8` copy in the playlists folder, compatible with
+  other players, written by ketai. The folder is `[playlists] dir` in
+  `config.toml` (see `docs/config.md`) or, if not set,
+  `XDG_MUSIC_DIR/playlists` (`XDG_MUSIC_DIR` from the environment, from
+  `~/.config/user-dirs.dirs`, or `~/music`). It is resolved on every
+  operation, so a change in `config.toml` applies without restarting, and it
+  is created if missing. `playlist.get` returns the file path in `path`.
+  Local tracks are stored as absolute paths. A new `.m3u8` copied into that
+  folder is imported as a playlist; when reading it, absolute paths, paths
+  relative to the folder and URIs are accepted. The file of an existing
+  playlist, edited or deleted by hand, is written again from the database.
+  If the folder changes, every playlist is copied to the new one. The first
+  time, the playlists already in the folder are imported.
+- When a playlist changes, its file is rewritten with paths only: comments and
+  `#EXTINF` lines of a `.m3u8` created by another program are lost.
+- Only files with a lowercase `.m3u8` extension are recognized.
+- The name is also the file name: it cannot be empty, start with `.` or
+  contain `/`. An invalid name returns `-32602`.
+- `playlist.save` creates the playlist or replaces an existing one. With
+  `from_queue: false` it is empty.
+- `playlist.rename` to a name that already exists returns `1008`.
+- `playlist.get` also shows tracks whose file no longer exists, with
+  metadata set to `null`.
+- `playlist.load` adds to the queue only the tracks that can be played. With
+  `replace: true` it clears the queue first and leaves the state `stopped`;
+  with `replace: false` it appends without changing playback.
+- `playlist.move` reorders the playlist: it takes the track at `from` and
+  inserts it at `to`. Indexes count on the list before the move.
+- `playlist.transfer` moves one or more tracks from one playlist to another:
+  - `from_name` and `to_name` must differ (`-32602`); to reorder within a
+    playlist use `playlist.move`.
+  - `indexes` are positions in the source, without repeats. The tracks reach
+    the destination in their source order, not in the order of the list sent.
+  - `mode: "copy"` leaves them in the source and adds copies to the
+    destination.
+  - `mode: "move"` removes them from the source and adds them to the
+    destination.
+  - If any index is out of range or repeated, nothing is transferred and
+    error `1002` or `-32602` is returned.
+  - `position: null` appends at the end of the destination.
+  - The operation is atomic: if the destination fails, the source does not
+    change.
+  - If `from_name` or `to_name` does not exist, it returns error `1005`.
+  - It emits `playlist.changed` for each modified playlist: with `copy` only
+    the destination.
+  - If, with `move`, writing the source fails after writing the destination,
+    the tracks stay in both playlists, the operation returns an error and
+    `playlist.changed` is emitted for the destination.
+- `playlist.add` accepts one or more `uris`. They are inserted together, in
+  the order sent, starting at `position`. `position: null` appends at the
+  end.
+- `playlist.remove` accepts one or more `indexes`, without repeats. Indexes
+  count on the list before removing anything. For a single item, send a
+  one-item list: `{"indexes": [3]}`.
+- `playlist.add` and `playlist.remove` are atomic: if a URI is invalid or an
+  index is out of range or repeated, the playlist does not change.
+- Out-of-range indexes return error `1002`.
+- Every change emits the `playlist.changed` event.
 
-### Letras (lyrics)
-| Metodo              | Params                                   | Resultado |
-|---------------------|------------------------------------------|-----------|
-| `lyrics.layers`     | `{"track_id": "t_9f2c"}`                 | `{"layers": [LyricsLayer]}` (vacio si no hay letra) |
-| `lyrics.get`        | `{"track_id": "t_9f2c", "primary": "ja-Latn-hepburn", "secondary": ["es"], "estimate_words": false}` | `LyricsPackage` o `null` |
+### Lyrics
+| Method              | Params                                   | Result |
+|---------------------|------------------------------------------|--------|
+| `lyrics.layers`     | `{"track_id": "t_9f2c"}`                 | `{"layers": [LyricsLayer]}` (empty if there are no lyrics) |
+| `lyrics.get`        | `{"track_id": "t_9f2c", "primary": "ja-Latn-hepburn", "secondary": ["es"], "estimate_words": false}` | `LyricsPackage` or `null` |
 | `lyrics.set_offset` | `{"track_id": "t_9f2c", "offset_ms": -250}` | `{}` |
 
-- En `lyrics.get`, `primary` es opcional (por defecto `"original"`),
-  `secondary` es opcional (por defecto `[]`) y `estimate_words` es opcional
-  (por defecto `false`).
-- Un `id` de capa inexistente devuelve el error `1007`.
-- La misma capa no puede estar en `primary` y en `secondary`; eso devuelve
+- In `lyrics.get`, `primary` is optional (default `"original"`),
+  `secondary` is optional (default `[]`) and `estimate_words` is optional
+  (default `false`).
+- A layer `id` that does not exist returns error `1007`.
+- The same layer cannot be in both `primary` and `secondary`; that returns
   `-32602`.
-- `lyrics.get` devuelve `null` si la pista no tiene letra.
-- `track_id` debe ser una pista de la cola; si no, `-32602`. Las pistas
-  remotas todavia no tienen letra (`layers` vacio y `get` en `null`).
-- Solo se pueden pedir capas que `lyrics.layers` ofrece; una capa que existe
-  pero no se pudo alinear tambien devuelve `1007`.
-- `lyrics.set_offset` guarda el ajuste por archivo (URI), no por
-  `track_id`: se recuerda en sesiones futuras aunque el id cambie. Se guarda
-  en `$XDG_STATE_HOME/ketai/lyrics-offsets.json`. `offset_ms: 0` lo borra.
-  Emite `lyrics.changed`.
+- `lyrics.get` returns `null` if the track has no lyrics.
+- `track_id` must be a track in the queue; otherwise `-32602`. Remote tracks
+  have no lyrics yet (`layers` empty and `get` returns `null`).
+- Only layers offered by `lyrics.layers` can be requested; a layer that
+  exists but could not be aligned also returns `1007`.
+- `lyrics.set_offset` stores the adjustment per file (URI), not per
+  `track_id`: it is remembered in future sessions even if the id changes. It
+  is stored in `$XDG_STATE_HOME/ketai/lyrics-offsets.json`. `offset_ms: 0`
+  deletes it. It emits `lyrics.changed`.
 
-Ver la seccion 4 para los tipos y la seccion 11 para las reglas.
+See section 4 for the types and section 11 for the rules.
 
-### Biblioteca / origenes
-| Metodo           | Params                            | Resultado |
-|------------------|-----------------------------------|-----------|
-| `library.scan`   | `{"path": "/home/u/Music"}` o `{}` (todas las carpetas) | `{"job": "j_1"}` (progreso via eventos) |
+### Library / sources
+| Method           | Params                            | Result |
+|------------------|-----------------------------------|--------|
+| `library.scan`   | `{"path": "/home/u/Music"}` or `{}` (every folder) | `{"job": "j_1"}` (progress through events) |
 | `library.folders` | -                                | `{"folders": [{"path": "/home/u/Music", "tracks": 1204}]}` |
 | `library.add_folder` | `{"path": "/home/u/Music"}`   | `{}` |
 | `library.remove_folder` | `{"path": "/home/u/Music"}` | `{}` |
@@ -391,355 +460,354 @@ Ver la seccion 4 para los tipos y la seccion 11 para las reglas.
 | `library.tracks` | `{"by": "artist", "name": "ILLIT", "offset": 0, "limit": 200}` | `{"tracks": [Track], "total": 12}` |
 
 ### Cache
-| Metodo        | Params | Resultado |
-|---------------|--------|-----------|
+| Method        | Params | Result |
+|---------------|--------|--------|
 | `cache.info`  | -      | `{"path": "...", "size_bytes": 1048576, "entries": 12, "limit_bytes": 2147483648}` |
 | `cache.clear` | -      | `{"freed_bytes": 1048576}` |
 
-### Caratulas
-| Metodo        | Params                   | Resultado |
-|---------------|--------------------------|-----------|
+### Covers
+| Method        | Params                   | Result |
+|---------------|--------------------------|--------|
 | `track.cover` | `{"track_id": "t_9f2c"}` | `{"path": "/run/user/1000/ketai/covers/t_9f2c.jpg", "mime": "image/jpeg"}` |
-| `track.cover` | `{"uri": "file:///music/song.flac"}` | igual; el archivo se llama `u_<hash>` |
+| `track.cover` | `{"uri": "file:///music/song.flac"}` | same; the file is named `u_<hash>` |
 
-Las caratulas se escriben en disco y se devuelve la ruta; nunca se envian
-embebidas en base64.
+Covers are written to disk and their path is returned; they are never sent
+embedded in base64.
 
-Reglas de biblioteca, caratulas y cache (v1, solo archivos locales):
+Library, cover and cache rules (v1, local files only):
 
-- Las carpetas de la biblioteca se guardan junto al indice. `add_folder`
-  recibe una carpeta absoluta existente (`-32602` si no); agregarla dos veces
-  no hace nada. `remove_folder` de una carpeta que no esta devuelve
-  `-32602` y, si esta, saca del indice sus canciones. Los dos emiten
-  `library.changed` (topico `library`).
-- `library.scan` con `path` recibe una carpeta absoluta existente; si no,
-  `-32602`. Sin `path` escanea todas las carpetas de la biblioteca en un
-  solo trabajo (`-32602` si no hay ninguna).
-  Responde enseguida con el `job` y escanea en segundo plano, recursivo,
-  sin seguir carpetas enlazadas. Los candidatos son los archivos con
-  extension de audio (`flac`, `mp3`, `m4a`, `mp4`, `aac`, `ogg`, `oga`,
-  `opus`, `wav`); los que no se pueden reproducir no entran al indice.
-- `library.progress` llega al empezar (`done: 0`), como maximo cada 200 ms
-  y al final con `done == total`. El evento final llega cuando el indice ya
-  esta actualizado: una busqueda hecha al recibirlo ya ve las pistas.
-- Volver a escanear una carpeta reemplaza todo lo indexado bajo ella (lo
-  borrado desaparece al terminar). Lo leido se guarda por tandas de 200
-  pistas mientras escanea: si el daemon se corta a mitad, lo guardado
-  queda. El indice y las carpetas se guardan en una base
-  SQLite, `$XDG_DATA_HOME/ketai/library.db`, y sobreviven a reinicios.
-  Cada cambio es una transaccion y los pedidos de todos los clientes pasan
-  por un solo thread: dos clientes al mismo tiempo nunca se pisan. Si
-  existe un `library.json` de una version anterior, se importa la primera
-  vez que se crea la base (el archivo no se borra).
-- `library.groups` agrupa la biblioteca por `artist`, `album`, `folder`
-  (carpeta de cada archivo), `year` (como texto) o `genre`, en orden. Las
-  pistas sin ese dato forman el grupo `name: null`, que va primero. Otro
-  `by` devuelve `-32602`.
-- `library.tracks` devuelve una pagina de pistas y el `total`. Sin `by`, de
-  toda la biblioteca, por ruta. Con `by`, `name` es obligatorio (`null` es
-  el grupo sin dato); en un album van por disco y numero de pista.
-  `offset` arranca en 0 y `limit` va de 1 a 5000 (200 por defecto).
-- `library.search`: `query` es obligatorio. Cada palabra debe aparecer, en
-  cualquier parte (no solo al principio), en el titulo, artista, album, artista
-  del album, genero, ano o nombre de archivo. No importan las mayusculas ni las marcas: "cancion"
-  encuentra el titulo con la o acentuada y "nino" el que tiene enie, y al
-  reves (acentos, dieresis, virgulilla, cedilla; ademas U+00DF = ss,
-  U+00E6 = ae, U+0153 = oe, U+00F8 = o, U+0142 = l, U+0111 = d). Las marcas de
-  otras escrituras se respetan porque cambian la palabra (el dakuten
-  japones, U+3099: "ga" no es "ka").
-  `""` devuelve todo. `limit` (por defecto 50) debe ser un entero positivo.
-  Los resultados van ordenados por ruta y su `id` es `null`: no son pistas
-  de la cola (se agregan con `queue.add` usando su `uri`).
-- `track.cover` recibe un `track_id` de la cola (`-32602` si no existe) o,
-  para pistas que no estan en la cola (playlists, resultados de busqueda),
-  una `uri` local. Si vienen los dos, se usa `track_id`. Con `uri`, el
-  archivo se llama `u_<hash de la uri>` y es siempre el mismo para la misma
-  URI; una URI remota o un archivo inexistente devuelven `null`.
-  Usa la imagen embebida (preferentemente la de tapa) y si no hay, una
-  imagen de la carpeta: `cover`, `folder`, `front` o `album`, con
-  extension `jpg`, `jpeg`, `png` o `webp`, sin distinguir mayusculas. Se
-  escribe en `$XDG_RUNTIME_DIR/ketai/covers/` (archivo `0600`). Sin
-  caratula devuelve `null`. `has_cover` considera las dos fuentes.
-- La cache vive en `$XDG_CACHE_HOME/ketai/`. En v1 no se descarga nada, asi
-  que normalmente esta vacia. `cache.clear` borra su contenido, no la
-  carpeta. Las fuentes remotas y `download.progress` llegan en una version
-  futura (ver `docs/roadmap.md`).
+- The library folders are stored next to the index. `add_folder` takes an
+  existing absolute folder (`-32602` otherwise); adding it twice does
+  nothing. `remove_folder` of a folder that is not there returns `-32602`
+  and, if it is there, removes its songs from the index. Both emit
+  `library.changed` (topic `library`).
+- `library.scan` with `path` takes an existing absolute folder; otherwise
+  `-32602`. Without `path` it scans every library folder in a single job
+  (`-32602` if there are none). It answers right away with the `job` and
+  scans in the background, recursively, without following linked folders.
+  Candidates are files with an audio extension (`flac`, `mp3`, `m4a`, `mp4`,
+  `aac`, `ogg`, `oga`, `opus`, `wav`); those that cannot be played do not
+  enter the index.
+- `library.progress` arrives at the start (`done: 0`), at most every 200 ms,
+  and at the end with `done == total`. The final event arrives once the
+  index is updated: a search made on receiving it already sees the tracks.
+- Scanning a folder again replaces everything indexed under it (what was
+  deleted disappears at the end). What is read is saved in batches of 200
+  tracks while scanning: if the daemon stops halfway, what was saved stays.
+  The index and the folders are stored in an SQLite database,
+  `$XDG_DATA_HOME/ketai/library.db`, and survive restarts. Each change is a
+  transaction and the requests of every client go through a single thread:
+  two clients at the same time never step on each other. If a `library.json`
+  from an earlier version exists, it is imported the first time the database
+  is created (the file is not deleted).
+- `library.groups` groups the library by `artist`, `album`, `folder` (each
+  file's folder), `year` (as text) or `genre`, in order. Tracks without that
+  data form the group `name: null`, which comes first. Any other `by`
+  returns `-32602`.
+- `library.tracks` returns one page of tracks and the `total`. Without `by`,
+  from the whole library, by path. With `by`, `name` is required (`null` is
+  the group without data); within an album they go by disc and track number.
+  `offset` starts at 0 and `limit` goes from 1 to 5000 (200 by default).
+- `library.search`: `query` is required. Every word must appear, anywhere
+  (not only at the start), in the title, artist, album, album artist, genre,
+  year or file name. Case and marks do not matter: "cancion" finds the title
+  with an accented o and "nino" the one with an n with tilde, and the other
+  way around (acute, diaeresis, tilde, cedilla; also U+00DF = ss,
+  U+00E6 = ae, U+0153 = oe, U+00F8 = o, U+0142 = l, U+0111 = d). Marks of
+  other scripts are kept because they change the word (the Japanese
+  dakuten, U+3099: "ga" is not "ka"). `""` returns everything. `limit`
+  (default 50) must be a positive integer. Results are ordered by path and
+  their `id` is `null`: they are not queue tracks (add them with
+  `queue.add` using their `uri`).
+- `track.cover` takes a `track_id` from the queue (`-32602` if it does not
+  exist) or, for tracks not in the queue (playlists, search results), a local
+  `uri`. If both are given, `track_id` is used. With `uri`, the file is named
+  `u_<hash of the uri>` and is always the same for the same URI; a remote
+  URI or a missing file returns `null`. It uses the embedded image
+  (preferably the front cover) and, if there is none, an image in the
+  folder: `cover`, `folder`, `front` or `album`, with extension `jpg`,
+  `jpeg`, `png` or `webp`, case-insensitive. It is written to
+  `$XDG_RUNTIME_DIR/ketai/covers/` (file `0600`). Without a cover it returns
+  `null`. `has_cover` considers both sources.
+- The cache lives in `$XDG_CACHE_HOME/ketai/`. In v1 nothing is downloaded,
+  so it is usually empty. `cache.clear` deletes its contents, not the
+  folder. Remote sources and `download.progress` arrive in a future version
+  (see `docs/roadmap.md`).
 
-### Dispositivos de salida
-| Metodo        | Params                                        | Resultado |
-|---------------|-----------------------------------------------|-----------|
+### Output devices
+| Method        | Params                                        | Result |
+|---------------|-----------------------------------------------|--------|
 | `output.list` | -                                             | `{"devices": [Device]}` |
-| `output.set`  | `{"id": "alsa_output..."}` o `{"id": null}`   | `{}` |
+| `output.set`  | `{"id": "alsa_output..."}` or `{"id": null}`  | `{}` |
 
-`null` vuelve a seguir el dispositivo por defecto del sistema.
+`null` goes back to following the system default device.
 
-Reglas:
+Rules:
 
-- Los dispositivos son los sinks del servidor de sonido (PulseAudio, o
-  PipeWire a traves de pipewire-pulse), asi aparecen tambien los de
-  bluetooth. `id` es el nombre del sink y `name` su descripcion.
-- `output.set` con un `id` que no esta en la lista devuelve `1004`; con un
-  valor que no es texto ni `null`, `-32602`.
-- Cambiar de salida mueve el stream de ketai al otro sink; el stream no se
-  reabre.
-- Con `id: null`, ketai sigue el default del sistema: si el default cambia,
-  el stream se mueve solo.
-- Si el dispositivo elegido se desconecta, el audio pasa al default, pero la
-  eleccion se mantiene: al volver a conectarse, el audio vuelve a el.
-- `PlayerState.output` y el campo `active` de `output.changed` son la
-  eleccion del usuario (`null` = siguiendo el default).
-- `output.changed` se emite cuando cambia la lista, el default o la
-  eleccion.
-- Si no hay servidor de sonido disponible, `output.list` devuelve una lista
-  vacia.
+- The devices are the sound server's sinks (PulseAudio, or PipeWire through
+  pipewire-pulse), so Bluetooth ones show up too. `id` is the sink name and
+  `name` its description.
+- `output.set` with an `id` not in the list returns `1004`; with a value that
+  is neither text nor `null`, `-32602`.
+- Switching outputs moves ketai's stream to the other sink; the stream is not
+  reopened.
+- With `id: null`, ketai follows the system default: if the default changes,
+  the stream moves by itself.
+- If the chosen device disconnects, audio goes to the default, but the
+  choice is kept: when it reconnects, audio goes back to it.
+- `PlayerState.output` and the `active` field of `output.changed` are the
+  user's choice (`null` = following the default).
+- `output.changed` is emitted when the list, the default or the choice
+  changes.
+- If no sound server is available, `output.list` returns an empty list.
 
-### Eventos
-| Metodo               | Params                            | Resultado |
-|----------------------|-----------------------------------|-----------|
+### Events
+| Method               | Params                            | Result |
+|----------------------|-----------------------------------|--------|
 | `events.subscribe`   | `{"topics": ["player", "queue"]}` | `{}` |
 | `events.unsubscribe` | `{"topics": ["queue"]}`           | `{}` |
 
-## 6. Eventos
+## 6. Events
 
-| Topico     | Evento              | Datos |
-|------------|---------------------|-------|
-| `player`   | `player.state`      | `PlayerState` (en cualquier cambio de estado, volumen o modo) |
-| `player`   | `player.position`   | `{"position_ms": 54400}` (maximo 1 Hz mientras reproduce) |
-| `player`   | `track.changed`     | `{"track": Track o null}` |
-| `queue`    | `queue.changed`     | `{}` (el cliente vuelve a pedir `queue.list`) |
+| Topic      | Event               | Data |
+|------------|---------------------|------|
+| `player`   | `player.state`      | `PlayerState` (on any change of state, volume or mode) |
+| `player`   | `player.position`   | `{"position_ms": 54400}` (at most 1 Hz while playing) |
+| `player`   | `track.changed`     | `{"track": Track or null}` |
+| `queue`    | `queue.changed`     | `{}` (the client asks `queue.list` again) |
 | `playlist` | `playlist.changed`  | `{"name": "chill"}` |
-| `output`   | `output.changed`    | `{"devices": [Device], "active": "id o null"}` |
+| `output`   | `output.changed`    | `{"devices": [Device], "active": "id or null"}` |
 | `library`  | `library.progress`  | `{"job": "j_1", "done": 120, "total": 400}` |
-| `library`  | `library.changed`   | `{}` (cambiaron las carpetas; el cliente vuelve a pedir `library.folders`) |
-| `lyrics`   | `lyrics.changed`    | `{"track_id": "t_9f2c"}` (cambio de offset; el cliente vuelve a pedir `lyrics.get`) |
+| `library`  | `library.changed`   | `{}` (the folders changed; the client asks `library.folders` again) |
+| `lyrics`   | `lyrics.changed`    | `{"track_id": "t_9f2c"}` (offset changed; the client asks `lyrics.get` again) |
 | `cache`    | `download.progress` | `{"track_id": "t_1", "bytes": 1000, "total": 5000}` |
 
-Al hacer `events.subscribe`, si `player` esta entre los topicos, el daemon
-envia inmediatamente el `player.state` actual.
+On `events.subscribe`, if `player` is among the topics, the daemon sends the
+current `player.state` immediately.
 
-Reglas:
+Rules:
 
-- `events.subscribe` y `events.unsubscribe` reciben una lista no vacia de
-  topicos de esta tabla; un topico desconocido devuelve `-32602` y no cambia
-  ninguna suscripcion. Suscribirse dos veces al mismo topico no duplica
-  eventos.
-- La respuesta a una peticion siempre llega antes que los eventos que esa
-  peticion provoca.
-- `player.state` solo se emite cuando cambia algo distinto de la posicion.
-- `player.position` se emite como maximo una vez por segundo mientras
-  reproduce, y ademas inmediatamente despues de un `player.seek` o
-  `player.seek_relative`.
-- `track.changed` se emite cuando cambia la pista seleccionada, incluido el
-  paso a `null` (por ejemplo tras `queue.clear`).
-- `queue.changed` se emite cuando cambia el contenido o el orden de la cola,
-  no cuando solo cambia la pista seleccionada.
-- El topico `cache` ya se acepta, pero `download.progress` llega con las
-  fuentes remotas (version futura, ver `docs/roadmap.md`).
+- `events.subscribe` and `events.unsubscribe` take a non-empty list of topics
+  from this table; an unknown topic returns `-32602` and changes no
+  subscription. Subscribing twice to the same topic does not duplicate
+  events.
+- The response to a request always arrives before the events that request
+  causes.
+- `player.state` is only emitted when something other than the position
+  changes.
+- `player.position` is emitted at most once per second while playing, and
+  also right after a `player.seek` or `player.seek_relative`.
+- `track.changed` is emitted when the selected track changes, including the
+  change to `null` (for example after `queue.clear`).
+- `queue.changed` is emitted when the content or order of the queue changes,
+  not when only the selected track changes.
+- The `cache` topic is already accepted, but `download.progress` comes with
+  remote sources (future version, see `docs/roadmap.md`).
 
-## 7. Canal del visualizador
+## 7. Visualizer channel
 
-Binario, little-endian. El cliente se conecta y solo lee; nunca escribe.
+Binary, little-endian. The client connects and only reads; it never writes.
 
-Header, enviado una sola vez al conectar:
+Header, sent once on connect:
 ```
-offset tamano campo
-0      4      magic "KTV1"
-4      4      uint32 bins        (ej. 64)
-8      4      uint32 fps         (ej. 60)
+offset size field
+0      4    magic "KTV1"
+4      4    uint32 bins        (e.g. 64)
+8      4    uint32 fps         (e.g. 60)
 ```
 
-Despues, un flujo de frames, cada uno de `bins` x `float32`, con valores
-normalizados `0.0`-`1.0`. Solo se envian frames mientras `status == "playing"`.
-Los clientes lentos pierden frames; el daemon nunca se bloquea por un cliente
-del visualizador.
+Then a stream of frames, each `bins` x `float32`, with values normalized to
+`0.0`-`1.0`. Frames are only sent while `status == "playing"`. Slow clients
+lose frames; the daemon never blocks on a visualizer client.
 
-Detalles de v1:
+v1 details:
 
-- Socket: `$XDG_RUNTIME_DIR/ketai/viz.sock`, permisos `0600`. Con socket
-  activation es el segundo socket que pasa systemd.
-- `bins` = 64 y `fps` = 60. Los clientes deben leerlos del header y no
-  asumirlos.
-- Cada frame es el espectro de las ultimas 2048 muestras que sonaron,
-  mezcladas a mono, con ventana de Hann.
-- Las bandas son logaritmicas entre 30 Hz y 16 kHz (o la mitad de la
-  frecuencia de muestreo si es menor): la banda 0 es la mas grave.
-- El valor es el pico de la banda en dB: -60 dB o menos es `0.0` y 0 dB
-  (un seno a escala completa) es `1.0`. No hay suavizado entre frames: si
-  el cliente lo quiere, lo aplica el.
-- Cada cliente tiene una cola de 2 frames. Si no lee a tiempo, los frames
-  siguientes se descartan para el, nunca a medias: un frame se escribe
-  completo o no se escribe.
+- Socket: `$XDG_RUNTIME_DIR/ketai/viz.sock`, permissions `0600`. With socket
+  activation it is the second socket passed by systemd.
+- `bins` = 64 and `fps` = 60. Clients must read them from the header and not
+  assume them.
+- Each frame is the spectrum of the last 2048 samples played, mixed down to
+  mono, with a Hann window.
+- Bands are logarithmic between 30 Hz and 16 kHz (or half the sample rate if
+  lower): band 0 is the lowest.
+- The value is the band's peak in dB: -60 dB or less is `0.0` and 0 dB (a
+  full-scale sine) is `1.0`. There is no smoothing between frames: a client
+  that wants it applies it.
+- Each client has a queue of 2 frames. If it does not read in time, the next
+  frames are dropped for it, never halfway: a frame is written whole or not
+  at all.
 
-## 8. Errores
+## 8. Errors
 
-| Codigo  | Significado |
-|---------|-------------|
-| -32700  | Error de parseo (JSON invalido) |
-| -32600  | Peticion invalida (forma incorrecta, linea demasiado larga) |
-| -32601  | Metodo no encontrado |
-| -32602  | Params invalidos |
-| -32603  | Error interno (por ejemplo, la base de datos de la biblioteca fallo) |
-| 1000    | Version de protocolo incompatible |
-| 1001    | Nada que reproducir / cola vacia |
-| 1002    | Indice fuera de rango |
-| 1003    | Origen no disponible (archivo inexistente, error de red) |
-| 1004    | Dispositivo no encontrado |
-| 1005    | Playlist no encontrada |
-| 1006    | Letra invalida (no se pudo parsear) |
-| 1007    | Capa de letra no encontrada |
-| 1008    | Ya existe una playlist con ese nombre |
-| 1009    | La pista ya esta en la playlist (`data.duplicates`) |
+| Code    | Meaning |
+|---------|---------|
+| -32700  | Parse error (invalid JSON) |
+| -32600  | Invalid request (wrong shape, line too long) |
+| -32601  | Method not found |
+| -32602  | Invalid params |
+| -32603  | Internal error (for example, the library database failed) |
+| 1000    | Incompatible protocol version |
+| 1001    | Nothing to play / empty queue |
+| 1002    | Index out of range |
+| 1003    | Source unavailable (missing file, network error) |
+| 1004    | Device not found |
+| 1005    | Playlist not found |
+| 1006    | Invalid lyrics (could not be parsed) |
+| 1007    | Lyrics layer not found |
+| 1008    | A playlist with that name already exists |
+| 1009    | The track is already in the playlist (`data.duplicates`) |
 
-## 9. Reglas de compatibilidad
+## 9. Compatibility rules
 
-- Agregar metodos, eventos o campos opcionales no incrementa `protocol`.
-- Quitar algo o cambiar su significado si lo incrementa.
-- Los clientes deben ignorar campos y eventos desconocidos.
+- Adding methods, events or optional fields does not increase `protocol`.
+- Removing something or changing its meaning does.
+- Clients must ignore unknown fields and events.
 
-## 10. Fuera del alcance de v1
+## 10. Out of scope for v1
 
-- MPRIS (D-Bus) lo expone el daemon en paralelo (ver `docs/mpris.md`) y sigue la especificacion
-  MPRIS 2; no forma parte de este protocolo.
-- Letras desde proveedores online (por ejemplo LRCLIB).
-- Romanizacion automatica y estimacion de tiempos por diccionario:
-  planificadas para una major update, ver `docs/roadmap.md`.
+- MPRIS (D-Bus) is exposed by the daemon in parallel (see `docs/mpris.md`)
+  and follows the MPRIS 2 specification; it is not part of this protocol.
+- Lyrics from online providers (for example LRCLIB).
+- Automatic romanization and dictionary-based timing estimation: planned for
+  a major update, see `docs/roadmap.md`.
 
-## 11. Letras: origenes, formatos y offset
+## 11. Lyrics: sources, formats and offset
 
-### Formatos
+### Formats
 
-| Formato | Extension | Tiempos | Notas |
-|---------|-----------|---------|-------|
-| Texto plano | `.txt` | Ninguno | `timing: "none"` |
-| LRC | `.lrc` | Por linea (`[mm:ss.xx]`) | `timing: "line"` |
-| LRC mejorado (A2) | `.lrc` | Por linea y palabra (`<mm:ss.xx>`) | `timing: "word"`; se detecta dentro del mismo `.lrc` |
-| TTML | `.ttml` | Por linea y palabra o silaba | `timing: "word"` o `"line"`; soporta agentes (duetos) y coros de fondo |
+| Format | Extension | Timing | Notes |
+|--------|-----------|--------|-------|
+| Plain text | `.txt` | None | `timing: "none"` |
+| LRC | `.lrc` | Per line (`[mm:ss.xx]`) | `timing: "line"` |
+| Enhanced LRC (A2) | `.lrc` | Per line and word (`<mm:ss.xx>`) | `timing: "word"`; detected within the same `.lrc` |
+| TTML | `.ttml` | Per line and word or syllable | `timing: "word"` or `"line"`; supports agents (duets) and backing vocals |
 
-### Prioridad de origenes
+### Source priority
 
-1. **Archivo local (sidecar)**: mismo nombre que el audio, en la misma carpeta.
-   Ejemplo: `roses.flac` -> `roses.ttml`, `roses.lrc`, `roses.txt`.
-   Si hay varios, se usa el mas rico: `.ttml`, despues `.lrc`, despues `.txt`.
-2. **Letra embebida** en los tags del audio:
-   - MP3 (ID3v2): `SYLT` (sincronizada) y despues `USLT` (sin tiempos).
-   - FLAC / Ogg / Opus (Vorbis comments): `LYRICS` y despues `UNSYNCEDLYRICS`.
+1. **Local file (sidecar)**: same name as the audio, in the same folder.
+   Example: `roses.flac` -> `roses.ttml`, `roses.lrc`, `roses.txt`.
+   If there are several, the richest is used: `.ttml`, then `.lrc`, then
+   `.txt`.
+2. **Embedded lyrics** in the audio tags:
+   - MP3 (ID3v2): `SYLT` (synced) and then `USLT` (unsynced).
+   - FLAC / Ogg / Opus (Vorbis comments): `LYRICS` and then
+     `UNSYNCEDLYRICS`.
    - M4A: atom `(c)lyr`.
-   - Si el texto embebido tiene marcas de tiempo LRC, se parsea como LRC.
-3. Si no hay nada, `lyrics.layers` devuelve una lista vacia y `lyrics.get`
-   devuelve `null`.
-4. **Sin capa original no hay letra**: las romanizaciones y traducciones se
-   sincronizan contra la original, asi que sin ella no se ofrece ninguna.
+   - If the embedded text has LRC timestamps, it is parsed as LRC.
+3. If there is nothing, `lyrics.layers` returns an empty list and
+   `lyrics.get` returns `null`.
+4. **No original layer, no lyrics**: romanizations and translations are
+   synced against the original, so without it none is offered.
 
-Detalles de lectura:
+Reading details:
 
-- Un `.lrc` sin marcas de tiempo se lee como texto plano.
-- ID3: solo el tag del principio del archivo, versiones 2.3 y 2.4. Los
-  frames comprimidos o encriptados se ignoran. `SYLT` solo con marcas en
-  milisegundos; si sus entradas empiezan con salto de linea se leen como
-  silabas con tiempo por palabra.
-- El idioma de un frame ID3 (ISO 639-2) se pasa a su forma corta BCP 47
-  cuando es un idioma comun (`spa` -> `es`); si no, se usa el codigo de 3
-  letras.
+- A `.lrc` without timestamps is read as plain text.
+- ID3: only the tag at the start of the file, versions 2.3 and 2.4.
+  Compressed or encrypted frames are ignored. `SYLT` only with millisecond
+  timestamps; if its entries start with a newline they are read as syllables
+  with per-word timing.
+- The language of an ID3 frame (ISO 639-2) is converted to its short BCP 47
+  form when it is a common language (`spa` -> `es`); otherwise the 3-letter
+  code is used.
 
-Esta prioridad aplica por capa: cada capa (original, cada romanizacion y
-cada traduccion) se busca por separado con el mismo orden.
+This priority applies per layer: each layer (original, each romanization and
+each translation) is looked up separately with the same order.
 
-Si el origen de mayor prioridad existe pero no se puede parsear, se pasa al
-siguiente. Solo se devuelve el error `1006` si ningun origen es valido.
+If the highest-priority source exists but cannot be parsed, the next one is
+used. Error `1006` is only returned if no source is valid.
 
 ### Offset
 
-- **Offset del archivo**: el tag `[offset:+/-ms]` de LRC. En TTML no aplica
-  (vale `0`). Valor positivo = la letra aparece antes.
-- **Offset del usuario**: ajuste manual por pista con `lyrics.set_offset`.
-  Se guarda en la configuracion del daemon y persiste entre sesiones.
-- Tiempo final de cada linea y palabra:
-  `tiempo_original - offset_ms - user_offset_ms`, con minimo `0`.
+- **File offset**: the LRC `[offset:+/-ms]` tag. It does not apply to TTML
+  (it is `0`). A positive value = the lyrics appear earlier.
+- **User offset**: manual per-track adjustment with `lyrics.set_offset`. It
+  is stored in the daemon's configuration and persists across sessions.
+- Final time of each line and word:
+  `original_time - offset_ms - user_offset_ms`, with a minimum of `0`.
 
-### Capas
+### Layers
 
-Una pista puede tener una capa original, varias romanizaciones y varias
-traducciones. El cliente consulta las capas con `lyrics.layers` y pide el
-armado con `lyrics.get`, eligiendo una capa principal y cero o mas
-secundarias.
+A track can have an original layer, several romanizations and several
+translations. The client lists the layers with `lyrics.layers` and asks for
+the assembly with `lyrics.get`, choosing one primary layer and zero or more
+secondary ones.
 
-#### Identificadores de capa y archivos locales
+#### Layer identifiers and local files
 
-El `id` de cada capa sale del sufijo del archivo local, usando etiquetas
-BCP 47:
+Each layer's `id` comes from the local file suffix, using BCP 47 tags:
 
-| Archivo                         | Capa | `kind` |
-|---------------------------------|------|--------|
-| `cancion.lrc`                   | `original` | `original` |
-| `cancion.es.lrc`                | `es` | `translation` |
-| `cancion.ko-Latn.lrc`           | `ko-Latn` | `romanized` |
-| `cancion.ja-Latn-hepburn.lrc`   | `ja-Latn-hepburn` | `romanized` |
-| `cancion.romanized.lrc`         | `romanized` | `romanized` |
+| File                            | Layer | `kind` |
+|---------------------------------|-------|--------|
+| `song.lrc`                      | `original` | `original` |
+| `song.es.lrc`                   | `es` | `translation` |
+| `song.ko-Latn.lrc`              | `ko-Latn` | `romanized` |
+| `song.ja-Latn-hepburn.lrc`      | `ja-Latn-hepburn` | `romanized` |
+| `song.romanized.lrc`            | `romanized` | `romanized` |
 
-- Una etiqueta con script `Latn` es romanizacion; una etiqueta solo de idioma
-  es traduccion.
-- Para la misma capa, entre archivos locales gana `.ttml`, despues `.lrc` y
-  despues `.txt`.
+- A tag with the `Latn` script is a romanization; a language-only tag is a
+  translation.
+- For the same layer, among local files `.ttml` wins, then `.lrc`, then
+  `.txt`.
 
-#### Origenes embebidos y dentro de TTML
+#### Embedded sources and sources inside TTML
 
-- **TTML**: los bloques `<transliterations>` y `<translations>` de
-  `iTunesMetadata` generan capas `romanized` y `translation`. Su `id` es el
-  atributo de idioma del bloque.
-- **Vorbis comments**: `LYRICS_ROMANIZED` genera la capa `romanized` y
-  `LYRICS_TRANSLATION_<IDIOMA>` genera la capa con ese idioma, por ejemplo
-  `LYRICS_TRANSLATION_ES` -> `es`.
-- **ID3v2**: un `USLT`/`SYLT` con descriptor `romanized` genera la capa
-  `romanized`; con descriptor `translation` genera una traduccion cuyo idioma
-  sale del campo de idioma del frame (ISO 639-2, por ejemplo `spa` -> `es`).
+- **TTML**: the `<transliterations>` and `<translations>` blocks of
+  `iTunesMetadata` produce `romanized` and `translation` layers. Their `id`
+  is the block's language attribute.
+- **Vorbis comments**: `LYRICS_ROMANIZED` produces the `romanized` layer and
+  `LYRICS_TRANSLATION_<LANGUAGE>` produces the layer with that language, for
+  example `LYRICS_TRANSLATION_ES` -> `es`.
+- **ID3v2**: a `USLT`/`SYLT` with the descriptor `romanized` produces the
+  `romanized` layer; with the descriptor `translation` it produces a
+  translation whose language comes from the frame's language field (ISO
+  639-2, for example `spa` -> `es`).
 
-Estos nombres de tag y descriptor son una convencion de ketai, no un
-estandar.
+These tag and descriptor names are a ketai convention, not a standard.
 
-#### Sincronizacion entre capas
+#### Syncing between layers
 
-Las capas no comparten la segmentacion de palabras: "aishiteru" y "te amo"
-ocupan la misma ventana de tiempo pero tienen distinta cantidad de palabras,
-silabas y letras. Por eso:
+Layers do not share word segmentation: "aishiteru" and "te amo" take the same
+time window but have a different number of words, syllables and letters.
+Therefore:
 
-1. **Las lineas se alinean siempre a la capa original.** Es el ancla comun y
-   lo unico que se comparte entre capas.
-   - LRC: cada linea se asocia a la linea original con el mismo tiempo de
-     inicio, o a la mas cercana dentro de 500 ms; si no hay ninguna, se
-     descarta.
-   - Texto plano: se asocia linea por linea, en orden. Si la cantidad de
-     lineas no coincide, la capa no se ofrece.
-   - TTML: se asocia por el identificador de cada linea (`key`).
-2. **El tiempo por palabra solo sale del origen de esa misma capa.** El
-   daemon nunca proyecta las palabras de la capa original sobre otra capa.
-3. **Excepcion segura:** si el origen empareja explicitamente cada fragmento
-   de la capa con un fragmento de la original (por ejemplo `<span>` de TTML
-   emparejados por `key`), se reutiliza el tiempo exacto de ese fragmento.
-4. **Estimacion opcional:** si el cliente pide `estimate_words: true` y la
-   capa principal no tiene tiempo por palabra, el daemon reparte la duracion
-   de cada linea entre sus palabras de forma proporcional a la cantidad de
-   caracteres, y el paquete se marca `word-estimated`.
-5. Una capa que no se pueda alinear se descarta sin afectar a las demas.
+1. **Lines are always aligned to the original layer.** It is the common
+   anchor and the only thing shared between layers.
+   - LRC: each line is matched to the original line with the same start
+     time, or the closest one within 500 ms; if there is none, it is
+     dropped.
+   - Plain text: matched line by line, in order. If the number of lines does
+     not match, the layer is not offered.
+   - TTML: matched by each line's identifier (`key`).
+2. **Word timing only comes from that same layer's source.** The daemon never
+   projects the original layer's words onto another layer.
+3. **Safe exception:** if the source explicitly pairs each fragment of the
+   layer with a fragment of the original (for example TTML `<span>`s paired
+   by `key`), that fragment's exact timing is reused.
+4. **Optional estimation:** if the client asks for `estimate_words: true`
+   and the primary layer has no word timing, the daemon spreads each line's
+   duration across its words in proportion to their number of characters,
+   and the package is marked `word-estimated`.
+5. A layer that cannot be aligned is dropped without affecting the others.
 
-#### Niveles de tiempo
+#### Timing levels
 
-| `timing`         | Significado |
-|------------------|-------------|
-| `none`           | Sin tiempos (texto plano) |
-| `line`           | Solo tiempo por linea |
-| `word`           | Tiempo por palabra que viene del origen de esa capa |
-| `word-paired`    | Tiempo reutilizado de la original por emparejamiento explicito 1 a 1 |
-| `word-estimated` | Estimado por el daemon dentro de la linea (solo en `LyricsPackage`, y solo si se pidio) |
+| `timing`         | Meaning |
+|------------------|---------|
+| `none`           | No timing (plain text) |
+| `line`           | Line timing only |
+| `word`           | Word timing that comes from that layer's source |
+| `word-paired`    | Timing reused from the original through explicit 1-to-1 pairing |
+| `word-estimated` | Estimated by the daemon within the line (only in `LyricsPackage`, and only if requested) |
 
-#### Ejemplo
+#### Example
 
-Principal romanizada para cantar y traduccion al espanol como subtitulo:
+Romanized primary layer to sing along, Spanish translation as a subtitle:
 
 ```json
 {"id": 9, "method": "lyrics.get",
  "params": {"track_id": "t_1", "primary": "ja-Latn-hepburn", "secondary": ["es"]}}
 ```
 
-- La principal se anima por palabra si su capa tiene `word` o `word-paired`;
-  si no, por linea.
-- La secundaria cambia de linea en sincronia con la principal.
+- The primary layer animates per word if its layer has `word` or
+  `word-paired`; otherwise per line.
+- The secondary layer changes line in sync with the primary.

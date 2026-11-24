@@ -1,3 +1,5 @@
+[English](../pending-tests.md) | **Espanol**
+
 # Pruebas pendientes por falta de archivos
 
 Pruebas escritas que todavia no se corrieron porque faltan archivos reales.

@@ -19,7 +19,7 @@
 //! - `samples/lyrics/ttml/*.ttml`: TTML de Apple Music.
 //!
 //! Si la carpeta no existe o esta vacia, el test falla con un mensaje claro
-//! en lugar de pasar sin probar nada. Ver `docs/pruebas-pendientes.md`.
+//! en lugar de pasar sin probar nada. Ver `docs/pending-tests.md`.
 
 use std::{
   fs,

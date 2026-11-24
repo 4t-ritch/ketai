@@ -2,173 +2,182 @@
 
 # ketai
 
-**Reproductor de musica para la terminal, con daemon propio, letras sincronizadas y colores que cambian con cada caratula.**
+**A music player for the terminal, with its own daemon, synced lyrics and colors that change with every cover.**
 
-![Linux](https://img.shields.io/badge/plataforma-Linux-1793D1?style=flat-square&logo=linux&logoColor=white)
-![Rust](https://img.shields.io/badge/hecho%20con-Rust-B7410E?style=flat-square&logo=rust&logoColor=white)
-![Terminal](https://img.shields.io/badge/terminal-protocolo%20de%20graficos%20kitty-6E56CF?style=flat-square)
-![Licencia](https://img.shields.io/badge/licencia-MIT-3DA639?style=flat-square)
+**English** | [Espanol](README.es.md)
+
+![Linux](https://img.shields.io/badge/platform-Linux-1793D1?style=flat-square&logo=linux&logoColor=white)
+![Rust](https://img.shields.io/badge/made%20with-Rust-B7410E?style=flat-square&logo=rust&logoColor=white)
+![Terminal](https://img.shields.io/badge/terminal-kitty%20graphics%20protocol-6E56CF?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)
 
 </div>
 
 https://github.com/user-attachments/assets/7e0117d7-3690-4c25-8af7-e2c649105088
 
 <div align="center">
-<sub>Las canciones, caratulas y letras del video son de demostracion (audio generado). Tambien en el repo: <a href="docs/assets/demo.mp4">docs/assets/demo.mp4</a>.</sub>
+<sub>The songs, covers and lyrics in the video are for demonstration (generated audio). Also in the repo: <a href="docs/assets/demo.mp4">docs/assets/demo.mp4</a>.</sub>
 
 </div>
 
+> **Documentation in Spanish:** every document has a Spanish version. Look for the
+> *Espanol* link at the top of each page, or start at [README.es.md](README.es.md).
+
 ---
 
-## Que es ketai
+## What is ketai
 
-ketai son dos programas que trabajan juntos:
+ketai is two programs that work together:
 
-- **`ketaid`**, el servicio de audio. Reproduce, lleva la cola, la biblioteca, las playlists y las letras. Corre en segundo plano (como servicio de systemd) y sigue sonando aunque cierres la terminal.
-- **`ketai`**, el cliente de terminal (TUI). Muestra y controla lo que hace el daemon. Podes abrir varios a la vez (por ejemplo uno grande y otro chico en un panel) y todos ven lo mismo.
+- **`ketaid`**, the audio service. It plays, and keeps the queue, the library, the playlists and the lyrics. It runs in the background (as a systemd service) and keeps playing even if you close the terminal.
+- **`ketai`**, the terminal client (TUI). It shows and controls what the daemon does. You can open several at once (for example a big one and a small one in a pane) and they all see the same.
 
-Hablan por un protocolo simple (JSON por un socket local), asi que tambien se puede controlar ketai desde scripts, desde waybar o con `playerctl` (MPRIS). La explicacion completa esta en [docs/guia/arquitectura.md](docs/guia/arquitectura.md).
+They talk through a simple protocol (JSON over a local socket), so ketai can also be controlled from scripts, from waybar or with `playerctl` (MPRIS). The full explanation is in [docs/guide/architecture.md](docs/guide/architecture.md) ([Spanish](docs/es/guide/architecture.md)).
 
-## Funciones
+## Features
 
 <table>
 <tr>
-<td width="50%"><img src="docs/assets/now-playing.png" alt="Reproduciendo"></td>
-<td width="50%"><img src="docs/assets/lyrics.png" alt="Letras"></td>
+<td width="50%"><img src="docs/assets/now-playing.png" alt="Now Playing"></td>
+<td width="50%"><img src="docs/assets/lyrics.png" alt="Lyrics"></td>
 </tr>
 <tr>
-<td><b>Reproduciendo</b><br>Caratula grande, progreso, controles, volumen, salida de audio, favorito y espectro en vivo.</td>
-<td><b>Letras sincronizadas</b><br>Linea por linea o palabra por palabra (karaoke), con traduccion debajo y ajuste de tiempo.</td>
+<td><b>Now Playing</b><br>Large cover, progress, controls, volume, audio output, favorite and live spectrum.</td>
+<td><b>Synced lyrics</b><br>Line by line or word by word (karaoke), with a translation below and timing adjustment.</td>
 </tr>
 <tr>
-<td><img src="docs/assets/library-songs.png" alt="Biblioteca en columnas"></td>
-<td><img src="docs/assets/search.png" alt="Buscar"></td>
+<td><img src="docs/assets/library-songs.png" alt="Library in columns"></td>
+<td><img src="docs/assets/search.png" alt="Search"></td>
 </tr>
 <tr>
-<td><b>Biblioteca</b><br>Playlists, todas las canciones, o agrupadas por artista, album, carpeta, ano o genero, en columnas.</td>
-<td><b>Busqueda</b><br>Por titulo, artista, album, genero o ano, en cualquier parte del texto y sin importar acentos ni mayusculas.</td>
+<td><b>Library</b><br>Playlists, all songs, or grouped by artist, album, folder, year or genre, in columns.</td>
+<td><b>Search</b><br>By title, artist, album, genre or year, anywhere in the text, ignoring accents and case.</td>
 </tr>
 <tr>
-<td><img src="docs/assets/actions.png" alt="Acciones con Ctrl+P"></td>
-<td><img src="docs/assets/add-to-playlist.png" alt="Agregar a una playlist"></td>
+<td><img src="docs/assets/actions.png" alt="Actions with Ctrl+P"></td>
+<td><img src="docs/assets/add-to-playlist.png" alt="Add to a playlist"></td>
 </tr>
 <tr>
-<td><b>Acciones rapidas (<code>Ctrl+P</code>)</b><br>Buscar y reproducir sin cambiar de pantalla, o ejecutar acciones.</td>
-<td><b>Playlists y favoritos</b><br>Agregar, quitar y crear playlists desde donde estes; ketai avisa si la cancion ya estaba.</td>
+<td><b>Quick actions (<code>Ctrl+P</code>)</b><br>Search and play without leaving the screen, or run actions.</td>
+<td><b>Playlists and favorites</b><br>Add, remove and create playlists from anywhere; ketai warns you if the song was already there.</td>
 </tr>
 </table>
 
 <div align="center">
-<img src="docs/assets/dynamic-theme.png" alt="El tema cambia con cada caratula" width="900">
-<br><sub><b>Tema dinamico:</b> toda la interfaz toma los colores de la caratula que suena, y la siguiente se prepara por adelantado para que el cambio sea instantaneo.</sub>
+<img src="docs/assets/dynamic-theme.png" alt="The theme changes with each cover" width="900">
+<br><sub><b>Dynamic theme:</b> the whole interface takes the colors of the playing cover, and the next one is prepared ahead of time so the change is instant.</sub>
 </div>
 
-Y ademas:
+And also:
 
-- **Formatos**: FLAC, MP3, AAC y HE-AAC (M4A), ALAC, Ogg Vorbis, Opus y WAV.
-- **Biblioteca en SQLite**: escaneo por tandas, metadatos (genero, ano, numero de pista, artista del album) y busqueda en menos de un milisegundo con miles de canciones.
-- **Playlists `.m3u8`**: viven en la base de ketai y se copian como archivos `.m3u8` para usarlas con otros reproductores.
-- **Salida de audio**: elegir dispositivo (PulseAudio o PipeWire), y la salida se abre solo mientras suena.
-- **Mouse**: clic en todo, doble clic para reproducir, arrastrar las barras de progreso y volumen, rueda en las listas.
-- **Atajos configurables** y **temas** en un archivo de configuracion que se recarga en vivo al guardar.
-- **Modo mini** para paneles chicos (herdr, tmux) y **MPRIS** para teclas multimedia, `playerctl` y waybar.
+- **Formats**: FLAC, MP3, AAC and HE-AAC (M4A), ALAC, Ogg Vorbis, Opus and WAV.
+- **SQLite library**: scanning in batches, metadata (genre, year, track number, album artist) and search in under a millisecond with thousands of songs.
+- **`.m3u8` playlists**: they live in ketai's database and are copied as `.m3u8` files to use them with other players.
+- **Audio output**: choose the device (PulseAudio or PipeWire); the output is only open while playing.
+- **Mouse**: click everything, double click to play, drag the progress and volume bars, wheel on lists.
+- **Configurable shortcuts** and **themes** in a configuration file that reloads live when saved.
+- **Mini mode** for small panes (herdr, tmux) and **MPRIS** for media keys, `playerctl` and waybar.
 
-Todas las funciones, con su explicacion, estan en [docs/guia/funciones.md](docs/guia/funciones.md).
+The interface is in Spanish for now; more languages are planned (see the roadmap).
 
-## Plataforma
+Every feature, explained: [docs/guide/features.md](docs/guide/features.md) ([Spanish](docs/es/guide/features.md)).
 
-ketai funciona **solo en Linux**. Usa piezas propias de Linux: `/proc`, servicios de usuario de systemd, PulseAudio o PipeWire para la salida de audio, y D-Bus para MPRIS. Otras plataformas no estan soportadas por ahora.
+## Platform
 
-La TUI necesita una terminal con el **protocolo de graficos de kitty** para mostrar caratulas: kitty, Ghostty, WezTerm, Konsole, o un multiplexor que lo soporte (por ejemplo herdr). Sin eso arranca igual con `KETAI_NO_IMAGES=1`, sin caratulas. Tambien hace falta una **Nerd Font** para los iconos.
+ketai works **on Linux only**. It uses Linux-specific pieces: `/proc`, systemd user services, PulseAudio or PipeWire for the audio output, and D-Bus for MPRIS. Other platforms are not supported for now.
 
-## Instalacion
+The TUI needs a terminal with the **kitty graphics protocol** to show covers: kitty, Ghostty, WezTerm, Konsole, or a multiplexer that supports it (for example herdr). Without it, it still starts with `KETAI_NO_IMAGES=1`, without covers. A **Nerd Font** is also needed for the icons.
 
-Por ahora se instala desde el codigo fuente. Instalarlo con un gestor de paquetes esta planificado (ver [docs/roadmap.md](docs/roadmap.md)).
+## Installation
 
-Requisitos para compilar: Rust (edicion 2024), `cmake` y un compilador de C (para `libopus` y `fdk-aac`), y las bibliotecas de desarrollo de PulseAudio y D-Bus.
+For now it is installed from source. Installing it with a package manager is planned (see [docs/roadmap.md](docs/roadmap.md), [Spanish](docs/es/roadmap.md)).
+
+Build requirements: Rust (2024 edition), `cmake` and a C compiler (for `libopus` and `fdk-aac`), and the PulseAudio and D-Bus development libraries.
 
 ```sh
 git clone https://github.com/4t-ritch/ketai.git
 cd ketai
 cargo build --release
 
-# Binarios en tu PATH
+# Binaries in your PATH
 install -Dm755 target/release/ketaid target/release/ketai -t ~/.local/bin/
 
-# El daemon como servicio de usuario (arranca solo cuando un cliente lo necesita)
+# The daemon as a user service (it starts only when a client needs it)
 install -Dm644 dist/systemd/ketaid.{socket,service} -t ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now ketaid.socket
 ```
 
-Mas detalles del servicio en [docs/servicio.md](docs/servicio.md).
+More about the service in [docs/service.md](docs/service.md) ([Spanish](docs/es/service.md)).
 
-## Primeros pasos
+## Getting started
 
-1. Abri la TUI: `ketai`.
-2. Agrega tu carpeta de musica: `f` abre Carpetas, `a` agrega una (`~/music`, por ejemplo) y `S` escanea todo.
-3. Busca algo con `4` (Buscar) o con `Ctrl+P` desde cualquier pantalla, y `Enter` para reproducir.
-4. `1` a `4` cambian de pestana: Reproduciendo, Letras, Biblioteca y Buscar.
+1. Open the TUI: `ketai`.
+2. Add your music folder: `f` opens Folders, `a` adds one (`~/music`, for example) and `S` scans everything.
+3. Search with `4` (Search) or with `Ctrl+P` from any screen, and `Enter` to play.
+4. `1` to `4` change tabs: Now Playing, Lyrics, Library and Search.
 
-La guia paso a paso esta en [docs/guia/primeros-pasos.md](docs/guia/primeros-pasos.md).
+The step-by-step guide is in [docs/guide/getting-started.md](docs/guide/getting-started.md) ([Spanish](docs/es/guide/getting-started.md)).
 
-### Atajos principales
+### Main shortcuts
 
-| Tecla | Accion | Tecla | Accion |
+| Key | Action | Key | Action |
 |---|---|---|---|
-| `espacio` | reproducir o pausar | `Ctrl+P` | acciones y busqueda rapida |
-| `n` / `p` | siguiente / anterior | `*` | marcar como favorita |
-| flechas izquierda / derecha | retroceder / adelantar 5 s | `P` | agregar a una playlist |
-| `+` / `-` | volumen | `d` | salida de audio |
-| `s` / `r` | aleatorio / repeticion | `f` | carpetas de la biblioteca |
-| `1` a `4` | pestanas | `q` | salir |
+| `space` | play or pause | `Ctrl+P` | actions and quick search |
+| `n` / `p` | next / previous | `*` | mark as favorite |
+| left / right arrows | back / forward 5 s | `P` | add to a playlist |
+| `+` / `-` | volume | `d` | audio output |
+| `s` / `r` | shuffle / repeat | `f` | library folders |
+| `1` to `4` | tabs | `q` | quit |
 
-Todos los atajos globales se pueden cambiar. La lista completa esta en [docs/tui.md](docs/tui.md).
+Every global shortcut can be changed. The full list is in [docs/tui.md](docs/tui.md) ([Spanish](docs/es/tui.md)).
 
-## Configuracion
+## Configuration
 
-Un solo archivo: `~/.config/ketai/config.toml`. Se aplica al guardar, sin reiniciar.
+A single file: `~/.config/ketai/config.toml`. It applies when saved, without restarting.
 
 ```toml
 [theme]
-cover_color = true          # toda la interfaz con los colores de la caratula
+cover_color = true          # the whole interface with the cover's colors
 
 [keys]
-actions = ["ctrl+p", "f1"]  # cambia o suma atajos
+actions = ["ctrl+p", "f1"]  # change or add shortcuts
 toggle = "space"
 
 [playlists]
-dir = "~/music/playlists"   # donde se copian las playlists (.m3u8)
+dir = "~/music/playlists"   # where playlists are copied (.m3u8)
 ```
 
-| Que | Donde aprenderlo |
-|---|---|
-| Ejemplo completo para empezar | [examples/config.toml](examples/config.toml) |
-| Temas: `cover_color`, cada color y ejemplos | [examples/theme/](examples/theme/README.md) |
-| Atajos: formato, acciones y ejemplos | [examples/keys/](examples/keys/README.md) |
-| Referencia de todas las claves | [docs/config.md](docs/config.md) |
+| What | Where to learn it | Spanish |
+|---|---|---|
+| Complete example to start with | [examples/config.toml](examples/config.toml) | - |
+| Themes: `cover_color`, each color and examples | [examples/theme/](examples/theme/README.md) | [Espanol](examples/theme/README.es.md) |
+| Shortcuts: format, actions and examples | [examples/keys/](examples/keys/README.md) | [Espanol](examples/keys/README.es.md) |
+| Reference of every key | [docs/config.md](docs/config.md) | [Espanol](docs/es/config.md) |
 
-## Documentacion
+## Documentation
 
-| Documento | Contenido |
-|---|---|
-| [docs/guia/](docs/guia/README.md) | Guia de uso: primeros pasos, todas las funciones y como esta armado ketai |
-| [docs/tui.md](docs/tui.md) | Referencia de la TUI: pantallas, teclas, mouse |
-| [docs/config.md](docs/config.md) | Referencia de `config.toml` |
-| [docs/servicio.md](docs/servicio.md) | El daemon como servicio de systemd |
-| [docs/protocol.md](docs/protocol.md) | Protocolo para controlar ketai desde otros programas |
-| [docs/mpris.md](docs/mpris.md) | Integracion MPRIS (playerctl, waybar, teclas multimedia) |
-| [docs/formatos.md](docs/formatos.md) | Formatos de audio soportados |
-| [docs/roadmap.md](docs/roadmap.md) | Lo planificado para las proximas versiones |
+Every document is available in English and in Spanish.
 
-## Proximamente
+| Document | Contents | Spanish |
+|---|---|---|
+| [docs/guide/](docs/guide/README.md) | User guide: getting started, every feature and how ketai is built | [Espanol](docs/es/guide/README.md) |
+| [docs/tui.md](docs/tui.md) | TUI reference: screens, keys, mouse | [Espanol](docs/es/tui.md) |
+| [docs/config.md](docs/config.md) | `config.toml` reference | [Espanol](docs/es/config.md) |
+| [docs/service.md](docs/service.md) | The daemon as a systemd service | [Espanol](docs/es/service.md) |
+| [docs/protocol.md](docs/protocol.md) | Protocol to control ketai from other programs, with a quick start | [Espanol](docs/es/protocol.md) |
+| [docs/mpris.md](docs/mpris.md) | MPRIS integration (playerctl, waybar, media keys) | [Espanol](docs/es/mpris.md) |
+| [docs/formats.md](docs/formats.md) | Supported audio formats | [Espanol](docs/es/formats.md) |
+| [docs/roadmap.md](docs/roadmap.md) | What is planned for the next versions | [Espanol](docs/es/roadmap.md) |
 
-Para la proxima major update estan planificados: fuentes remotas con descarga a cache, instalacion con gestores de paquetes, varios temas, la interfaz en varios idiomas, romanizacion automatica de letras y estimacion de tiempos por palabra. Detalles en [docs/roadmap.md](docs/roadmap.md).
+## Coming next
 
-## Participar
+Planned for the next major update: remote sources with download to cache, installation with package managers, multiple themes, the interface in several languages, automatic lyrics romanization and word timing estimation. Details in [docs/roadmap.md](docs/roadmap.md) ([Spanish](docs/es/roadmap.md)).
 
-ketai es un proyecto personal y abierto para usar. **Los reportes y propuestas van por [issues](https://github.com/4t-ritch/ketai/issues)**: errores, ideas o preguntas. El repositorio no acepta pull requests; si queres proponer un cambio, abri un issue y lo vemos ahi. Mas detalles en [CONTRIBUTING.md](CONTRIBUTING.md).
+## Contributing
 
-## Licencia
+ketai is a personal project, open for anyone to use. **Reports and proposals go through [issues](https://github.com/4t-ritch/ketai/issues)**: bugs, ideas or questions, in English or Spanish. The repository does not accept pull requests; if you want to propose a change, open an issue and we will talk it over there. More in [CONTRIBUTING.md](CONTRIBUTING.md) ([Spanish](CONTRIBUTING.es.md)).
 
-MIT. Ver [LICENSE](LICENSE).
+## License
+
+MIT. See [LICENSE](LICENSE).

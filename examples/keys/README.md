@@ -1,110 +1,111 @@
-# Atajos de teclado
+**English** | [Espanol](README.es.md)
 
-ketai lee los atajos globales de la seccion `[keys]` de
-`~/.config/ketai/config.toml` (o `$XDG_CONFIG_HOME/ketai/config.toml`). Los
-cambios se aplican al guardar el archivo, sin cerrar ketai.
+# Keyboard shortcuts
 
-En esta carpeta:
+ketai reads the global shortcuts from the `[keys]` section of
+`~/.config/ketai/config.toml` (or `$XDG_CONFIG_HOME/ketai/config.toml`).
+Changes apply when you save the file, without closing ketai.
 
-| Archivo | Para que sirve |
+In this folder:
+
+| File | What it is for |
 |---|---|
-| `defaults.toml` | Todos los atajos con su valor por defecto, para copiar y editar |
-| `vim.toml` | Movimiento estilo vim y acciones con Ctrl |
-| `media.toml` | Reproduccion con Ctrl y flechas, sin letras sueltas |
-| `minimal.toml` | Solo cambia dos atajos; el resto queda por defecto |
+| `defaults.toml` | Every shortcut with its default value, to copy and edit |
+| `vim.toml` | vim-style movement, with Alt so it does not clash with the lists |
+| `media.toml` | Playback with Ctrl, Alt and arrows, no plain letters |
+| `minimal.toml` | Changes only two shortcuts; the rest stays default |
 
-Para usar uno, copia su seccion `[keys]` a tu `config.toml`. Si ya tenes
-otras secciones (`[theme]`, `[playlists]`), dejalas como estan: cada seccion
-es independiente.
+To use one, copy its `[keys]` section into your `config.toml`. If you already
+have other sections (`[theme]`, `[playlists]`), leave them as they are: each
+section is independent.
 
-## Como se escribe una accion
+## How to write an action
 
 ```toml
 [keys]
-toggle = "space"              # una tecla
-next = ["n", "ctrl+right"]    # varias teclas para la misma accion
+toggle = "space"              # one key
+next = ["n", "ctrl+right"]    # several keys for the same action
 ```
 
-- El nombre de la izquierda es la accion (ver la tabla de abajo).
-- A la derecha va una tecla, o una lista de teclas entre corchetes.
-- Lo que configuras **reemplaza** las teclas por defecto de esa accion. Si
-  queres sumar una tecla sin perder la de siempre, ponelas las dos en la
-  lista.
-- Las acciones que no aparecen quedan con su tecla por defecto.
+- The name on the left is the action (see the table below).
+- On the right goes one key, or a list of keys between brackets.
+- What you set **replaces** that action's default keys. To add a key without
+  losing the usual one, put both in the list.
+- Actions that are not listed keep their default key.
 
-## Como se escribe una tecla
+## How to write a key
 
-| Tipo | Ejemplos |
+| Type | Examples |
 |---|---|
-| Un caracter | `"n"`, `"P"` (mayuscula = con Shift), `"+"`, `"*"`, `"/"` |
-| Una tecla con nombre | `"space"`, `"enter"`, `"esc"`, `"tab"`, `"backspace"` |
-| Flechas y navegacion | `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, `"end"`, `"pageup"`, `"pagedown"` |
-| Teclas de funcion | `"f1"` a `"f12"` |
-| Con modificadores | `"ctrl+p"`, `"alt+x"`, `"shift+tab"`, `"ctrl+right"` |
+| A character | `"n"`, `"P"` (uppercase = with Shift), `"+"`, `"*"`, `"/"` |
+| A named key | `"space"`, `"enter"`, `"esc"`, `"tab"`, `"backspace"` |
+| Arrows and navigation | `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, `"end"`, `"pageup"`, `"pagedown"` |
+| Function keys | `"f1"` to `"f12"` |
+| With modifiers | `"ctrl+p"`, `"alt+x"`, `"shift+tab"`, `"ctrl+right"` |
 
-- Los modificadores van delante y separados con `+`: `ctrl+`, `alt+`,
-  `shift+`. Se pueden combinar: `"ctrl+alt+p"`.
-- Con Ctrl, mayusculas y minusculas son la misma tecla (`"ctrl+p"` y
-  `"ctrl+P"` son iguales): la terminal no las distingue.
-- Para la tecla `+` sola se escribe `"+"`; con Ctrl, `"ctrl++"`.
+- Modifiers go in front, separated by `+`: `ctrl+`, `alt+`, `shift+`. They
+  can be combined: `"ctrl+alt+p"`.
+- With Ctrl, uppercase and lowercase are the same key (`"ctrl+p"` and
+  `"ctrl+P"` are equal): the terminal does not tell them apart.
+- For the `+` key alone write `"+"`; with Ctrl, `"ctrl++"`.
 
-## Acciones
+## Actions
 
-| Accion | Por defecto | Que hace |
+| Action | Default | What it does |
 |---|---|---|
-| `toggle` | `space` | Reproducir o pausar |
-| `next` | `n` | Siguiente cancion |
-| `previous` | `p` | Cancion anterior |
-| `seek_forward` | `right` | Adelantar 5 segundos |
-| `seek_back` | `left` | Retroceder 5 segundos |
-| `volume_up` | `+`, `=` | Subir el volumen |
-| `volume_down` | `-` | Bajar el volumen |
-| `mute` | `m` | Silenciar o volver a escuchar |
-| `shuffle` | `s` | Aleatorio |
-| `repeat` | `r` | Repeticion: ninguna, pista, cola |
-| `devices` | `d` | Elegir la salida de audio |
-| `folders` | `f` | Carpetas de la biblioteca |
-| `favorite` | `*` | Marcar o desmarcar como favorita la cancion que suena |
-| `add_to_playlist` | `P` | Agregar la cancion que suena a una playlist |
-| `actions` | `ctrl+p`, `ctrl+k`, `/` | Popup de acciones y busqueda rapida |
-| `quit` | `q` | Salir |
-| `next_tab` | `tab` | Pestana siguiente |
-| `prev_tab` | `shift+tab` | Pestana anterior |
-| `tab_now_playing` | `1` | Ir a Reproduciendo |
-| `tab_lyrics` | `2` | Ir a Letras |
-| `tab_library` | `3` | Ir a Biblioteca |
-| `tab_search` | `4` | Ir a Buscar |
+| `toggle` | `space` | Play or pause |
+| `next` | `n` | Next song |
+| `previous` | `p` | Previous song |
+| `seek_forward` | `right` | Forward 5 seconds |
+| `seek_back` | `left` | Back 5 seconds |
+| `volume_up` | `+`, `=` | Volume up |
+| `volume_down` | `-` | Volume down |
+| `mute` | `m` | Mute or unmute |
+| `shuffle` | `s` | Shuffle |
+| `repeat` | `r` | Repeat: none, track, queue |
+| `devices` | `d` | Choose the audio output |
+| `folders` | `f` | Library folders |
+| `favorite` | `*` | Mark or unmark the playing song as a favorite |
+| `add_to_playlist` | `P` | Add the playing song to a playlist |
+| `actions` | `ctrl+p`, `ctrl+k`, `/` | Actions popup and quick search |
+| `quit` | `q` | Quit |
+| `next_tab` | `tab` | Next tab |
+| `prev_tab` | `shift+tab` | Previous tab |
+| `tab_now_playing` | `1` | Go to Now Playing |
+| `tab_lyrics` | `2` | Go to Lyrics |
+| `tab_library` | `3` | Go to Library |
+| `tab_search` | `4` | Go to Search |
 
-## Reglas que conviene saber
+## Rules worth knowing
 
-- **Ctrl+C siempre sale**, aunque lo uses para otra cosa o cambies `quit`.
-  Asi una configuracion rota nunca te deja sin forma de cerrar ketai.
-- **Mientras escribis en Buscar**, las teclas sin Ctrl ni Alt son texto: si
-  `toggle = "x"`, escribir "x" en Buscar escribe la letra. Los atajos con
-  Ctrl o Alt funcionan igual mientras escribis.
-- **Una tecla mal escrita** (`"ctrl+banana"`) es un error: aparece en la
-  ultima fila de la pantalla con la accion y la tecla, y ketai sigue con la
-  configuracion anterior hasta que lo corrijas.
-- **Una accion que no existe** (`dance = "x"`) se avisa y se ignora; el resto
-  se aplica.
-- **La misma tecla en dos acciones** se avisa en la ultima fila. Gana la que
-  aparece primero en la tabla de arriba.
-- **Las teclas de cada vista son fijas por ahora**: `h` / `l` para cambiar de
-  vista en Biblioteca, `t` / `o` en Letras, `a` para agregar a la cola, `c`
-  para crear una playlist, `Esc`, `Enter` y las flechas dentro de listas y
-  popups. Ver `docs/tui.md`.
+- **Ctrl+C always quits**, even if you use it for something else or change
+  `quit`. That way a broken configuration never leaves you without a way to
+  close ketai.
+- **While typing in Search**, keys without Ctrl or Alt are text: with
+  `toggle = "x"`, typing "x" in Search types the letter. Shortcuts with Ctrl
+  or Alt work the same while typing.
+- **A badly written key** (`"ctrl+banana"`) is an error: it shows on the last
+  row of the screen with the action and the key, and ketai keeps the previous
+  configuration until you fix it.
+- **An action that does not exist** (`dance = "x"`) is reported and ignored;
+  the rest is applied.
+- **The same key in two actions** is reported on the last row. The one that
+  comes first in the table above wins.
+- **Each view's keys are fixed for now**: `h` / `l` to change view in
+  Library, `t` / `o` in Lyrics, `a` to add to the queue, `c` to create a
+  playlist, `x` to remove, and `Esc`, `Enter` and the arrows inside lists and
+  popups. See `docs/tui.md`.
 
-## Problemas comunes
+## Common problems
 
-- **"No pasa nada al apretar la tecla"**: fijate en la ultima fila si hay un
-  aviso de tecla repetida; otra accion puede estar usandola.
-- **Un atajo con Shift no anda**: para letras se escribe la mayuscula
-  (`"P"`), no `"shift+p"`. `shift+` sirve para teclas con nombre
+- **"Nothing happens when I press the key"**: check the last row for a
+  repeated-key warning; another action may be using it.
+- **A shortcut with Shift does not work**: for letters write the uppercase
+  letter (`"P"`), not `"shift+p"`. `shift+` is for named keys
   (`"shift+tab"`).
-- **Ctrl con algunas letras es otra tecla**: para la terminal, `ctrl+m` es
-  Enter, `ctrl+h` es Backspace, `ctrl+j` es un salto de linea, `ctrl+i` es
-  Tab y `ctrl+[` es Esc. No las uses para atajos; preferi Alt
-  (`"alt+m"`).
-- **Algunas combinaciones no llegan**: la terminal o el multiplexor (herdr,
-  tmux) pueden quedarse con ellas antes de que lleguen a ketai. Por ejemplo,
-  muchos multiplexores usan `ctrl+b` o `ctrl+a`. Elegi otra combinacion.
+- **Ctrl with some letters is another key**: to the terminal, `ctrl+m` is
+  Enter, `ctrl+h` is Backspace, `ctrl+j` is a newline, `ctrl+i` is Tab and
+  `ctrl+[` is Esc. Do not use them for shortcuts; prefer Alt (`"alt+m"`).
+- **Some combinations never arrive**: the terminal or the multiplexer
+  (herdr, tmux) may take them before they reach ketai. For example, many
+  multiplexers use `ctrl+b` or `ctrl+a`. Choose another combination.

@@ -1,16 +1,18 @@
-# Ejemplos de configuracion
+**English** | [Espanol](README.es.md)
 
-Archivos de ejemplo para `~/.config/ketai/config.toml`, con su explicacion.
+# Configuration examples
 
-Para empezar, copia [config.toml](config.toml) a `~/.config/ketai/config.toml`:
-tiene todas las secciones, comentadas.
+Example files for `~/.config/ketai/config.toml`, with their explanation.
 
-| Carpeta o archivo | Que hay |
+To start, copy [config.toml](config.toml) to `~/.config/ketai/config.toml`:
+it has every section, commented.
+
+| Folder or file | What is there |
 |---|---|
-| `config.toml` | Ejemplo general con todas las secciones |
-| `keys/` | Atajos de teclado (`[keys]`): formato, acciones y ejemplos |
-| `theme/` | Colores (`[theme]`): `cover_color`, cada color y ejemplos |
+| `config.toml` | General example with every section |
+| `keys/` | Keyboard shortcuts (`[keys]`): format, actions and examples |
+| `theme/` | Colors (`[theme]`): `cover_color`, each color and examples |
 
-La referencia corta de todas las secciones esta en `docs/config.md`. Cada
-ejemplo se puede copiar tal cual; un test comprueba que todos se leen sin
-errores ni avisos.
+The short reference of every section is in `docs/config.md`. Every example
+can be copied as is; a test checks that all of them load without errors or
+warnings.

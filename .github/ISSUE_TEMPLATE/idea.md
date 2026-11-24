@@ -1,11 +1,11 @@
 ---
-name: Proponer una idea o un cambio
-about: Una funcion nueva, una mejora o un cambio de comportamiento
+name: Propose an idea or a change / Proponer una idea o un cambio
+about: A new feature, an improvement or a behavior change (English or Spanish is fine)
 labels: idea
 ---
 
-**Que problema resuelve**
+**What problem it solves**
 
-**Como lo imaginas**
+**How you picture it**
 
-**Alternativas que pensaste**
+**Alternatives you considered**

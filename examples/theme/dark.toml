@@ -1,5 +1,5 @@
-# Tema oscuro fijo: no toma nada de la caratula.
-# Ver examples/theme/README.md.
+# A fixed dark theme: it takes nothing from the cover.
+# See examples/theme/README.md.
 
 [theme]
 cover_color = false

@@ -1,5 +1,5 @@
-//! Conformidad de persistencia de sesion: docs/servicio.md, seccion
-//! "Persistencia de sesion".
+//! Conformidad de persistencia de sesion: docs/service.md, seccion
+//! "Session persistence".
 
 mod common;
 

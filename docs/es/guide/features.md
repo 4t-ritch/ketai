@@ -1,13 +1,15 @@
+[English](../../guide/features.md) | **Espanol**
+
 # Funciones de ketai
 
 Pantalla por pantalla, todo lo que hace ketai. Las teclas son las de por
 defecto; los atajos globales se pueden cambiar (ver
-[examples/keys/](../../examples/keys/README.md)). Todo lo que se ve tambien
+[examples/keys/](../../../examples/keys/README.es.md)). Todo lo que se ve tambien
 responde al mouse.
 
 ## Reproduciendo (`1`)
 
-![Reproduciendo](../assets/now-playing.png)
+![Reproduciendo](../../assets/now-playing.png)
 
 - Caratula grande, titulo, artista y album.
 - Volumen con sus teclas (`-` / `+`) y la salida de audio activa (`d` para
@@ -20,17 +22,17 @@ responde al mouse.
 
 ## Tema dinamico
 
-![El tema cambia con cada caratula](../assets/dynamic-theme.png)
+![El tema cambia con cada caratula](../../assets/dynamic-theme.png)
 
 Con `cover_color = true` toda la interfaz toma los colores de la caratula que
 suena: fondo, paneles, acento, textos secundarios y espectro. La caratula de
 la siguiente cancion se prepara por adelantado, asi el cambio de color es
 instantaneo. Tambien se pueden usar colores fijos (ver
-[examples/theme/](../../examples/theme/README.md)).
+[examples/theme/](../../../examples/theme/README.es.md)).
 
 ## Letras (`2`)
 
-![Letras](../assets/lyrics.png)
+![Letras](../../assets/lyrics.png)
 
 - Letras sincronizadas **por linea** o **por palabra** (karaoke): la palabra
   que suena se resalta.
@@ -46,7 +48,7 @@ instantaneo. Tambien se pueden usar colores fijos (ver
 
 | Playlists | Todas las canciones | Por grupos |
 |---|---|---|
-| ![Playlist](../assets/library-playlist.png) | ![Canciones](../assets/library-songs.png) | ![Grupos](../assets/library-groups.png) |
+| ![Playlist](../../assets/library-playlist.png) | ![Canciones](../../assets/library-songs.png) | ![Grupos](../../assets/library-groups.png) |
 
 - `h` / `l` cambian de vista: **Playlists**, **Canciones** (toda la
   biblioteca), **Artistas**, **Albumes**, **Carpetas**, **Anos** y
@@ -61,7 +63,7 @@ instantaneo. Tambien se pueden usar colores fijos (ver
 
 ## Buscar (`4`)
 
-![Buscar](../assets/search.png)
+![Buscar](../../assets/search.png)
 
 - Busca en titulo, artista, album, artista del album, genero, ano y nombre
   de archivo.
@@ -73,7 +75,7 @@ instantaneo. Tambien se pueden usar colores fijos (ver
 
 ## Acciones rapidas (`Ctrl+P`)
 
-![Acciones](../assets/actions.png)
+![Acciones](../../assets/actions.png)
 
 Desde cualquier pantalla: escribi para buscar canciones y playlists, o
 elegi una accion (salida de audio, escanear la biblioteca, capas de letras,
@@ -82,7 +84,7 @@ abre con `/` o `Ctrl+K`.
 
 ## Playlists y favoritos
 
-![Agregar a una playlist](../assets/add-to-playlist.png)
+![Agregar a una playlist](../../assets/add-to-playlist.png)
 
 - `P` abre la lista de playlists: `Enter` agrega la cancion que suena, `x`
   la quita (las que ya la tienen llevan una marca) y `c` crea una nueva.
@@ -95,7 +97,7 @@ abre con `/` o `Ctrl+K`.
 
 ## Salida de audio (`d`)
 
-![Salida de audio](../assets/devices.png)
+![Salida de audio](../../assets/devices.png)
 
 Lista las salidas (auriculares, parlantes, HDMI) y cambia a la elegida sin
 cortar la reproduccion. "Predeterminado del sistema" sigue al dispositivo
@@ -125,5 +127,5 @@ el puntero; clic fuera de un popup lo cierra.
 - **MPRIS**: teclas multimedia, `playerctl` y los modulos de waybar
   controlan ketai (ver [../mpris.md](../mpris.md)).
 - **Protocolo**: cualquier programa puede controlar ketai por su socket
-  (ver [../protocol.md](../protocol.md)).
+  (ver [../protocol.md](../protocol.md), que arranca con un ejemplo rapido).
 - **Varias TUIs a la vez**: todas ven y controlan el mismo reproductor.

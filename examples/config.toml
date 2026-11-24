@@ -1,27 +1,27 @@
-# Configuracion de ejemplo de ketai, con todas las secciones.
+# Example ketai configuration, with every section.
 #
-# Copia este archivo a ~/.config/ketai/config.toml y cambia lo que quieras.
-# Los cambios se aplican al guardar, sin cerrar ketai. Si algo esta mal
-# escrito, ketai lo muestra en la ultima fila de la pantalla y sigue con la
-# configuracion anterior hasta que lo corrijas.
+# Copy this file to ~/.config/ketai/config.toml and change what you want.
+# Changes apply when you save, without closing ketai. If something is badly
+# written, ketai shows it on the last row of the screen and keeps the previous
+# configuration until you fix it.
 #
-# Mas detalle:
-#   colores ......... examples/theme/README.md
-#   atajos .......... examples/keys/README.md
-#   todas las claves  docs/config.md
+# More detail (each guide also has a Spanish version, README.es.md):
+#   colors .......... examples/theme/README.md
+#   shortcuts ....... examples/keys/README.md
+#   every key ....... docs/config.md
 
 
-# --- Colores -----------------------------------------------------------
+# --- Colors ------------------------------------------------------------
 
 [theme]
-# true: toda la interfaz toma los colores de la caratula que suena, y los
-# colores de abajo se ignoran. Cambia con cada cancion.
-# false: solo valen los colores de abajo.
-# Sin esta linea: cada color decide ("cover" o un color fijo).
+# true: the whole interface takes the colors of the playing cover, and the
+# colors below are ignored. It changes with every song.
+# false: only the colors below count.
+# Without this line: each color decides ("cover" or a fixed color).
 cover_color = true
 
-# Estos se usan con cover_color = false (o sin cover_color). "cover" toma el
-# color de la caratula; si no, un color fijo "#rrggbb".
+# These are used with cover_color = false (or without cover_color). "cover"
+# takes the color from the cover; otherwise, a fixed color "#rrggbb".
 background = "cover"
 accent = "cover"
 foreground = "#ffffff"
@@ -35,12 +35,12 @@ error = "#ff7b8a"
 spectrum_top = "#ff7ab6"
 
 
-# --- Atajos ------------------------------------------------------------
+# --- Shortcuts ---------------------------------------------------------
 
 [keys]
-# Cada accion recibe una tecla o una lista. Lo que se configura reemplaza
-# las teclas por defecto de esa accion; las acciones que no estan aca quedan
-# con su tecla de siempre. Ctrl+C siempre sale.
+# Each action takes a key or a list. What you set replaces that action's
+# default keys; actions not listed here keep their usual key. Ctrl+C always
+# quits.
 toggle = "space"
 next = ["n", "ctrl+right"]
 previous = ["p", "ctrl+left"]
@@ -62,7 +62,7 @@ quit = "q"
 # --- Playlists ---------------------------------------------------------
 
 [playlists]
-# Carpeta donde ketai copia cada playlist como archivo .m3u8 (para usarlas
-# con otros reproductores). Por defecto: la carpeta de musica del sistema
-# (XDG_MUSIC_DIR) + /playlists. Se crea si no existe.
+# Folder where ketai copies each playlist as a .m3u8 file (to use them with
+# other players). Default: the system music folder (XDG_MUSIC_DIR) +
+# /playlists. It is created if missing.
 dir = "~/music/playlists"

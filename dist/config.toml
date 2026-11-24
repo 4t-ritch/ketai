@@ -1,17 +1,18 @@
-# Configuracion de ketai: ~/.config/ketai/config.toml
-# Los cambios se aplican al guardar, sin reiniciar.
+# ketai configuration: ~/.config/ketai/config.toml
+# Changes apply when you save, without restarting.
+# Guides (English and Spanish): examples/ and docs/config.md.
 
 [theme]
-# true: toda la interfaz toma los colores de la caratula que suena y los
-# colores de abajo se ignoran. false: solo valen los colores de abajo.
-# Sin esta linea, cada color decide ("cover" o "#rrggbb").
+# true: the whole interface takes the colors of the playing cover and the
+# colors below are ignored. false: only the colors below count.
+# Without this line, each color decides ("cover" or "#rrggbb").
 # cover_color = true
 
-# "cover": el color sale de la caratula que suena. O un color fijo "#rrggbb".
+# "cover": the color comes from the playing cover. Or a fixed color "#rrggbb".
 background = "cover"
 accent = "cover"
 
-# Colores fijos (descomentar para cambiarlos).
+# Fixed colors (uncomment to change them).
 # foreground = "#ffffff"
 # dim = "#c8d3e0"
 # faint = "#7f8ea3"
@@ -23,13 +24,13 @@ accent = "cover"
 # spectrum_top = "#ff7ab6"
 
 [keys]
-# Atajos globales: una tecla o una lista. Lo que no se pone queda por defecto.
-# Ver docs/config.md para la lista de acciones.
+# Global shortcuts: one key or a list. What is not set keeps its default.
+# See docs/config.md for the list of actions.
 # actions = "ctrl+p"
 # toggle = "space"
 # next = ["n", "ctrl+right"]
 
 [playlists]
-# Carpeta de las playlists (.m3u8). Por defecto XDG_MUSIC_DIR/playlists
-# (~/music/playlists). Se crea si no existe.
+# Playlists folder (.m3u8). Default XDG_MUSIC_DIR/playlists
+# (~/music/playlists). It is created if missing.
 # dir = "~/music/playlists"

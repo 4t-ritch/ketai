@@ -1,3 +1,5 @@
+[English](../../guide/getting-started.md) | **Espanol**
+
 # Primeros pasos
 
 De cero a escuchar musica en cinco minutos.
@@ -67,10 +69,10 @@ volumen, `*` favorito y `P` agregar a una playlist.
 ## 6. Hacerlo tuyo
 
 Crea `~/.config/ketai/config.toml`. El punto de partida mas simple es el
-ejemplo completo: [examples/config.toml](../../examples/config.toml).
+ejemplo completo: [examples/config.toml](../../../examples/config.toml).
 
-- Colores: [examples/theme/](../../examples/theme/README.md).
-- Atajos: [examples/keys/](../../examples/keys/README.md).
+- Colores: [examples/theme/](../../../examples/theme/README.es.md).
+- Atajos: [examples/keys/](../../../examples/keys/README.es.md).
 
 Los cambios se ven al guardar el archivo.
 
@@ -80,6 +82,6 @@ Los cambios se ven al guardar el archivo.
   graficos de kitty. Ver [../tui.md](../tui.md#requisitos).
 - **No suena**: `d` muestra la salida de audio elegida; proba con otra.
 - **La TUI dice que no hay servicio**: ver el paso 3 o
-  [../servicio.md](../servicio.md).
+  [../service.md](../service.md).
 - **Algo raro con la terminal o un multiplexor**: `KETAI_LOG=/tmp/ketai.log
   ketai` anota lo que pasa, para reportarlo en un issue.

@@ -84,7 +84,7 @@ colors can be used too (see [examples/theme/](../../examples/theme/README.md)).
 
 From any screen: type to search songs and playlists, or pick an action
 (audio output, scan the library, lyrics layers, folders). `Enter` plays or
-runs, `Tab` adds to the queue. It also opens with `/` or `Ctrl+K`.
+runs, `Tab` adds to the queue. It also opens with `Ctrl+K`.
 
 ## Playlists and favorites
 

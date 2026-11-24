@@ -67,7 +67,7 @@ fn every_screen_survives_any_size() {
         match overlay {
           1 => {
             a.tab = Tab::NowPlaying;
-            a.on_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+            a.on_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
             a.tab = tab;
           }
           2 => a.devices_open = true,

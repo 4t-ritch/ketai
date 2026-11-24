@@ -94,13 +94,18 @@ Formato de una tecla: un caracter (`"n"`, `"P"`, `"+"`), o un nombre
 | `folders` | `f` | Carpetas de la biblioteca |
 | `favorite` | `*` | Marcar como favorita |
 | `add_to_playlist` | `P` | Agregar a una playlist |
-| `actions` | `ctrl+p`, `ctrl+k`, `/` | Acciones y busqueda rapida |
+| `actions` | `ctrl+p`, `ctrl+k` | Acciones y busqueda rapida |
 | `quit` | `q` | Salir |
-| `next_tab` / `prev_tab` | `tab` / `shift+tab` | Pestana siguiente / anterior |
-| `tab_now_playing`, `tab_lyrics`, `tab_library`, `tab_search` | `1` a `4` | Ir a cada pestana |
+| `next_tab` | `tab` | Pestana siguiente |
+| `prev_tab` | `shift+tab` | Pestana anterior |
+| `tab_now_playing` | `1` | Ir a Reproduciendo |
+| `tab_lyrics` | `2` | Ir a Letras |
+| `tab_library` | `3` | Ir a Biblioteca |
+| `tab_search` | `4` | Ir a Buscar |
 | `lyrics_layer` | `o` | Letras: cambiar la capa principal |
 | `lyrics_translation` | `t` | Letras: mostrar u ocultar la traduccion |
-| `lyrics_offset_down` / `lyrics_offset_up` | `[` / `]` | Letras: offset -50 / +50 ms |
+| `lyrics_offset_down` | `[` | Letras: offset -50 ms |
+| `lyrics_offset_up` | `]` | Letras: offset +50 ms |
 | `lyrics_mode` | `k` | Letras: modo clasico o karaoke |
 | `lyrics_estimate` | `w` | Letras: estimar tiempos por palabra |
 

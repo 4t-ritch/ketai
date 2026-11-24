@@ -67,7 +67,7 @@ next = ["n", "ctrl+right"]    # several keys for the same action
 | `folders` | `f` | Library folders |
 | `favorite` | `*` | Mark or unmark the playing song as a favorite |
 | `add_to_playlist` | `P` | Add the playing song to a playlist |
-| `actions` | `ctrl+p`, `ctrl+k`, `/` | Actions popup and quick search |
+| `actions` | `ctrl+p`, `ctrl+k` | Actions popup and quick search |
 | `quit` | `q` | Quit |
 | `next_tab` | `tab` | Next tab |
 | `prev_tab` | `shift+tab` | Previous tab |
@@ -77,7 +77,8 @@ next = ["n", "ctrl+right"]    # several keys for the same action
 | `tab_search` | `4` | Go to Search |
 | `lyrics_layer` | `o` | Lyrics: change the primary layer |
 | `lyrics_translation` | `t` | Lyrics: show or hide the translation |
-| `lyrics_offset_down` / `lyrics_offset_up` | `[` / `]` | Lyrics: offset -50 / +50 ms |
+| `lyrics_offset_down` | `[` | Lyrics: offset -50 ms |
+| `lyrics_offset_up` | `]` | Lyrics: offset +50 ms |
 | `lyrics_mode` | `k` | Lyrics: classic or karaoke mode |
 | `lyrics_estimate` | `w` | Lyrics: estimate word timing |
 

@@ -90,13 +90,18 @@ modifiers in front (`"ctrl+p"`, `"shift+tab"`).
 | `folders` | `f` | Library folders |
 | `favorite` | `*` | Mark as favorite |
 | `add_to_playlist` | `P` | Add to a playlist |
-| `actions` | `ctrl+p`, `ctrl+k`, `/` | Actions and quick search |
+| `actions` | `ctrl+p`, `ctrl+k` | Actions and quick search |
 | `quit` | `q` | Quit |
-| `next_tab` / `prev_tab` | `tab` / `shift+tab` | Next / previous tab |
-| `tab_now_playing`, `tab_lyrics`, `tab_library`, `tab_search` | `1` to `4` | Go to each tab |
+| `next_tab` | `tab` | Next tab |
+| `prev_tab` | `shift+tab` | Previous tab |
+| `tab_now_playing` | `1` | Go to Now Playing |
+| `tab_lyrics` | `2` | Go to Lyrics |
+| `tab_library` | `3` | Go to Library |
+| `tab_search` | `4` | Go to Search |
 | `lyrics_layer` | `o` | Lyrics: change the primary layer |
 | `lyrics_translation` | `t` | Lyrics: show or hide the translation |
-| `lyrics_offset_down` / `lyrics_offset_up` | `[` / `]` | Lyrics: offset -50 / +50 ms |
+| `lyrics_offset_down` | `[` | Lyrics: offset -50 ms |
+| `lyrics_offset_up` | `]` | Lyrics: offset +50 ms |
 | `lyrics_mode` | `k` | Lyrics: classic or karaoke mode |
 | `lyrics_estimate` | `w` | Lyrics: estimate word timing |
 

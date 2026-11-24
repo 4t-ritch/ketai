@@ -69,7 +69,7 @@ next = ["n", "ctrl+right"]    # varias teclas para la misma accion
 | `folders` | `f` | Carpetas de la biblioteca |
 | `favorite` | `*` | Marcar o desmarcar como favorita la cancion que suena |
 | `add_to_playlist` | `P` | Agregar la cancion que suena a una playlist |
-| `actions` | `ctrl+p`, `ctrl+k`, `/` | Popup de acciones y busqueda rapida |
+| `actions` | `ctrl+p`, `ctrl+k` | Popup de acciones y busqueda rapida |
 | `quit` | `q` | Salir |
 | `next_tab` | `tab` | Pestana siguiente |
 | `prev_tab` | `shift+tab` | Pestana anterior |
@@ -79,7 +79,8 @@ next = ["n", "ctrl+right"]    # varias teclas para la misma accion
 | `tab_search` | `4` | Ir a Buscar |
 | `lyrics_layer` | `o` | Letras: cambiar la capa principal |
 | `lyrics_translation` | `t` | Letras: mostrar u ocultar la traduccion |
-| `lyrics_offset_down` / `lyrics_offset_up` | `[` / `]` | Letras: offset -50 / +50 ms |
+| `lyrics_offset_down` | `[` | Letras: offset -50 ms |
+| `lyrics_offset_up` | `]` | Letras: offset +50 ms |
 | `lyrics_mode` | `k` | Letras: modo clasico o karaoke |
 | `lyrics_estimate` | `w` | Letras: estimar tiempos por palabra |
 

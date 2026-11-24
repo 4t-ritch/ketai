@@ -30,7 +30,7 @@ fn burn() -> Value {
 
 fn open_with(query: &str) -> App {
   let mut app = App { connected: true, ..App::default() };
-  assert!(app.on_key(key(KeyCode::Char('/'))).is_empty());
+  assert!(app.on_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)).is_empty());
   assert!(app.palette_open);
   let mut sent = Vec::new();
   for c in query.chars() {

@@ -1,3 +1,5 @@
+[English](../protocol.md) | **Espanol**
+
 # Protocolo IPC de ketai - v1 (borrador)
 
 Este documento es el contrato entre `ketaid` (el daemon) y todos los clientes
@@ -6,6 +8,69 @@ es correcta si y solo si cumple este documento y pasa la suite de conformidad.
 
 Los nombres de metodos, eventos y campos JSON se mantienen en ingles porque
 son parte del contrato.
+
+## 0. Inicio rapido: hablar con el daemon
+
+El daemon escucha en un socket Unix. Cada mensaje es una linea de JSON: se
+manda un pedido con un `id` y el daemon responde con el mismo `id`.
+
+Con `socat`, de forma interactiva:
+
+```sh
+socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/ketai/ctl.sock"
+```
+
+Despues se escribe un pedido por linea:
+
+```json
+{"id": 1, "method": "daemon.hello", "params": {"client": "mi-script", "protocol": 1}}
+{"id": 2, "method": "player.state"}
+{"id": 3, "method": "player.toggle"}
+{"id": 4, "method": "events.subscribe", "params": {"topics": ["player"]}}
+```
+
+El daemon responde cada uno en su propia linea:
+
+```json
+{"id": 1, "result": {"server": "ketaid", "protocol": 1, "version": "0.1.0"}}
+{"id": 2, "result": {"status": "playing", "track": {"title": "...", "...": "..."}, "position_ms": 53400, "volume": 0.8, "muted": false, "repeat": "off", "shuffle": false, "output": null}}
+{"id": 3, "result": {}}
+{"id": 4, "result": {}}
+{"event": "player.state", "data": {"status": "paused", "...": "..."}}
+```
+
+Despues de `events.subscribe` llegan los eventos (`{"event": ..., "data":
+...}`, sin `id`) cada vez que algo cambia.
+
+Lo mismo en Python, sin dependencias:
+
+```python
+import json, os, socket
+
+sock = socket.socket(socket.AF_UNIX)
+sock.connect(os.path.join(os.environ["XDG_RUNTIME_DIR"], "ketai", "ctl.sock"))
+f = sock.makefile("rw")
+next_id = 0
+
+def request(method, params=None):
+    global next_id
+    next_id += 1
+    f.write(json.dumps({"id": next_id, "method": method, "params": params or {}}) + "\n")
+    f.flush()
+    while True:  # se saltean los eventos hasta que llega la respuesta
+        msg = json.loads(f.readline())
+        if msg.get("id") == next_id:
+            if "error" in msg:
+                raise RuntimeError(msg["error"])
+            return msg["result"]
+
+request("daemon.hello", {"client": "mi-script", "protocol": 1})
+state = request("player.state")
+print(state["status"], (state["track"] or {}).get("title"))  # track es null si no hay nada cargado
+request("queue.add", {"uris": ["file:///home/yo/music/cancion.flac"]})
+```
+
+El resto de este documento describe cada mensaje en detalle.
 
 ## 1. Transporte
 
@@ -17,7 +82,7 @@ son parte del contrato.
 - Ambos son `AF_UNIX`, `SOCK_STREAM`, con permisos `0600`.
 - Si `XDG_RUNTIME_DIR` no esta definido, el daemon se niega a iniciar.
 - Los sockets pueden venir de systemd (socket activation); ver
-  `docs/servicio.md`.
+  `docs/service.md`.
 - Pueden conectarse muchos clientes a la vez. El daemon es el unico dueno de
   la salida de audio; los clientes nunca abren dispositivos de audio.
 

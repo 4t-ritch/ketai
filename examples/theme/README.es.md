@@ -1,3 +1,5 @@
+[English](README.md) | **Espanol**
+
 # Temas
 
 ketai lee los colores de la seccion `[theme]` de
@@ -6,7 +8,7 @@ cambios se aplican al guardar el archivo, sin cerrar ketai.
 
 Por ahora hay **un solo tema activo**: el que esta en `config.toml`. Tener
 varios temas guardados y elegir entre ellos esta planificado para una major
-update (ver `docs/roadmap.md`).
+update (ver `docs/es/roadmap.md`).
 
 En esta carpeta:
 
@@ -18,7 +20,9 @@ En esta carpeta:
 | `defaults.toml` | Todos los colores con su valor por defecto, para copiar y editar |
 
 Para usar uno, copia su seccion `[theme]` a tu `config.toml`. Si ya tenes
-otras secciones (`[keys]`, `[playlists]`), dejalas como estan.
+otras secciones (`[keys]`, `[playlists]`), dejalas como estan. Los comentarios
+dentro de los archivos `.toml` estan en ingles; la explicacion en espanol es
+esta guia.
 
 ## De donde salen los colores: `cover_color`
 

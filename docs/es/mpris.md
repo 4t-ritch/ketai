@@ -1,3 +1,5 @@
+[English](../mpris.md) | **Espanol**
+
 # MPRIS 2
 
 El daemon se publica en el bus de sesion de D-Bus como
@@ -21,7 +23,10 @@ Si no hay bus de sesion, el daemon lo registra y sigue funcionando sin MPRIS.
   atender. Si un programa inunda el bus de llamadas, el thread de MPRIS
   espera al loop central en vez de llenar su cola. No se pierde ninguno.
 - Al escribir `Volume`, `LoopStatus` o `Shuffle`, la copia se actualiza al
-  instante: una lectura inmediata ya ve el valor nuevo.
+  instante: una lectura inmediata ya ve el valor nuevo. Un estado que llega
+  despues pero es de un cambio anterior no lo deshace; el valor escrito se
+  mantiene hasta que el daemon lo confirma (o 2 segundos, si el daemon lo
+  rechazo).
 - Los cambios se anuncian con `PropertiesChanged`. `Position` no se anuncia:
   un salto de posicion (seek) emite `Seeked`, como pide la especificacion.
 

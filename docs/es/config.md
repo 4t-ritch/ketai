@@ -1,17 +1,19 @@
+[English](../config.md) | **Espanol**
+
 # Configuracion
 
 La TUI lee `$XDG_CONFIG_HOME/ketai/config.toml` (por defecto
 `~/.config/ketai/config.toml`). Si no existe, usa los valores por defecto.
-Hay un ejemplo comentado en `dist/config.toml`, y guias con ejemplos por
-tema en `examples/` (`examples/keys/` para atajos, `examples/theme/` para
-colores).
+Hay un ejemplo comentado en `dist/config.toml`, un ejemplo completo para
+usuarios nuevos en `examples/config.toml`, y guias con ejemplos por tema en
+`examples/` (`examples/keys/` para atajos, `examples/theme/` para colores).
 
 ## Formato
 
 TOML: declarativo, admite comentarios y secciones. Cada funcion
-personalizable tiene su seccion (`[theme]`, `[playlists]`); las secciones
-nuevas se agregan sin romper los archivos existentes. La TUI lee `[theme]` y
-el daemon lee `[playlists]`.
+personalizable tiene su seccion (`[theme]`, `[keys]`, `[playlists]`); las
+secciones nuevas se agregan sin romper los archivos existentes. La TUI lee
+`[theme]` y `[keys]`, y el daemon lee `[playlists]`.
 
 - Una clave o seccion desconocida se avisa en la ultima fila de la pantalla
   y se ignora; el resto se aplica.
@@ -114,4 +116,5 @@ Formato de una tecla: un caracter (`"n"`, `"P"`, `"+"`), o un nombre
 esta en ninguno, es `~/music`. La carpeta se crea si no existe. El daemon la
 lee en cada operacion de playlists: cambiarla se aplica sin reiniciar. Si el
 archivo tiene un error, el daemon usa la carpeta por defecto y lo registra en
-su log. Las playlists que ya estaban en otra carpeta no se mueven solas.
+su log. Las playlists se guardan en la base de ketai; al cambiar la carpeta,
+todas se copian a la nueva.

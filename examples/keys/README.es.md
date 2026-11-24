@@ -1,3 +1,5 @@
+[English](README.md) | **Espanol**
+
 # Atajos de teclado
 
 ketai lee los atajos globales de la seccion `[keys]` de
@@ -9,13 +11,14 @@ En esta carpeta:
 | Archivo | Para que sirve |
 |---|---|
 | `defaults.toml` | Todos los atajos con su valor por defecto, para copiar y editar |
-| `vim.toml` | Movimiento estilo vim y acciones con Ctrl |
-| `media.toml` | Reproduccion con Ctrl y flechas, sin letras sueltas |
+| `vim.toml` | Movimiento estilo vim, con Alt para no chocar con las listas |
+| `media.toml` | Reproduccion con Ctrl, Alt y flechas, sin letras sueltas |
 | `minimal.toml` | Solo cambia dos atajos; el resto queda por defecto |
 
 Para usar uno, copia su seccion `[keys]` a tu `config.toml`. Si ya tenes
 otras secciones (`[theme]`, `[playlists]`), dejalas como estan: cada seccion
-es independiente.
+es independiente. Los comentarios dentro de los archivos `.toml` estan en
+ingles; la explicacion en espanol es esta guia.
 
 ## Como se escribe una accion
 
@@ -91,8 +94,8 @@ next = ["n", "ctrl+right"]    # varias teclas para la misma accion
   aparece primero en la tabla de arriba.
 - **Las teclas de cada vista son fijas por ahora**: `h` / `l` para cambiar de
   vista en Biblioteca, `t` / `o` en Letras, `a` para agregar a la cola, `c`
-  para crear una playlist, `Esc`, `Enter` y las flechas dentro de listas y
-  popups. Ver `docs/tui.md`.
+  para crear una playlist, `x` para quitar, `Esc`, `Enter` y las flechas dentro de listas y
+  popups. Ver `docs/es/tui.md`.
 
 ## Problemas comunes
 

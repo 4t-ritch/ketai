@@ -4,6 +4,8 @@
 
 **Reproductor de musica para la terminal, con daemon propio, letras sincronizadas y colores que cambian con cada caratula.**
 
+[English](README.md) | **Espanol**
+
 ![Linux](https://img.shields.io/badge/plataforma-Linux-1793D1?style=flat-square&logo=linux&logoColor=white)
 ![Rust](https://img.shields.io/badge/hecho%20con-Rust-B7410E?style=flat-square&logo=rust&logoColor=white)
 ![Terminal](https://img.shields.io/badge/terminal-protocolo%20de%20graficos%20kitty-6E56CF?style=flat-square)
@@ -27,7 +29,7 @@ ketai son dos programas que trabajan juntos:
 - **`ketaid`**, el servicio de audio. Reproduce, lleva la cola, la biblioteca, las playlists y las letras. Corre en segundo plano (como servicio de systemd) y sigue sonando aunque cierres la terminal.
 - **`ketai`**, el cliente de terminal (TUI). Muestra y controla lo que hace el daemon. Podes abrir varios a la vez (por ejemplo uno grande y otro chico en un panel) y todos ven lo mismo.
 
-Hablan por un protocolo simple (JSON por un socket local), asi que tambien se puede controlar ketai desde scripts, desde waybar o con `playerctl` (MPRIS). La explicacion completa esta en [docs/guia/arquitectura.md](docs/guia/arquitectura.md).
+Hablan por un protocolo simple (JSON por un socket local), asi que tambien se puede controlar ketai desde scripts, desde waybar o con `playerctl` (MPRIS). La explicacion completa esta en [docs/es/guide/architecture.md](docs/es/guide/architecture.md).
 
 ## Funciones
 
@@ -73,7 +75,7 @@ Y ademas:
 - **Atajos configurables** y **temas** en un archivo de configuracion que se recarga en vivo al guardar.
 - **Modo mini** para paneles chicos (herdr, tmux) y **MPRIS** para teclas multimedia, `playerctl` y waybar.
 
-Todas las funciones, con su explicacion, estan en [docs/guia/funciones.md](docs/guia/funciones.md).
+Todas las funciones, con su explicacion, estan en [docs/es/guide/features.md](docs/es/guide/features.md).
 
 ## Plataforma
 
@@ -83,7 +85,7 @@ La TUI necesita una terminal con el **protocolo de graficos de kitty** para most
 
 ## Instalacion
 
-Por ahora se instala desde el codigo fuente. Instalarlo con un gestor de paquetes esta planificado (ver [docs/roadmap.md](docs/roadmap.md)).
+Por ahora se instala desde el codigo fuente. Instalarlo con un gestor de paquetes esta planificado (ver [docs/es/roadmap.md](docs/es/roadmap.md)).
 
 Requisitos para compilar: Rust (edicion 2024), `cmake` y un compilador de C (para `libopus` y `fdk-aac`), y las bibliotecas de desarrollo de PulseAudio y D-Bus.
 
@@ -101,7 +103,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now ketaid.socket
 ```
 
-Mas detalles del servicio en [docs/servicio.md](docs/servicio.md).
+Mas detalles del servicio en [docs/es/service.md](docs/es/service.md).
 
 ## Primeros pasos
 
@@ -110,7 +112,7 @@ Mas detalles del servicio en [docs/servicio.md](docs/servicio.md).
 3. Busca algo con `4` (Buscar) o con `Ctrl+P` desde cualquier pantalla, y `Enter` para reproducir.
 4. `1` a `4` cambian de pestana: Reproduciendo, Letras, Biblioteca y Buscar.
 
-La guia paso a paso esta en [docs/guia/primeros-pasos.md](docs/guia/primeros-pasos.md).
+La guia paso a paso esta en [docs/es/guide/getting-started.md](docs/es/guide/getting-started.md).
 
 ### Atajos principales
 
@@ -123,7 +125,7 @@ La guia paso a paso esta en [docs/guia/primeros-pasos.md](docs/guia/primeros-pas
 | `s` / `r` | aleatorio / repeticion | `f` | carpetas de la biblioteca |
 | `1` a `4` | pestanas | `q` | salir |
 
-Todos los atajos globales se pueden cambiar. La lista completa esta en [docs/tui.md](docs/tui.md).
+Todos los atajos globales se pueden cambiar. La lista completa esta en [docs/es/tui.md](docs/es/tui.md).
 
 ## Configuracion
 
@@ -144,30 +146,30 @@ dir = "~/music/playlists"   # donde se copian las playlists (.m3u8)
 | Que | Donde aprenderlo |
 |---|---|
 | Ejemplo completo para empezar | [examples/config.toml](examples/config.toml) |
-| Temas: `cover_color`, cada color y ejemplos | [examples/theme/](examples/theme/README.md) |
-| Atajos: formato, acciones y ejemplos | [examples/keys/](examples/keys/README.md) |
-| Referencia de todas las claves | [docs/config.md](docs/config.md) |
+| Temas: `cover_color`, cada color y ejemplos | [examples/theme/](examples/theme/README.es.md) |
+| Atajos: formato, acciones y ejemplos | [examples/keys/](examples/keys/README.es.md) |
+| Referencia de todas las claves | [docs/es/config.md](docs/es/config.md) |
 
 ## Documentacion
 
 | Documento | Contenido |
 |---|---|
-| [docs/guia/](docs/guia/README.md) | Guia de uso: primeros pasos, todas las funciones y como esta armado ketai |
-| [docs/tui.md](docs/tui.md) | Referencia de la TUI: pantallas, teclas, mouse |
-| [docs/config.md](docs/config.md) | Referencia de `config.toml` |
-| [docs/servicio.md](docs/servicio.md) | El daemon como servicio de systemd |
-| [docs/protocol.md](docs/protocol.md) | Protocolo para controlar ketai desde otros programas |
-| [docs/mpris.md](docs/mpris.md) | Integracion MPRIS (playerctl, waybar, teclas multimedia) |
-| [docs/formatos.md](docs/formatos.md) | Formatos de audio soportados |
-| [docs/roadmap.md](docs/roadmap.md) | Lo planificado para las proximas versiones |
+| [docs/es/guide/](docs/es/guide/README.md) | Guia de uso: primeros pasos, todas las funciones y como esta armado ketai |
+| [docs/es/tui.md](docs/es/tui.md) | Referencia de la TUI: pantallas, teclas, mouse |
+| [docs/es/config.md](docs/es/config.md) | Referencia de `config.toml` |
+| [docs/es/service.md](docs/es/service.md) | El daemon como servicio de systemd |
+| [docs/es/protocol.md](docs/es/protocol.md) | Protocolo para controlar ketai desde otros programas, con un inicio rapido |
+| [docs/es/mpris.md](docs/es/mpris.md) | Integracion MPRIS (playerctl, waybar, teclas multimedia) |
+| [docs/es/formats.md](docs/es/formats.md) | Formatos de audio soportados |
+| [docs/es/roadmap.md](docs/es/roadmap.md) | Lo planificado para las proximas versiones |
 
 ## Proximamente
 
-Para la proxima major update estan planificados: fuentes remotas con descarga a cache, instalacion con gestores de paquetes, varios temas, la interfaz en varios idiomas, romanizacion automatica de letras y estimacion de tiempos por palabra. Detalles en [docs/roadmap.md](docs/roadmap.md).
+Para la proxima major update estan planificados: fuentes remotas con descarga a cache, instalacion con gestores de paquetes, varios temas, la interfaz en varios idiomas, romanizacion automatica de letras y estimacion de tiempos por palabra. Detalles en [docs/es/roadmap.md](docs/es/roadmap.md).
 
 ## Participar
 
-ketai es un proyecto personal y abierto para usar. **Los reportes y propuestas van por [issues](https://github.com/4t-ritch/ketai/issues)**: errores, ideas o preguntas. El repositorio no acepta pull requests; si queres proponer un cambio, abri un issue y lo vemos ahi. Mas detalles en [CONTRIBUTING.md](CONTRIBUTING.md).
+ketai es un proyecto personal y abierto para usar. **Los reportes y propuestas van por [issues](https://github.com/4t-ritch/ketai/issues)**: errores, ideas o preguntas, en espanol o en ingles. El repositorio no acepta pull requests; si queres proponer un cambio, abri un issue y lo vemos ahi. Mas detalles en [CONTRIBUTING.es.md](CONTRIBUTING.es.md).
 
 ## Licencia
 

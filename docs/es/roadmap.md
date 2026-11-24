@@ -1,3 +1,5 @@
+[English](../roadmap.md) | **Espanol**
+
 # Roadmap
 
 Funcionalidades planificadas fuera de la v1.
@@ -31,7 +33,7 @@ instalable con un comando, con el daemon y la TUI juntos.
   (`systemctl --user enable --now ketaid.socket`).
 - Binarios precompilados en cada release, para quien no quiera compilar.
 - Antes de empezar se revisa la licencia de FDK AAC para distribuir binarios
-  (ver [formatos.md](formatos.md#licencias)).
+  (ver [formats.md](formats.md#licencias)).
 
 ### Varios temas
 

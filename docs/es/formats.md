@@ -1,3 +1,5 @@
+[English](../formats.md) | **Espanol**
+
 # Formatos de audio soportados
 
 ## Tabla de soporte

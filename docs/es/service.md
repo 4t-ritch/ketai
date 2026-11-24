@@ -1,3 +1,5 @@
+[English](../service.md) | **Espanol**
+
 # Servicio del daemon
 
 `ketaid` se instala como servicio de usuario de systemd para no tener que

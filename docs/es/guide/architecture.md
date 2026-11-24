@@ -1,3 +1,5 @@
+[English](../../guide/architecture.md) | **Espanol**
+
 # Como esta armado ketai
 
 ketai se divide en **dos programas**: un servicio de audio y un cliente de
@@ -73,7 +75,8 @@ Por sockets locales en `$XDG_RUNTIME_DIR/ketai/`:
 | `viz.sock` | Los datos del espectro, en binario, para dibujarlo en vivo. |
 
 Cualquier programa puede usar el mismo protocolo que la TUI. Esta
-documentado en [../protocol.md](../protocol.md).
+documentado en [../protocol.md](../protocol.md), que arranca con un ejemplo
+rapido de como conectarse, mandar un pedido y leer la respuesta.
 
 ## Donde guarda las cosas
 

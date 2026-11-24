@@ -1,3 +1,5 @@
+[English](CONTRIBUTING.md) | **Espanol**
+
 # Participar en ketai
 
 Gracias por el interes. ketai es un proyecto personal, abierto para usar.
@@ -5,7 +7,8 @@ Gracias por el interes. ketai es un proyecto personal, abierto para usar.
 ## Issues si, pull requests no
 
 - **Todo pasa por issues**: errores, ideas, preguntas y propuestas de
-  cambios. Abri uno en <https://github.com/4t-ritch/ketai/issues>.
+  cambios. Abri uno en <https://github.com/4t-ritch/ketai/issues>, en espanol o en
+  ingles.
 - **El repositorio no acepta pull requests.** Si tenes un cambio en mente,
   describilo en un issue (que problema resuelve y como lo imaginas) y lo
   conversamos ahi.
@@ -26,4 +29,4 @@ Incluye lo que ayude a reproducirlo:
 ## Plataforma
 
 ketai funciona solo en Linux. Ver
-[docs/guia/arquitectura.md](docs/guia/arquitectura.md#por-que-solo-linux).
+[docs/es/guide/architecture.md](docs/es/guide/architecture.md#por-que-solo-linux).

@@ -1,3 +1,5 @@
+[English](../tui.md) | **Espanol**
+
 # TUI de ketai
 
 `ketai` es el cliente de terminal. No reproduce audio por su cuenta: habla
@@ -20,7 +22,7 @@ un panel de herdr y otra completa).
 
 Si `ketaid` no esta corriendo, la TUI muestra la pantalla de servicio:
 diagnostica el estado y ofrece iniciarlo por systemd (ver
-`docs/servicio.md`). Reintenta conectar cada 2 segundos.
+`docs/service.md`). Reintenta conectar cada 2 segundos.
 
 ## Pantallas
 
@@ -102,20 +104,23 @@ ejecuta, `Tab` agrega a la cola, `Esc` cierra.
 
 ## Favoritos y agregar a una playlist
 
-En Reproduciendo, junto al volumen y a la salida estan sus teclas (`-` `+`
-y `d` por defecto, o las de `[keys]`), igual que en Favorito y Agregar a
-playlist; tambien se pueden clickear. En todas las vistas se ve el estado del reproductor activo: volumen,
-salida y si la cancion es favorita (en Biblioteca y Buscar, en la barra de
-abajo; en Letras, junto a los controles; en el modo mini, al lado del
-volumen). En Reproduciendo, ademas, en cuantas playlists esta. La salida
-nunca queda en blanco: "Default" si se sigue al dispositivo por defecto y
-todavia no se sabe su nombre, "No device" si no hay ninguna disponible. La
-cabecera ya no repite la salida. `*` la marca o desmarca como
-favorita (queda en la playlist Favoritos). `P` abre la lista de playlists
-(las que ya la tienen llevan una marca); `Enter` la agrega y `c` crea una
-playlist nueva (se escribe el nombre) y la agrega ahi, y `x` la quita de la
-playlist elegida (las que tienen la marca). Si ya estaba,
-ketaid avisa y ketai pregunta: `a` la agrega de todos modos, `n` no.
+En todas las vistas se ve el estado del reproductor activo: volumen, salida y
+si la cancion es favorita (en Biblioteca y Buscar, en la barra de abajo; en
+Letras, junto a los controles; en el modo mini, al lado del volumen).
+Reproduciendo muestra ademas en cuantas playlists esta la cancion, y junto al
+volumen y a la salida estan sus teclas (`-` `+` y `d` por defecto, o las de
+`[keys]`), igual que en Favorito y Agregar a playlist; tambien se pueden
+clickear. La salida nunca queda en blanco: "Default" si se sigue al
+dispositivo por defecto y todavia no se sabe su nombre, "No device" si no hay
+ninguna disponible.
+
+- `*` marca o desmarca la cancion como favorita (queda en la playlist
+  Favoritos).
+- `P` abre la lista de playlists (las que ya la tienen llevan una marca):
+  `Enter` la agrega, `c` crea una playlist nueva (se escribe el nombre) y la
+  agrega ahi, y `x` la quita de la playlist elegida (una con la marca).
+- Si ya estaba, ketaid avisa y ketai pregunta: `a` la agrega de todos modos,
+  `n` no.
 
 ## Texto largo
 
@@ -140,7 +145,7 @@ Todo lo que se ve se puede usar con el mouse; hace lo mismo que su tecla.
   lista de salidas y en el corazon marca favorita. En Reproduciendo, clic en
   la salida tambien abre la lista.
 - En Biblioteca: clic en una vista (Playlists, Canciones, Artistas...) o en
-  las flechas `‹ ›`, en
+  las flechas a los lados de las vistas, en
   una playlist o grupo de la izquierda, o en una cancion. Un clic elige; doble
   clic reproduce (como `Enter`).
 - En Buscar: clic en un filtro o en un resultado; doble clic reproduce.

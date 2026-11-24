@@ -1,29 +1,32 @@
-# Participar en ketai
+**English** | [Espanol](CONTRIBUTING.es.md)
 
-Gracias por el interes. ketai es un proyecto personal, abierto para usar.
+# Contributing to ketai
 
-## Issues si, pull requests no
+Thanks for your interest. ketai is a personal project, open for anyone to use.
 
-- **Todo pasa por issues**: errores, ideas, preguntas y propuestas de
-  cambios. Abri uno en <https://github.com/4t-ritch/ketai/issues>.
-- **El repositorio no acepta pull requests.** Si tenes un cambio en mente,
-  describilo en un issue (que problema resuelve y como lo imaginas) y lo
-  conversamos ahi.
+## Issues yes, pull requests no
 
-## Para reportar un error
+- **Everything goes through issues**: bugs, ideas, questions and change
+  proposals. Open one at <https://github.com/4t-ritch/ketai/issues>. English
+  or Spanish, whichever you prefer.
+- **The repository does not accept pull requests.** If you have a change in
+  mind, describe it in an issue (what problem it solves and how you picture
+  it) and we will talk it over there.
 
-Incluye lo que ayude a reproducirlo:
+## Reporting a bug
 
-- Distribucion de Linux y terminal (kitty, Ghostty, WezTerm...), y si usas un
-  multiplexor (herdr, tmux).
-- Version de ketai (`git log -1 --oneline` si lo compilaste).
-- Que hiciste, que esperabas y que paso.
-- Si tiene que ver con la terminal o las caratulas, el registro de la TUI:
+Include whatever helps to reproduce it:
+
+- Linux distribution and terminal (kitty, Ghostty, WezTerm...), and whether
+  you use a multiplexer (herdr, tmux).
+- ketai version (`git log -1 --oneline` if you built it).
+- What you did, what you expected and what happened.
+- If it has to do with the terminal or the covers, the TUI log:
   `KETAI_LOG=/tmp/ketai.log ketai`.
-- Si tiene que ver con el audio, lo que muestra `ketaid` en su terminal (o
+- If it has to do with audio, what `ketaid` shows in its terminal (or
   `journalctl --user -u ketaid`).
 
-## Plataforma
+## Platform
 
-ketai funciona solo en Linux. Ver
-[docs/guia/arquitectura.md](docs/guia/arquitectura.md#por-que-solo-linux).
+ketai works on Linux only. See
+[docs/guide/architecture.md](docs/guide/architecture.md#why-linux-only).

@@ -1,117 +1,116 @@
-# Configuracion
+**English** | [Espanol](es/config.md)
 
-La TUI lee `$XDG_CONFIG_HOME/ketai/config.toml` (por defecto
-`~/.config/ketai/config.toml`). Si no existe, usa los valores por defecto.
-Hay un ejemplo comentado en `dist/config.toml`, y guias con ejemplos por
-tema en `examples/` (`examples/keys/` para atajos, `examples/theme/` para
-colores).
+# Configuration
 
-## Formato
+The TUI reads `$XDG_CONFIG_HOME/ketai/config.toml` (by default
+`~/.config/ketai/config.toml`). If it does not exist, the defaults are used.
+There is a commented example in `dist/config.toml`, a complete example for
+new users in `examples/config.toml`, and guides with examples per topic in
+`examples/` (`examples/keys/` for shortcuts, `examples/theme/` for colors).
 
-TOML: declarativo, admite comentarios y secciones. Cada funcion
-personalizable tiene su seccion (`[theme]`, `[playlists]`); las secciones
-nuevas se agregan sin romper los archivos existentes. La TUI lee `[theme]` y
-el daemon lee `[playlists]`.
+## Format
 
-- Una clave o seccion desconocida se avisa en la ultima fila de la pantalla
-  y se ignora; el resto se aplica.
-- Un error (sintaxis, color invalido) se muestra en la ultima fila con la
-  clave o la linea, y se mantiene la configuracion anterior hasta que el
-  archivo se corrija.
+TOML: declarative, with comments and sections. Each customizable feature has
+its own section (`[theme]`, `[keys]`, `[playlists]`); new sections are added
+without breaking existing files. The TUI reads `[theme]` and `[keys]`, and
+the daemon reads `[playlists]`.
 
-## Recarga en vivo
+- An unknown key or section is reported on the last row of the screen and
+  ignored; the rest is applied.
+- An error (syntax, invalid color) is shown on the last row with the key or
+  the line, and the previous configuration is kept until the file is fixed.
 
-Los cambios se aplican al guardar el archivo, sin cerrar ketai. La TUI
-revisa el archivo cada medio segundo; funciona aunque el editor guarde
-reemplazando el archivo. Si el archivo se borra, vuelven los valores por
-defecto.
+## Live reload
+
+Changes apply when you save the file, without closing ketai. The TUI checks
+the file every half second; it works even if the editor saves by replacing
+the file. If the file is deleted, the defaults come back.
 
 ## `[theme]`
 
-| Clave | Valores | Por defecto |
+| Key | Values | Default |
 |---|---|---|
-| `cover_color` | `true` o `false` | sin definir |
-| `background` | `"cover"` o `"#rrggbb"` | `"cover"` |
-| `accent` | `"cover"` o `"#rrggbb"` | `"cover"` |
+| `cover_color` | `true` or `false` | unset |
+| `background` | `"cover"` or `"#rrggbb"` | `"cover"` |
+| `accent` | `"cover"` or `"#rrggbb"` | `"cover"` |
 | `foreground` | `"#rrggbb"` | `"#ffffff"` |
 | `dim` | `"#rrggbb"` | `"#c8d3e0"` |
 | `faint` | `"#rrggbb"` | `"#7f8ea3"` |
-| `raised` | `"#rrggbb"` | `"#1c2a3a"` (con `background = "cover"`, sale de la caratula) |
+| `raised` | `"#rrggbb"` | `"#1c2a3a"` (with `background = "cover"`, it comes from the cover) |
 | `on_accent` | `"#rrggbb"` | `"#04121f"` |
 | `row` | `"#rrggbb"` | `"#16202e"` |
 | `ok` | `"#rrggbb"` | `"#7ee787"` |
 | `error` | `"#rrggbb"` | `"#ff7b8a"` |
 | `spectrum_top` | `"#rrggbb"` | `"#ff7ab6"` |
 
-`cover_color` decide de donde salen los colores:
+`cover_color` decides where the colors come from:
 
-- `true`: toda la interfaz sale de la caratula que suena (fondo, fondo
-  elevado, fila elegida, acento, texto sobre el acento, textos secundarios
-  y espectro, todos del tono de la caratula). Los colores manuales se
-  ignoran aunque esten en el archivo. Sin caratula, los colores por
-  defecto.
-- `false`: solo valen los colores manuales; `"cover"` vale el color por
-  defecto.
-- Sin la clave: cada color decide; `background` y `accent` pueden ser
-  `"cover"`. Con `background = "cover"` tambien salen de la caratula
-  `raised`, `row`, `dim` y `faint`; con `accent = "cover"`, `on_accent` y
-  `spectrum_top`. Un color fijado a mano siempre gana.
+- `true`: the whole interface comes from the playing cover (background,
+  raised background, selected row, accent, text on the accent, secondary
+  text and spectrum, all in the cover's hue). Manual colors are ignored even
+  if they are in the file. Without a cover, the defaults.
+- `false`: only manual colors count; `"cover"` means the default color.
+- Without the key: each color decides; `background` and `accent` can be
+  `"cover"`. With `background = "cover"`, `raised`, `row`, `dim` and `faint`
+  also come from the cover; with `accent = "cover"`, `on_accent` and
+  `spectrum_top`. A color set by hand always wins.
 
-Los popups, las lineas de letra que todavia no se cantan y el resto de la
-interfaz derivan de estos colores: nada tiene un color propio fijo. `ok` y
-`error` son colores de estado (conectado, error) y no siguen a la caratula.
+Popups, lyric lines not sung yet and the rest of the interface derive from
+these colors: nothing has a fixed color of its own. `ok` and `error` are
+status colors (connected, error) and do not follow the cover.
 
-Con `"cover"`, los colores salen de la caratula que suena: el fondo es el
-color promedio oscurecido y el acento es el mismo tono, claro y saturado
-para que se lea. Sin caratula se usan los colores por defecto.
+With `"cover"`, the colors come from the playing cover: the background is the
+darkened average color and the accent is the same hue, light and saturated
+so it reads well. Without a cover the defaults are used.
 
 ## `[keys]`
 
-Atajos globales. Cada accion recibe una tecla (`toggle = "x"`) o una lista
-(`next = ["n", "ctrl+right"]`); lo que se configura reemplaza las teclas por
-defecto de esa accion y el resto queda igual.
+Global shortcuts. Each action takes a key (`toggle = "x"`) or a list
+(`next = ["n", "ctrl+right"]`); what you set replaces that action's default
+keys and the rest stays the same.
 
-Formato de una tecla: un caracter (`"n"`, `"P"`, `"+"`), o un nombre
-(`space`, `enter`, `esc`, `tab`, `backspace`, `left`, `right`, `up`, `down`,
-`home`, `end`, `pageup`, `pagedown`, `f1` a `f12`), con modificadores
-`ctrl+`, `alt+` o `shift+` delante (`"ctrl+p"`, `"shift+tab"`).
+Key format: a character (`"n"`, `"P"`, `"+"`), or a name (`space`, `enter`,
+`esc`, `tab`, `backspace`, `left`, `right`, `up`, `down`, `home`, `end`,
+`pageup`, `pagedown`, `f1` to `f12`), with `ctrl+`, `alt+` or `shift+`
+modifiers in front (`"ctrl+p"`, `"shift+tab"`).
 
-| Accion | Por defecto | Que hace |
+| Action | Default | What it does |
 |---|---|---|
-| `toggle` | `space` | Reproducir o pausar |
-| `next` | `n` | Siguiente |
-| `previous` | `p` | Anterior |
-| `seek_forward` | `right` | Adelantar 5 s |
-| `seek_back` | `left` | Retroceder 5 s |
-| `volume_up` | `+`, `=` | Subir volumen |
-| `volume_down` | `-` | Bajar volumen |
-| `mute` | `m` | Silenciar |
-| `shuffle` | `s` | Aleatorio |
-| `repeat` | `r` | Repeticion |
-| `devices` | `d` | Salida de audio |
-| `folders` | `f` | Carpetas de la biblioteca |
-| `favorite` | `*` | Marcar como favorita |
-| `add_to_playlist` | `P` | Agregar a una playlist |
-| `actions` | `ctrl+p`, `ctrl+k`, `/` | Acciones y busqueda rapida |
-| `quit` | `q` | Salir |
-| `next_tab` / `prev_tab` | `tab` / `shift+tab` | Pestana siguiente / anterior |
-| `tab_now_playing`, `tab_lyrics`, `tab_library`, `tab_search` | `1` a `4` | Ir a cada pestana |
+| `toggle` | `space` | Play or pause |
+| `next` | `n` | Next |
+| `previous` | `p` | Previous |
+| `seek_forward` | `right` | Forward 5 s |
+| `seek_back` | `left` | Back 5 s |
+| `volume_up` | `+`, `=` | Volume up |
+| `volume_down` | `-` | Volume down |
+| `mute` | `m` | Mute |
+| `shuffle` | `s` | Shuffle |
+| `repeat` | `r` | Repeat |
+| `devices` | `d` | Audio output |
+| `folders` | `f` | Library folders |
+| `favorite` | `*` | Mark as favorite |
+| `add_to_playlist` | `P` | Add to a playlist |
+| `actions` | `ctrl+p`, `ctrl+k`, `/` | Actions and quick search |
+| `quit` | `q` | Quit |
+| `next_tab` / `prev_tab` | `tab` / `shift+tab` | Next / previous tab |
+| `tab_now_playing`, `tab_lyrics`, `tab_library`, `tab_search` | `1` to `4` | Go to each tab |
 
-- `Ctrl+C` siempre sale, aunque se configure otra cosa.
-- Mientras se escribe en Buscar, las teclas sin Ctrl ni Alt son texto.
-- Una tecla invalida es un error (se muestra y se mantiene la configuracion
-  anterior); una accion desconocida o una tecla en dos acciones se avisa.
-- Las teclas propias de cada vista (`h` / `l` en Biblioteca, `t` / `o` en
-  Letras, etc.) son fijas por ahora.
+- `Ctrl+C` always quits, whatever else is configured.
+- While typing in Search, keys without Ctrl or Alt are text.
+- An invalid key is an error (it is shown and the previous configuration is
+  kept); an unknown action or a key in two actions is reported.
+- Each view's own keys (`h` / `l` in Library, `t` / `o` in Lyrics, etc.) are
+  fixed for now.
 
 ## `[playlists]`
 
-| Clave | Valores | Por defecto |
+| Key | Values | Default |
 |---|---|---|
-| `dir` | ruta absoluta o que empiece con `~` | `XDG_MUSIC_DIR/playlists` |
+| `dir` | absolute path, or one starting with `~` | `XDG_MUSIC_DIR/playlists` |
 
-`XDG_MUSIC_DIR` sale del entorno, de `~/.config/user-dirs.dirs` o, si no
-esta en ninguno, es `~/music`. La carpeta se crea si no existe. El daemon la
-lee en cada operacion de playlists: cambiarla se aplica sin reiniciar. Si el
-archivo tiene un error, el daemon usa la carpeta por defecto y lo registra en
-su log. Las playlists que ya estaban en otra carpeta no se mueven solas.
+`XDG_MUSIC_DIR` comes from the environment, from `~/.config/user-dirs.dirs`
+or, if it is in neither, it is `~/music`. The folder is created if missing.
+The daemon reads it on every playlist operation: changing it applies without
+restarting. If the file has an error, the daemon uses the default folder and
+logs it. Playlists are stored in ketai's database; when the folder changes,
+every playlist is copied to the new one.

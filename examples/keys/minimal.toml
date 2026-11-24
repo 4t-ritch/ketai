@@ -1,8 +1,8 @@
-# Solo cambia dos atajos; todo lo demas queda con su tecla por defecto.
-# Ver examples/keys/README.md.
+# Changes only two shortcuts; everything else keeps its default key.
+# See examples/keys/README.md.
 
 [keys]
-# El popup de acciones con F1 ademas de Ctrl+P.
+# The actions popup with F1 as well as Ctrl+P.
 actions = ["ctrl+p", "f1"]
-# Favorito con la f minuscula queda ocupada por carpetas: se usa Alt+f.
+# Favorite: plain f is taken by folders, so Alt+f is used.
 favorite = ["*", "alt+f"]

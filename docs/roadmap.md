@@ -1,118 +1,120 @@
+**English** | [Espanol](es/roadmap.md)
+
 # Roadmap
 
-Funcionalidades planificadas fuera de la v1.
+Features planned beyond v1.
 
-## Proxima major update
+## Next major update
 
-### Fuentes remotas con descarga a cache
+### Remote sources with download to cache
 
-La v1 solo reproduce archivos locales (`file://`). Esta actualizacion agrega
-pistas remotas.
+v1 only plays local files (`file://`). This update adds remote tracks.
 
-- Fuentes `http(s)://` que apuntan a archivos de audio. Antes de empezar se
-  define si se suma algun otro tipo de fuente.
-- Cliente HTTP con TLS sincronico (por ejemplo `ureq` con `rustls`), en un
-  thread propio, sin async.
-- Descarga a `$XDG_CACHE_HOME/ketai/` con limite de tamano; la reproduccion
-  arranca mientras descarga (`status: "buffering"`).
-- Evento `download.progress` (topico `cache`), ya reservado en el protocolo.
-- Letras y caratulas para pistas remotas.
+- `http(s)://` sources pointing to audio files. Before starting, it is decided
+  whether any other kind of source is added.
+- A synchronous HTTP client with TLS (for example `ureq` with `rustls`), on
+  its own thread, no async.
+- Download to `$XDG_CACHE_HOME/ketai/` with a size limit; playback starts
+  while downloading (`status: "buffering"`).
+- The `download.progress` event (topic `cache`), already reserved in the
+  protocol.
+- Lyrics and covers for remote tracks.
 
-### Instalacion con gestores de paquetes
+### Installation with package managers
 
-Hoy ketai se compila desde el codigo fuente. Esta actualizacion lo deja
-instalable con un comando, con el daemon y la TUI juntos.
+Today ketai is built from source. This update makes it installable with one
+command, with the daemon and the TUI together.
 
-- Paquetes para los gestores mas usados en Linux (por ejemplo un PKGBUILD
-  para el AUR, y paquetes para otras distribuciones a definir), con los
-  binarios, las unidades de systemd de usuario, la documentacion y los
-  ejemplos de configuracion.
-- Al instalar, el servicio queda listo para activarse
+- Packages for the most used Linux package managers (for example a PKGBUILD
+  for the AUR, and packages for other distributions to be decided), with the
+  binaries, the systemd user units, the documentation and the configuration
+  examples.
+- After installing, the service is ready to be enabled
   (`systemctl --user enable --now ketaid.socket`).
-- Binarios precompilados en cada release, para quien no quiera compilar.
-- Antes de empezar se revisa la licencia de FDK AAC para distribuir binarios
-  (ver [formatos.md](formatos.md#licencias)).
+- Prebuilt binaries for every release, for those who do not want to build.
+- Before starting, the FDK AAC license is reviewed for distributing binaries
+  (see [formats.md](formats.md#licenses)).
 
-### Varios temas
+### Multiple themes
 
-La v1 tiene un solo tema activo: la seccion `[theme]` de `config.toml`. Esta
-actualizacion permite tener varios guardados y elegir cual usar.
+v1 has a single active theme: the `[theme]` section of `config.toml`. This
+update allows keeping several and choosing which one to use.
 
-- Temas en archivos propios (por ejemplo `~/.config/ketai/themes/<nombre>.toml`),
-  con las mismas claves que `[theme]`.
-- Elegir el tema activo desde `config.toml` y desde la TUI (por ejemplo, en
-  el popup de acciones), con recarga en vivo.
-- Temas incluidos con ketai y posibilidad de compartirlos.
-- Antes de empezar se define como conviven un tema elegido y `cover_color`
-  (por ejemplo, un tema que diga que colores toma de la caratula).
+- Themes in their own files (for example
+  `~/.config/ketai/themes/<name>.toml`), with the same keys as `[theme]`.
+- Choosing the active theme from `config.toml` and from the TUI (for example,
+  in the actions popup), with live reload.
+- Themes bundled with ketai and a way to share them.
+- Before starting, it is decided how a chosen theme and `cover_color` live
+  together (for example, a theme that says which colors it takes from the
+  cover).
 
-### Varios idiomas en la interfaz
+### Multiple interface languages
 
-La v1 muestra la interfaz en espanol (con algunos textos en ingles, como
-"Default" y "No device" en la salida de audio). Esta actualizacion permite
-elegir el idioma.
+v1 shows the interface in Spanish (with a few texts in English, such as
+"Default" and "No device" for the audio output). This update allows choosing
+the language.
 
-- Todos los textos de la TUI salen de un catalogo por idioma, en vez de
-  estar escritos en el codigo.
-- El idioma se elige en `config.toml` (por ejemplo `[ui] language = "en"`)
-  o se toma del sistema (`LANG`), con recarga en vivo.
-- Idiomas iniciales: espanol e ingles. Agregar uno nuevo es sumar un
-  catalogo.
-- Antes de empezar se define que pasa con los mensajes del daemon (errores
-  del protocolo): hoy estan en ingles y los clientes podrian traducirlos por
-  codigo de error.
+- Every TUI text comes from a catalog per language, instead of being written
+  in the code.
+- The language is chosen in `config.toml` (for example
+  `[ui] language = "en"`) or taken from the system (`LANG`), with live
+  reload.
+- Initial languages: Spanish and English. Adding a new one is adding a
+  catalog.
+- Before starting, it is decided what happens with the daemon's messages
+  (protocol errors): today they are in English and clients could translate
+  them by error code.
 
-### Romanizacion automatica de letras
+### Automatic lyrics romanization
 
-Generar la letra romanizada cuando el origen no la trae.
+Generate romanized lyrics when the source does not include them.
 
-- **Coreano** (hangul): se resuelve con reglas, sin diccionario. El hangul es
-  silabico y la romanizacion revisada se aplica por bloques.
-- **Cirilico** (ruso y otros): se resuelve con tablas de transliteracion por
-  idioma.
-- **Japones**: necesita diccionario para leer los kanji (por ejemplo MeCab o
-  kakasi). Los kana se resuelven con tablas.
-- **Chino**: necesita diccionario de pinyin, y los caracteres con varias
-  lecturas requieren contexto.
+- **Korean** (hangul): solved with rules, no dictionary. Hangul is syllabic
+  and the revised romanization is applied per block.
+- **Cyrillic** (Russian and others): solved with transliteration tables per
+  language.
+- **Japanese**: needs a dictionary to read kanji (for example MeCab or
+  kakasi). Kana are solved with tables.
+- **Chinese**: needs a pinyin dictionary, and characters with several
+  readings need context.
 
-Impacto en el protocolo:
+Impact on the protocol:
 
-- Las capas generadas aparecen en `lyrics.layers` con `origin: "generated"`.
+- Generated layers show up in `lyrics.layers` with `origin: "generated"`.
+- Being generated text, it must be possible to turn it off per language in
+  the configuration.
 
-- Por ser texto generado, debe poder desactivarse por idioma en la
-  configuracion.
+### Dictionary-based word timing estimation
 
-### Estimacion de tiempos por palabra basada en diccionario
-
-Reemplazar la estimacion proporcional por caracteres (`word-estimated`) por
-una estimacion fonetica, sin depender de IA, para obtener un resultado
-inicial bastante cercano.
+Replace the proportional-by-characters estimation (`word-estimated`) with a
+phonetic estimation, without depending on AI, to get a fairly close first
+result.
 
 Idea:
 
-- Con los diccionarios de la romanizacion automatica, segmentar cada linea
-  en unidades foneticas (moras en japones, silabas en coreano y chino,
-  silabas en idiomas con alfabeto latino o cirilico).
-- Asignar duracion a cada unidad con un modelo simple por idioma. Las
-  vocales sostenidas concentran la mayor parte del tiempo de una linea; si se
-  conocen la duracion de la linea y la de los sostenidos, el resto se reparte
-  entre las unidades cortas.
-- La hipotesis inicial (a validar con letras reales sincronizadas por
-  palabra) es que este reparto acierta en la gran mayoria de los casos para
-  romanizaciones.
+- With the dictionaries of the automatic romanization, split each line into
+  phonetic units (morae in Japanese, syllables in Korean and Chinese,
+  syllables in languages with a Latin or Cyrillic alphabet).
+- Give each unit a duration with a simple model per language. Sustained
+  vowels take most of a line's time; if the line's duration and the
+  sustained ones are known, the rest is spread across the short units.
+- The initial hypothesis (to be validated with real word-synced lyrics) is
+  that this split gets it right in the vast majority of cases for
+  romanizations.
 
-Fases:
+Phases:
 
-1. **Romanizacion**: estimar los tiempos de una capa romanizada a partir de
-   la duracion de cada linea. Es el caso con menor margen de error porque la
-   romanizacion sigue la fonetica del original.
-2. **Traduccion**: mas pasos y mas margen de error. Una aproximacion posible
-   es trabajar con pares de romanizacion entre idiomas para alinear segmentos
-   antes de repartir tiempos.
+1. **Romanization**: estimate the timing of a romanized layer from each
+   line's duration. It is the case with the smallest margin of error because
+   the romanization follows the original's phonetics.
+2. **Translation**: more steps and a larger margin of error. One possible
+   approach is to work with romanization pairs between languages to align
+   segments before spreading the timing.
 
-Impacto en el protocolo:
+Impact on the protocol:
 
-- Nuevo nivel de tiempo, por ejemplo `word-phonetic`, distinto de
-  `word-estimated`, para que el cliente sepa que metodo se uso.
-- Medir la precision contra un conjunto de letras con tiempos reales antes de
-  activarla por defecto.
+- A new timing level, for example `word-phonetic`, distinct from
+  `word-estimated`, so the client knows which method was used.
+- Measure the precision against a set of lyrics with real timing before
+  turning it on by default.

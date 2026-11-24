@@ -1,6 +1,6 @@
-# Todos los atajos globales con su valor por defecto.
-# Copia esta seccion a ~/.config/ketai/config.toml y cambia lo que quieras.
-# Ver examples/keys/README.md.
+# Every global shortcut with its default value.
+# Copy this section to ~/.config/ketai/config.toml and change what you want.
+# See examples/keys/README.md.
 
 [keys]
 toggle = "space"

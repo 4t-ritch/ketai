@@ -1,33 +1,39 @@
+**English** | [Espanol](es/mpris.md)
+
 # MPRIS 2
 
-El daemon se publica en el bus de sesion de D-Bus como
-`org.mpris.MediaPlayer2.ketai`, en el objeto `/org/mpris/MediaPlayer2`. Asi
-lo manejan playerctl, los modulos `mpris` de waybar y las teclas multimedia
-del escritorio, sin hablar el protocolo de ketai.
+The daemon publishes itself on the D-Bus session bus as
+`org.mpris.MediaPlayer2.ketai`, at the object `/org/mpris/MediaPlayer2`. That
+way playerctl, waybar's `mpris` modules and the desktop's media keys control
+it without speaking ketai's protocol.
 
-Si el nombre ya esta tomado en el bus, se usa
-`org.mpris.MediaPlayer2.ketai.instance<pid>`, como pide la especificacion.
-Si no hay bus de sesion, el daemon lo registra y sigue funcionando sin MPRIS.
+If the name is already taken on the bus,
+`org.mpris.MediaPlayer2.ketai.instance<pid>` is used, as the specification
+requires. If there is no session bus, the daemon logs it and keeps working
+without MPRIS.
 
-## Como funciona
+## How it works
 
-- Un thread propio es el dueno de la conexion D-Bus (libdbus, sin async).
-- Las propiedades se responden desde una copia del estado que el loop
-  central le manda despues de cada cambio. Leer una propiedad nunca espera
-  al loop central.
-- Los metodos y las propiedades escribibles se traducen a peticiones del
-  protocolo y viajan al loop central como cualquier otra peticion.
-- Los pedidos de MPRIS tienen el mismo tope que un cliente: hasta 64 sin
-  atender. Si un programa inunda el bus de llamadas, el thread de MPRIS
-  espera al loop central en vez de llenar su cola. No se pierde ninguno.
-- Al escribir `Volume`, `LoopStatus` o `Shuffle`, la copia se actualiza al
-  instante: una lectura inmediata ya ve el valor nuevo.
-- Los cambios se anuncian con `PropertiesChanged`. `Position` no se anuncia:
-  un salto de posicion (seek) emite `Seeked`, como pide la especificacion.
+- A dedicated thread owns the D-Bus connection (libdbus, no async).
+- Properties are answered from a copy of the state that the main loop sends
+  it after every change. Reading a property never waits for the main loop.
+- Methods and writable properties are translated into protocol requests and
+  travel to the main loop like any other request.
+- MPRIS requests have the same limit as a client: up to 64 pending. If a
+  program floods the bus with calls, the MPRIS thread waits for the main loop
+  instead of filling its queue. None is lost.
+- When `Volume`, `LoopStatus` or `Shuffle` is written, the copy is updated
+  immediately: a read right after already sees the new value. A state that
+  arrives later but belongs to an earlier change does not undo it; the
+  written value is kept until the daemon confirms it (or for 2 seconds, if
+  the daemon rejected it).
+- Changes are announced with `PropertiesChanged`. `Position` is not
+  announced: a jump in position (seek) emits `Seeked`, as the specification
+  requires.
 
-## Metodos
+## Methods
 
-| MPRIS | Peticion del protocolo |
+| MPRIS | Protocol request |
 |---|---|
 | `Play` | `player.play` |
 | `Pause` | `player.pause` |
@@ -35,35 +41,35 @@ Si no hay bus de sesion, el daemon lo registra y sigue funcionando sin MPRIS.
 | `Stop` | `player.stop` |
 | `Next` | `player.next` |
 | `Previous` | `player.previous` |
-| `Seek(offset_us)` | `player.seek_relative`; si pasa el final de la pista actua como `Next` (sin efecto si no hay siguiente) |
-| `SetPosition(track, pos_us)` | `player.seek`; se ignora si `track` no es la pista actual o la posicion esta fuera de rango |
-| `OpenUri(uri)` | `queue.add` (solo `file://`) |
-| `Raise` | no hace nada (`CanRaise` es false) |
-| `Quit` | error (`CanQuit` es false): el daemon no se cierra desde MPRIS |
+| `Seek(offset_us)` | `player.seek_relative`; past the end of the track it acts as `Next` (no effect if there is no next track) |
+| `SetPosition(track, pos_us)` | `player.seek`; ignored if `track` is not the current track or the position is out of range |
+| `OpenUri(uri)` | `queue.add` (only `file://`) |
+| `Raise` | does nothing (`CanRaise` is false) |
+| `Quit` | error (`CanQuit` is false): the daemon is not closed from MPRIS |
 
-## Propiedades
+## Properties
 
-| MPRIS | Origen |
+| MPRIS | Source |
 |---|---|
-| `PlaybackStatus` | `status`: `Playing`, `Paused` o `Stopped` |
+| `PlaybackStatus` | `status`: `Playing`, `Paused` or `Stopped` |
 | `LoopStatus` | `repeat`: `off` = `None`, `track` = `Track`, `queue` = `Playlist` |
 | `Shuffle` | `shuffle` |
-| `Volume` | `volume`, o 0 si `muted`. Al escribir se limita a 0..1 (ketai no amplifica) y un valor mayor a 0 quita el mute |
-| `Position` | ultima posicion conocida mas el tiempo transcurrido si esta sonando, en microsegundos |
+| `Volume` | `volume`, or 0 if `muted`. On write it is clamped to 0..1 (ketai does not amplify) and a value above 0 unmutes |
+| `Position` | last known position plus the time elapsed if playing, in microseconds |
 | `Metadata` | `mpris:trackid` (`/org/ketai/track/<track_id>`), `xesam:url`, `mpris:length`, `xesam:title`, `xesam:artist`, `xesam:album` |
-| `CanPlay`, `CanPause` | hay pistas en la cola |
-| `CanSeek` | la pista actual tiene duracion conocida |
-| `CanGoNext` | hay pista siguiente o la repeticion esta activa |
-| `CanGoPrevious` | hay pista actual |
-| `CanControl` | siempre true |
-| `Rate`, `MinimumRate`, `MaximumRate` | 1.0 (no hay cambio de velocidad) |
+| `CanPlay`, `CanPause` | there are tracks in the queue |
+| `CanSeek` | the current track has a known duration |
+| `CanGoNext` | there is a next track or repeat is on |
+| `CanGoPrevious` | there is a current track |
+| `CanControl` | always true |
+| `Rate`, `MinimumRate`, `MaximumRate` | 1.0 (no speed change) |
 
-`HasTrackList` es false: la interfaz `TrackList` no se implementa. La cola se
-maneja con el protocolo de ketai.
+`HasTrackList` is false: the `TrackList` interface is not implemented. The
+queue is managed with ketai's protocol.
 
-## Pruebas
+## Tests
 
-Los tests de conformidad (`crates/ketaid/tests/mpris.rs`) levantan un
-`dbus-daemon` propio por test. El resto de la suite apunta
-`DBUS_SESSION_BUS_ADDRESS` a una ruta inexistente: ningun daemon de test
-aparece en el bus del usuario.
+The conformance tests (`crates/ketaid/tests/mpris.rs`) start their own
+`dbus-daemon` per test. The rest of the suite points
+`DBUS_SESSION_BUS_ADDRESS` at a path that does not exist: no test daemon
+shows up on the user's bus.

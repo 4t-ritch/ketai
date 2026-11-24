@@ -1,5 +1,5 @@
-//! Busqueda y arranque del servicio: docs/servicio.md, seccion "Clientes:
-//! buscar y levantar el servicio". systemd se reemplaza por un falso.
+//! Busqueda y arranque del servicio: docs/service.md, seccion "Clients".
+//! systemd se reemplaza por un falso.
 
 use ketai_tui::{
   app::{App, Screen},

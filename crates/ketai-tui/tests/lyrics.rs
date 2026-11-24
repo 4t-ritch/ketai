@@ -269,3 +269,36 @@ fn the_header_says_which_mode_is_on() {
   app.cell_px = None;
   assert!(text(&render(&app)).contains("modo: karaoke (no disponible) [m]"));
 }
+
+#[test]
+fn saving_the_config_keeps_the_mode_chosen_with_m_unless_mode_changed() {
+  use ketai_tui::config::{Config, LyricsMode};
+  let mut app = karaoke_ready(4200);
+  app.config = Config::parse("[lyrics]\nsize = 3").unwrap();
+  app.apply_lyrics_config();
+  assert_eq!(app.lyrics_mode, LyricsMode::Classic, "first load takes the file's mode");
+  app.on_key(key(KeyCode::Char('m')));
+  // Se guarda otro tamano: el modo elegido con `m` se mantiene y el tamano cambia.
+  app.config = Config::parse("[lyrics]\nsize = 5").unwrap();
+  app.apply_lyrics_config();
+  assert_eq!(app.lyrics_mode, LyricsMode::Karaoke);
+  render(&app);
+  assert_eq!(ui::take_karaoke().unwrap().area.height, 5, "the new size applies live");
+  // Cambiar `mode` en el archivo si lo aplica.
+  app.config = Config::parse("[lyrics]\nmode = \"karaoke\"\nsize = 5").unwrap();
+  app.apply_lyrics_config();
+  app.on_key(key(KeyCode::Char('m')));
+  assert_eq!(app.lyrics_mode, LyricsMode::Classic);
+  app.config = Config::parse("[lyrics]\nmode = \"karaoke\"\nsize = 4").unwrap();
+  app.apply_lyrics_config();
+  assert_eq!(app.lyrics_mode, LyricsMode::Classic, "mode did not change in the file");
+  app.config = Config::parse("[lyrics]\nmode = \"classic\"\nsize = 4").unwrap();
+  app.apply_lyrics_config();
+  app.on_key(key(KeyCode::Char('m')));
+  app.config = Config::parse("[lyrics]\nmode = \"karaoke\"\nsize = 4").unwrap();
+  app.apply_lyrics_config();
+  assert_eq!(app.lyrics_mode, LyricsMode::Karaoke);
+  app.config = Config::parse("[lyrics]\nmode = \"classic\"\nsize = 5").unwrap();
+  app.apply_lyrics_config();
+  assert_eq!(app.lyrics_mode, LyricsMode::Classic);
+}

@@ -267,6 +267,8 @@ pub struct App {
   /// Modo de la vista de Letras (empieza como dice `[lyrics] mode`; `m`
   /// lo cambia).
   pub lyrics_mode: crate::config::LyricsMode,
+  /// Ultimo `mode` leido del archivo.
+  pub lyrics_mode_file: Option<crate::config::LyricsMode>,
   /// Tamano de una celda en pixeles, si la terminal lo informa (sin el, el
   /// modo karaoke no puede dibujar y se ve el clasico).
   pub cell_px: Option<(u16, u16)>,
@@ -432,6 +434,7 @@ impl Default for App {
       images: false,
       covers: Default::default(),
       lyrics_mode: Default::default(),
+      lyrics_mode_file: None,
       cell_px: None,
       karaoke: crate::karaoke::Karaoke::new(KARAOKE_IDS, None),
       karaoke_fonts: false,
@@ -1414,8 +1417,13 @@ impl App {
   }
 
   /// Aplica `[lyrics]` de la configuracion (al iniciar y al recargarla).
+  /// El modo del archivo se aplica al iniciar y cuando cambia `mode`; si se
+  /// guarda otra cosa (por ejemplo `size`), queda el elegido con `m`.
   pub fn apply_lyrics_config(&mut self) {
-    self.lyrics_mode = self.config.lyrics.mode;
+    if self.lyrics_mode_file != Some(self.config.lyrics.mode) {
+      self.lyrics_mode = self.config.lyrics.mode;
+      self.lyrics_mode_file = Some(self.config.lyrics.mode);
+    }
     self.karaoke.set_font(self.config.lyrics.font.clone());
   }
 

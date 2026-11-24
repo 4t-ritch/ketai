@@ -128,6 +128,9 @@ size = 4
   pintando de a poco, por dentro de las letras, a medida que se canta cada
   palabra (como los karaokes de video). `m` en la vista de Letras cambia
   entre los dos modos sin tocar el archivo.
+- **Recarga en vivo**: al guardar el archivo, `size` y `font` se aplican al
+  momento. `mode` se aplica cuando cambia en el archivo; si se guarda otra
+  cosa, queda el modo elegido con `m`.
 - **`size`** es el alto, en filas, de la linea que se canta en modo
   karaoke. Mas grande se lee mejor de lejos. Una linea que no entra a lo
   ancho se dibuja mas chica.

@@ -113,7 +113,7 @@ Como muestra la letra la vista de Letras.
 | Clave | Valores | Por defecto |
 |---|---|---|
 | `mode` | `"classic"` o `"karaoke"` | `"classic"` |
-| `size` | `2` a `8` (filas) | `2` |
+| `size` | `2` a `8` (filas) | `3` |
 | `font` | ruta a un archivo de fuente (`.ttf`, `.otf`, `.ttc`), absoluta o que empiece con `~/` | la elige fontconfig |
 
 ```toml

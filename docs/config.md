@@ -109,7 +109,7 @@ How the Lyrics view (*Letras*) shows the lyrics.
 | Key | Values | Default |
 |---|---|---|
 | `mode` | `"classic"` or `"karaoke"` | `"classic"` |
-| `size` | `2` to `8` (rows) | `2` |
+| `size` | `2` to `8` (rows) | `3` |
 | `font` | path to a font file (`.ttf`, `.otf`, `.ttc`), absolute or starting with `~/` | chosen by fontconfig |
 
 ```toml

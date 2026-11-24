@@ -43,12 +43,22 @@ pub fn parse(text: &str) -> Option<Doc> {
     let next = doc.lines.get(i + 1).and_then(|l| l.start_ms);
     doc.lines[i].end_ms = next;
   }
+  // Una marca sin texto ("[00:04.00]") es una pausa: ya cerro la linea
+  // anterior (su inicio es el final de esa) y no es una linea.
+  doc.lines.retain(|l| !l.text.is_empty() || l.words.is_some());
+  if doc.lines.is_empty() {
+    return None;
+  }
   for line in &mut doc.lines {
     if let Some(words) = &mut line.words
       && let Some(last) = words.last_mut()
-      && last.end_ms.is_none()
     {
-      last.end_ms = line.end_ms;
+      match last.end_ms {
+        // La marca final de A2 tambien cierra la linea: no queda encendida
+        // hasta la siguiente (igual que el `end` de TTML).
+        Some(end) => line.end_ms = Some(line.end_ms.map_or(end, |e| e.min(end))),
+        None => last.end_ms = line.end_ms,
+      }
     }
   }
   Some(doc)
@@ -85,6 +95,10 @@ fn parse_words(s: &str) -> (String, Option<Vec<Word>>) {
   }
   if let Some((start, text)) = current {
     push_word(&mut words, start, None, text);
+  }
+  // El espacio antes de la marca final no es parte de la ultima palabra.
+  if let Some(last) = words.last_mut() {
+    last.text.truncate(last.text.trim_end().len());
   }
   let clean = clean.trim().to_string();
   if words.is_empty() { (clean, None) } else { (clean, Some(words)) }
@@ -136,5 +150,27 @@ mod tests {
   fn negative_offset_and_non_lrc_text() {
     assert_eq!(parse("[offset:-300]\n[00:01.00]x").unwrap().offset_ms, -300);
     assert!(parse("just some lyrics\nwithout times").is_none());
+  }
+
+  #[test]
+  fn an_a2_closing_tag_ends_the_line_too() {
+    // La marca final de A2 dice cuando termina de cantarse la linea: la
+    // linea no queda encendida hasta que empieza la siguiente (como en TTML).
+    let doc = parse("[00:01.00]<00:01.00>a <00:01.50>b <00:02.00>\n[00:05.00]c").unwrap();
+    let line = &doc.lines[0];
+    assert_eq!(line.end_ms, Some(2000));
+    let words = line.words.as_ref().unwrap();
+    assert_eq!((words[1].end_ms, words[1].text.as_str()), (Some(2000), "b"), "no trailing space on the last word");
+    // Sin marca final, la linea dura hasta la siguiente, como antes.
+    let doc = parse("[00:01.00]<00:01.00>a <00:01.50>b\n[00:03.00]c").unwrap();
+    assert_eq!(doc.lines[0].end_ms, Some(3000));
+  }
+
+  #[test]
+  fn an_empty_time_tag_ends_the_previous_line_and_is_not_a_line() {
+    // "[00:04.00]" sin texto es una pausa: cierra la linea anterior.
+    let doc = parse("[00:01.00]a\n[00:04.00]\n[00:10.00]b\n[00:12.00]").unwrap();
+    let got: Vec<(&str, Option<u64>, Option<u64>)> = doc.lines.iter().map(|l| (l.text.as_str(), l.start_ms, l.end_ms)).collect();
+    assert_eq!(got, [("a", Some(1000), Some(4000)), ("b", Some(10000), Some(12000))]);
   }
 }

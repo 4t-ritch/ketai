@@ -32,6 +32,11 @@ pub fn draw(f: &mut RFrame, app: &App) {
   }
   if is_mini(area) {
     mini(f, app, area);
+    if app.keys_blocked() {
+      dim(f, t);
+      begin_overlay();
+      duplicate_keys(f, app);
+    }
     return;
   }
   header(f, app, Rect::new(area.x, area.y, area.width, 3));
@@ -61,6 +66,11 @@ pub fn draw(f: &mut RFrame, app: &App) {
     dim(f, t);
     begin_overlay();
     add_popup(f, app);
+  }
+  if app.keys_blocked() {
+    dim(f, t);
+    begin_overlay();
+    duplicate_keys(f, app);
   }
   config_notice(f, app);
   if let Some(n) = &app.notice {
@@ -159,6 +169,42 @@ fn popup_frame(f: &mut RFrame, t: &Theme, area: Rect) {
   use ratatui::widgets::{Block, BorderType, Clear, Widget};
   Clear.render(area, f.buffer_mut());
   Block::bordered().border_type(BorderType::Rounded).border_style(t.accent()).style(Style::new().bg(t.popup())).render(area, f.buffer_mut());
+}
+
+/// Bloqueo por teclas repetidas en `[keys]`: la lista completa, agrupada
+/// por tecla, con desplazamiento.
+fn duplicate_keys(f: &mut RFrame, app: &App) {
+  let t = &app.theme;
+  let area = f.area();
+  let mut lines: Vec<Line> = Vec::new();
+  for (key, actions) in app.config.keys.duplicates() {
+    lines.push(Line::from(vec![keycap(t, &key.label()), Span::styled(format!("  en {} acciones", actions.len()), t.dim())]));
+    for a in actions {
+      let desc = crate::keys::ACTIONS.iter().find(|(_, x, _, _)| *x == a).map(|(_, _, _, d)| *d).unwrap_or("");
+      lines.push(Line::from(vec![Span::styled(format!("    {}", crate::keys::name(a)), t.text()), Span::styled(format!("  {desc}"), t.faint())]));
+    }
+    lines.push(Line::raw(""));
+  }
+  let w = 70.min(area.width.saturating_sub(2));
+  let h = (lines.len() as u16 + 8).min(area.height.saturating_sub(2)).max(8.min(area.height));
+  let pop = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 2, w, h);
+  popup_frame(f, t, pop);
+  modal(area, pop);
+  let buf = f.buffer_mut();
+  let x = pop.x + 3;
+  let inner = w.saturating_sub(6) as usize;
+  putn(buf, x, pop.y + 1, "Teclas repetidas en config.toml", inner, t.title());
+  putn(buf, x, pop.y + 2, "Cada tecla tiene que ser de una sola acción.", inner, t.dim());
+  putn(buf, x, pop.y + 3, "Corregí [keys] y guardá: ketai se desbloquea solo.", inner, t.dim());
+  // La lista, desde `dup_scroll` (acotado a lo que hay).
+  let rows = h.saturating_sub(7) as usize;
+  let max = lines.len().saturating_sub(rows);
+  let from = (app.dup_scroll as usize).min(max);
+  for (k, line) in lines.iter().skip(from).take(rows).enumerate() {
+    put_line(buf, x, pop.y + 5 + k as u16, line, inner as u16);
+  }
+  let more = if max > 0 { format!("{}/{}   ↑ ↓ desplazar   ", from + 1, max + 1) } else { String::new() };
+  putn(buf, x, pop.y + h - 2, format!("{more}q salir"), inner, t.faint());
 }
 
 /// Tipo de salida a partir del nombre del sink.

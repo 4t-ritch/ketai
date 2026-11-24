@@ -96,3 +96,22 @@ fn lyrics_keys_only_conflict_among_themselves() {
   assert_eq!(c.warnings.len(), 1, "{:?}", c.warnings);
   assert!(c.warnings[0].contains("lyrics_layer") && c.warnings[0].contains("lyrics_translation"), "{:?}", c.warnings);
 }
+
+#[test]
+fn duplicates_are_grouped_by_key_within_the_same_scope() {
+  use ketai_tui::config::Config;
+  use ketai_tui::keys::name;
+  assert!(Config::parse("").unwrap().keys.duplicates().is_empty(), "the defaults have none (m in Lyrics is not one)");
+  let c = Config::parse("[keys]\nnext = \"x\"\nprevious = \"x\"\nshuffle = \"x\"\nrepeat = \"z\"\nmute = \"z\"\nlyrics_layer = \"t\"").unwrap();
+  let got: Vec<(String, Vec<&str>)> = c.keys.duplicates().into_iter().map(|(k, a)| (k.label(), a.into_iter().map(name).collect())).collect();
+  // Una tecla en tres acciones es un solo grupo; las acciones van en el
+  // orden de la tabla.
+  assert_eq!(
+    got,
+    vec![
+      ("x".to_string(), vec!["next", "previous", "shuffle"]),
+      ("z".to_string(), vec!["mute", "repeat"]),
+      ("t".to_string(), vec!["lyrics_layer", "lyrics_translation"]),
+    ]
+  );
+}

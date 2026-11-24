@@ -472,3 +472,42 @@ fn lyrics_keys_come_from_the_config_and_the_header_shows_them_live() {
   assert_eq!(app.lyrics_mode, LyricsMode::Classic);
   assert_eq!(methods(&cmds), ["player.set_muted"]);
 }
+
+#[test]
+fn duplicated_keys_block_the_app_with_a_grouped_scrollable_list() {
+  use ketai_tui::config::Config;
+  let mut app = loaded(4200);
+  let bad = Config::parse("[keys]\nnext = \"x\"\nprevious = \"x\"\nshuffle = \"z\"\nrepeat = \"z\"\nfavorite = \"y\"\nfolders = \"y\"").unwrap();
+  app.config = bad.clone();
+  assert!(app.keys_blocked());
+  // Nada responde salvo desplazar y salir.
+  assert!(app.on_key(key(KeyCode::Char('x'))).is_empty());
+  assert!(app.on_key(key(KeyCode::Char(' '))).is_empty());
+  assert!(app.on_key(key(KeyCode::Char('2'))).is_empty());
+  assert_eq!(app.tab, Tab::NowPlaying);
+  // La lista: cada tecla con sus acciones agrupadas.
+  let mut term = Terminal::new(TestBackend::new(100, 16)).unwrap();
+  term.draw(|f| ui::draw(f, &app)).unwrap();
+  let t = text(term.backend().buffer());
+  for want in ["Teclas repetidas en config.toml", "Corregí [keys] y guardá: ketai se desbloquea solo.", " x   en 2 acciones", "next", "previous", " z   en 2 acciones", "↑ ↓ desplazar", "q salir"] {
+    assert!(t.contains(want), "missing {want:?}\n{t}");
+  }
+  // En 16 filas no entra todo: se desplaza hasta el ultimo grupo.
+  assert!(!t.contains(" y   en 2 acciones"), "{t}");
+  for _ in 0..20 {
+    app.on_key(key(KeyCode::Down));
+  }
+  term.draw(|f| ui::draw(f, &app)).unwrap();
+  let t = text(term.backend().buffer());
+  assert!(t.contains(" y   en 2 acciones") && t.contains("folders"), "{t}");
+  // Los clics no hacen nada (la rueda desplaza).
+  app.hits = ui::take_hits();
+  // Al guardar la configuracion corregida, se desbloquea.
+  app.config = Config::parse("[keys]\nnext = \"x\"").unwrap();
+  assert!(!app.keys_blocked());
+  assert_eq!(methods(&app.on_key(key(KeyCode::Char('x')))), ["player.next"]);
+  // `q` sale aun bloqueada.
+  app.config = bad;
+  app.on_key(key(KeyCode::Char('q')));
+  assert!(app.quit);
+}

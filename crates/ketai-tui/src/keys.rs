@@ -237,6 +237,24 @@ impl Keymap {
     self.bindings.iter().find(|(a, _)| *a == action).map(|(_, k)| k.as_slice()).unwrap_or(&[])
   }
 
+  /// Teclas en dos o mas acciones del mismo alcance (globales entre si, de
+  /// Letras entre si), agrupadas por tecla, en el orden de las acciones.
+  /// Una tecla de Letras que repite una global no cuenta: en Letras manda
+  /// la de Letras. Con alguna, la TUI se bloquea hasta corregirlas.
+  pub fn duplicates(&self) -> Vec<(Key, Vec<Action>)> {
+    let mut groups: Vec<(Key, bool, Vec<Action>)> = Vec::new();
+    for (action, keys) in &self.bindings {
+      for k in keys {
+        match groups.iter_mut().find(|(g, lyrics, _)| g == k && *lyrics == action.is_lyrics()) {
+          Some((_, _, actions)) if !actions.contains(action) => actions.push(*action),
+          Some(_) => {}
+          None => groups.push((*k, action.is_lyrics(), vec![*action])),
+        }
+      }
+    }
+    groups.into_iter().filter(|(_, _, a)| a.len() > 1).map(|(k, _, a)| (k, a)).collect()
+  }
+
   /// Teclas repetidas entre acciones, para avisar.
   pub fn conflicts(&self) -> Vec<String> {
     let mut out = Vec::new();

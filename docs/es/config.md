@@ -107,11 +107,17 @@ Formato de una tecla: un caracter (`"n"`, `"P"`, `"+"`), o un nombre
 - `Ctrl+C` siempre sale, aunque se configure otra cosa.
 - Mientras se escribe en Buscar, las teclas sin Ctrl ni Alt son texto.
 - Una tecla invalida es un error (se muestra y se mantiene la configuracion
-  anterior); una accion desconocida o una tecla en dos acciones se avisa.
+  anterior); una accion desconocida se avisa.
+- **Una tecla en dos o mas acciones bloquea la TUI**, al iniciar o al
+  guardar el archivo: una ventana muestra todas las teclas repetidas con sus
+  acciones, agrupadas por tecla (se desplaza con las flechas, `j` / `k` o la
+  rueda). Solo se puede desplazar y salir (`q`, `Ctrl+C`); la musica sigue
+  sonando. Al corregir `[keys]` y guardar, la TUI se desbloquea sola, sin
+  reiniciar.
 - Las acciones `lyrics_*` solo valen en la vista de Letras, y ahi tienen
   prioridad sobre las globales: por defecto `m` silencia en todas las vistas
   menos en Letras, donde cambia el modo. Eso no se avisa como conflicto; dos
-  acciones de Letras con la misma tecla, si.
+  acciones de Letras con la misma tecla, si (y bloquean la TUI, ver abajo).
 - Las teclas que se ven en pantalla (por ejemplo las de la cabecera de Letras
   y las del volumen en Reproduciendo) son siempre las configuradas: si se
   cambia una tecla, la pantalla muestra la nueva.

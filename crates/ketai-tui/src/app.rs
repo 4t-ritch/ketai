@@ -271,6 +271,8 @@ pub struct App {
   pub lyrics_mode: crate::config::LyricsMode,
   /// `config.toml`, donde `m` guarda el modo (`None` en tests: no se escribe).
   pub config_path: Option<std::path::PathBuf>,
+  /// Desplazamiento de la lista de teclas repetidas.
+  pub dup_scroll: u16,
   /// Ultimo `mode` leido del archivo.
   pub lyrics_mode_file: Option<crate::config::LyricsMode>,
   /// Tamano de una celda en pixeles, si la terminal lo informa (sin el, el
@@ -439,6 +441,7 @@ impl Default for App {
       covers: Default::default(),
       lyrics_mode: Default::default(),
       lyrics_mode_file: None,
+      dup_scroll: 0,
       config_path: None,
       cell_px: None,
       karaoke: crate::karaoke::Karaoke::new(KARAOKE_IDS, None),
@@ -468,6 +471,9 @@ impl App {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
       self.quit = true;
       return Vec::new();
+    }
+    if self.keys_blocked() {
+      return self.blocked_key(key);
     }
     if self.folders_open {
       return self.folders_key(key);
@@ -519,6 +525,15 @@ impl App {
   /// Evento del mouse. Usa lo registrado en el ultimo cuadro: lo de arriba
   /// (un popup) gana sobre lo de atras.
   pub fn on_mouse(&mut self, ev: MouseEvent, now: Instant) -> Vec<Command> {
+    // Con teclas repetidas solo se desplaza la lista.
+    if self.keys_blocked() {
+      match ev.kind {
+        MouseEventKind::ScrollDown => self.dup_scroll = self.dup_scroll.saturating_add(1),
+        MouseEventKind::ScrollUp => self.dup_scroll = self.dup_scroll.saturating_sub(1),
+        _ => {}
+      }
+      return Vec::new();
+    }
     let at = |r: &Rect| ev.column >= r.x && ev.column < r.x + r.width && ev.row >= r.y && ev.row < r.y + r.height;
     let hit = self.hits.iter().rev().find(|(r, _)| at(r)).map(|(r, h)| (*r, *h));
     let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
@@ -1449,7 +1464,28 @@ impl App {
 
   /// Hay un popup abierto (tapa parte de la vista).
   pub fn popup_open(&self) -> bool {
-    self.palette_open || self.devices_open || self.folders_open || self.add_open
+    self.palette_open || self.devices_open || self.folders_open || self.add_open || self.keys_blocked()
+  }
+
+  /// Hay teclas repetidas en `[keys]`: la TUI no se puede usar hasta
+  /// corregirlas (se desbloquea sola al guardar el archivo arreglado).
+  pub fn keys_blocked(&self) -> bool {
+    !self.config.keys.duplicates().is_empty()
+  }
+
+  /// Teclas con el bloqueo de teclas repetidas: solo desplazar la lista y
+  /// salir.
+  fn blocked_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    match key.code {
+      KeyCode::Char('q') => self.quit = true,
+      KeyCode::Down | KeyCode::Char('j') => self.dup_scroll = self.dup_scroll.saturating_add(1),
+      KeyCode::Up | KeyCode::Char('k') => self.dup_scroll = self.dup_scroll.saturating_sub(1),
+      KeyCode::PageDown => self.dup_scroll = self.dup_scroll.saturating_add(10),
+      KeyCode::PageUp => self.dup_scroll = self.dup_scroll.saturating_sub(10),
+      KeyCode::Home => self.dup_scroll = 0,
+      _ => {}
+    }
+    Vec::new()
   }
 
   /// Aplica `[lyrics]` de la configuracion (al iniciar y al recargarla).

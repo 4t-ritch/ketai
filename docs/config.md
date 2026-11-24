@@ -103,11 +103,16 @@ modifiers in front (`"ctrl+p"`, `"shift+tab"`).
 - `Ctrl+C` always quits, whatever else is configured.
 - While typing in Search, keys without Ctrl or Alt are text.
 - An invalid key is an error (it is shown and the previous configuration is
-  kept); an unknown action or a key in two actions is reported.
+  kept); an unknown action is reported.
+- **A key in two or more actions blocks the TUI**, at start or when the
+  file is saved: a window lists every repeated key with its actions, grouped
+  by key (it scrolls with the arrows, `j` / `k` or the wheel). Only scrolling
+  and quitting (`q`, `Ctrl+C`) work; the music keeps playing. Fix `[keys]`
+  and save: the TUI unlocks by itself, without restarting.
 - The `lyrics_*` actions only work in the Lyrics view, and there they take
   priority over the global ones: by default `m` mutes everywhere except in
   Lyrics, where it changes the mode. That is not reported as a conflict; two
-  Lyrics actions with the same key are.
+  Lyrics actions with the same key are (and block the TUI, see below).
 - The keys shown on screen (for example the ones in the Lyrics header and
   next to the volume in Now Playing) are always the configured ones: change
   a key and the screen shows the new one.

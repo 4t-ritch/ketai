@@ -9,9 +9,12 @@
 ![Terminal](https://img.shields.io/badge/terminal-protocolo%20de%20graficos%20kitty-6E56CF?style=flat-square)
 ![Licencia](https://img.shields.io/badge/licencia-MIT-3DA639?style=flat-square)
 
-<img src="docs/assets/demo.gif" alt="ketai en uso: reproduccion, letras, biblioteca, busqueda y popups" width="900">
+</div>
 
-<sub>Video en mejor calidad: <a href="docs/assets/demo.mp4">docs/assets/demo.mp4</a>. Las canciones, caratulas y letras del video son de demostracion (audio generado).</sub>
+https://github.com/user-attachments/assets/7e0117d7-3690-4c25-8af7-e2c649105088
+
+<div align="center">
+<sub>Las canciones, caratulas y letras del video son de demostracion (audio generado). Tambien en el repo: <a href="docs/assets/demo.mp4">docs/assets/demo.mp4</a>.</sub>
 
 </div>
 

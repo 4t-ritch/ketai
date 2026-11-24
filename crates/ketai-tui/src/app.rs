@@ -1435,6 +1435,11 @@ impl App {
     self.lyrics_mode == crate::config::LyricsMode::Karaoke && self.images && self.cell_px.is_some() && self.karaoke_fonts
   }
 
+  /// Hay un popup abierto (tapa parte de la vista).
+  pub fn popup_open(&self) -> bool {
+    self.palette_open || self.devices_open || self.folders_open || self.add_open
+  }
+
   /// Aplica `[lyrics]` de la configuracion (al iniciar y al recargarla).
   /// El modo del archivo se aplica al iniciar y cuando cambia `mode`; si se
   /// guarda otra cosa (por ejemplo `size`), queda el elegido con `m`.

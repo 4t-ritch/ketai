@@ -697,20 +697,25 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
       let pos = app.position_ms();
       let cur = app.lyrics_line();
       // En modo karaoke la linea actual es una imagen de `size` filas.
-      let karaoke = app.karaoke_on() && cur.is_some();
+      // Con un popup abierto la linea va como texto: la imagen va encima del
+      // texto y lo taparia.
+      let karaoke_view = app.karaoke_on() && !app.popup_open();
+      let karaoke = karaoke_view && cur.is_some();
+      // Antes de la primera linea (la introduccion) el lugar del karaoke
+      // queda vacio y la primera espera debajo, como las que vienen.
+      let waiting = karaoke_view && cur.is_none();
       let size = app.config.lyrics.size;
-      // Antes de la primera linea ya se reserva el lugar de la imagen: asi
-      // nada se mueve cuando empieza a cantarse.
-      let big = if app.karaoke_on() { size + 2 } else { 4 };
+      let big = if karaoke_view { size + 2 } else { 4 };
       // La linea actual va en el centro de la vista; las otras, hacia
       // arriba y hacia abajo, las que entren.
       let anchor = cur.unwrap_or(0);
       let secondary = app.lyrics_secondary.iter().filter(|id| lines[anchor]["secondary"][id.as_str()].is_string()).count() as u16;
-      let block = if app.karaoke_on() { size } else { 1 } + secondary;
+      let block = if karaoke_view { size } else { 1 } + secondary;
       let bottom = lines_area.y + lines_area.height;
       let middle = lines_area.y + lines_area.height / 2;
-      // Una fila por encima del centro: abajo estan el espectro y el progreso.
-      let y_cur = middle.saturating_sub(block / 2 + 1).max(lines_area.y);
+      // Dos filas por encima del centro: abajo estan el espectro y el
+      // progreso, y la ultima linea no queda pegada al espectro.
+      let y_cur = middle.saturating_sub(block / 2 + 2).max(lines_area.y);
       let before = (app.config.lyrics.lines_before as usize).min(anchor);
       let after = app.config.lyrics.lines_after as usize;
       let mut slots: Vec<(usize, u16)> = Vec::new();
@@ -719,30 +724,28 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
           slots.push((anchor - k, y));
         }
       }
-      slots.push((anchor, y_cur));
-      for k in 1..=after {
-        let y = y_cur + big + 4 * (k as u16 - 1);
-        if anchor + k < lines.len() && y < bottom {
-          slots.push((anchor + k, y));
+      if !waiting {
+        slots.push((anchor, y_cur));
+      }
+      // Esperando, la primera linea ocupa el primer lugar de abajo.
+      let first_below = if waiting { 0 } else { anchor + 1 };
+      for k in 0..after {
+        let y = y_cur + big + 4 * k as u16;
+        if first_below + k < lines.len() && y < bottom {
+          slots.push((first_below + k, y));
         }
       }
       for (i, y) in slots {
         let line = &lines[i];
-        // En karaoke, la primera linea que espera va en la fila del medio de
-        // la imagen, donde despues queda su texto (sin salto al empezar).
-        let y = if app.karaoke_on() && cur.is_none() && i == anchor { y + size / 2 } else { y };
         let mut below = y + 1;
         let mut width: u16;
         if karaoke && cur == Some(i) {
           let next = lines.get(i + 1).and_then(|l| l["start_ms"].as_u64());
           let area = Rect::new(lines_area.x, y, lines_area.width, size.min(bottom.saturating_sub(y)));
+          // Las celdas quedan con el fondo del tema: la imagen va encima, y
+          // si por un instante falta (al cambiar de linea o de tamano) no se
+          // ve el fondo de la terminal.
           if let Some((words, times)) = crate::karaoke::line_words(line, next) {
-            let buf = f.buffer_mut();
-            for yy in area.y..area.y + area.height {
-              for xx in area.x..area.x + area.width {
-                buf[(xx, yy)].set_symbol(" ").set_bg(ratatui::style::Color::Reset);
-              }
-            }
             let colors = crate::karaoke::Colors { background: rgb(t.bg), unsung: rgb(t.upcoming()), sung: rgb(t.accent) };
             KARAOKE.with(|k| *k.borrow_mut() = Some(crate::karaoke::Slot { area, words, times, colors }));
           }

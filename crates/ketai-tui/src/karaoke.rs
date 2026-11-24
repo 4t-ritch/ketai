@@ -235,6 +235,12 @@ pub struct Karaoke {
   last_pos: Option<u64>,
 }
 
+/// Las imagenes van encima del texto (z >= 0), no debajo del fondo: asi las
+/// celdas de abajo mantienen el fondo del tema y un instante sin imagen no
+/// deja ver el fondo de la terminal (una barra gris).
+const Z_UNSUNG: i32 = 1;
+const Z_SUNG: i32 = 2;
+
 /// Correccion mas grande que esto es un salto de verdad (seek), no el
 /// ajuste de la posicion estimada.
 const MAX_CORRECTION_MS: u64 = 600;
@@ -305,7 +311,7 @@ impl Karaoke {
   /// solo el recorte de la cantada). `cell` es el tamano de una celda en
   /// pixeles.
   pub fn frame(&mut self, slot: Option<&Slot>, cell: (u16, u16), pos_ms: u64) -> String {
-    use crate::kitty::{Overlay, Z_BELOW_BACKGROUND};
+    use crate::kitty::Overlay;
     let mut out = String::new();
     let mut overlays = Vec::new();
     if let (Some(slot), Some(Some(fonts))) = (slot, &self.fonts) {
@@ -328,14 +334,14 @@ impl Karaoke {
       }
       if let Some(s) = &self.shown {
         let (x, y) = (slot.area.x, slot.area.y);
-        overlays.push(Overlay { image: self.unsung_id, x, y, crop: None, z: Z_BELOW_BACKGROUND - 1 });
+        overlays.push(Overlay { image: self.unsung_id, x, y, crop: None, z: Z_UNSUNG });
         let pos_ms = steady(self.last_pos, pos_ms);
         self.last_pos = Some(pos_ms);
         let edge = (fill_x(&slot.times, &s.xs, pos_ms).round() as u32).min(s.size.0);
         let cw = cell.0.max(1) as u32;
         let (full, rest) = (edge / cw, edge % cw);
         if full > 0 {
-          overlays.push(Overlay { image: self.sung_id, x, y, crop: Some((full * cw, s.size.1)), z: Z_BELOW_BACKGROUND });
+          overlays.push(Overlay { image: self.sung_id, x, y, crop: Some((full * cw, s.size.1)), z: Z_SUNG });
         }
         if rest > 0 {
           if self.edge_sent != Some((full, rest)) {
@@ -348,7 +354,7 @@ impl Karaoke {
             // Los datos nuevos borraron su ubicacion: se vuelve a poner.
             self.placed.retain(|o| o.image != self.edge_id);
           }
-          overlays.push(Overlay { image: self.edge_id, x: x + full as u16, y, crop: None, z: Z_BELOW_BACKGROUND });
+          overlays.push(Overlay { image: self.edge_id, x: x + full as u16, y, crop: None, z: Z_SUNG });
         }
       }
     }

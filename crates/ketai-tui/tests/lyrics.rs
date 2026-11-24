@@ -223,10 +223,11 @@ fn karaoke_leaves_the_current_line_to_the_image_and_keeps_the_rest_as_text() {
   assert_eq!(slot.words, ["just ", "to ", "feel ", "something"]);
   assert_eq!(slot.times, [(3000, 3500), (3500, 4000), (4000, 4800), (4800, 6000)]);
   assert_eq!((slot.area.width, slot.area.height), (160, 4), "the whole width, `size` rows");
-  // Sin texto en esas celdas y con el fondo de la terminal (lo tapa la imagen).
+  // Sin texto en esas celdas y con el fondo del tema (la imagen va encima;
+  // si falta un instante no se ve el fondo de la terminal).
   assert!(!t.contains("just to feel something"), "{t}");
   for y in slot.area.y..slot.area.y + slot.area.height {
-    assert_eq!(buf[(5, y)].bg, ratatui::style::Color::Reset);
+    assert_eq!(buf[(5, y)].bg, app.theme.bg);
   }
   // Las otras lineas y la traduccion de la actual siguen como texto, debajo.
   for want in ["let the world burn", "i'd set it all on fire", "solo para sentir algo"] {
@@ -365,7 +366,7 @@ fn clicking_a_line_seeks_to_its_start() {
 }
 
 #[test]
-fn before_the_first_line_karaoke_keeps_its_text_where_the_image_will_put_it() {
+fn during_the_intro_the_karaoke_place_is_empty_and_the_first_line_waits_below() {
   let mut app = karaoke_ready(0);
   ten_lines(&mut app);
   app.config.lyrics.size = 3;
@@ -374,13 +375,21 @@ fn before_the_first_line_karaoke_keeps_its_text_where_the_image_will_put_it() {
   let buf = render(&app);
   assert!(ui::take_karaoke().is_none(), "nothing is sung yet");
   let waiting = row_of(&buf, "line number 0").unwrap();
-  let next_before = row_of(&buf, "line number 1").unwrap();
-  // Empieza la primera: la imagen ocupa 3 filas y su texto va en la del medio.
+  // Empieza la primera: sube al lugar del karaoke y la segunda ocupa el
+  // lugar donde esperaba la primera.
   app.player["position_ms"] = json!(1500);
   let buf = render(&app);
   let slot = ui::take_karaoke().unwrap();
-  assert_eq!(waiting, slot.area.y + 1, "the waiting text sits on the image's middle row");
-  assert_eq!(row_of(&buf, "line number 1"), Some(next_before), "the next line does not move");
+  assert!(waiting >= slot.area.y + slot.area.height, "it waited below the karaoke place ({waiting} vs {:?})", slot.area);
+  assert_eq!(row_of(&buf, "line number 1"), Some(waiting));
+}
+
+#[test]
+fn with_a_popup_open_the_karaoke_line_is_text() {
+  let mut app = karaoke_ready(4200);
+  app.devices_open = true;
+  render(&app);
+  assert!(ui::take_karaoke().is_none(), "the image would cover the popup");
 }
 
 #[test]

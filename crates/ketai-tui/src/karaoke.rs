@@ -67,17 +67,29 @@ pub struct Rendered {
   pub words: Vec<(f32, f32)>,
 }
 
+/// Colores de una linea dibujada.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Colors {
+  pub background: [u8; 3],
+  pub unsung: [u8; 3],
+  pub sung: [u8; 3],
+}
+
 /// Dibuja las palabras (cada una con el espacio que la sigue, como las da
-/// el protocolo) en una imagen de `height` pixeles de alto. Si no entra en
-/// `max_width`, achica la letra. `None` si no hay nada visible.
-pub fn render(fonts: &Fonts, words: &[&str], height: u32, max_width: u32, unsung: [u8; 3], sung: [u8; 3]) -> Option<Rendered> {
-  if height == 0 || max_width == 0 || words.iter().all(|w| w.trim().is_empty()) {
+/// el protocolo) centradas en un lienzo de `width x height` pixeles con el
+/// fondo del tema: las celdas debajo de una imagen muestran el fondo de la
+/// terminal, no el del tema, asi que la imagen las cubre enteras. Si el
+/// texto no entra, achica la letra. `None` si no hay nada visible.
+pub fn render(fonts: &Fonts, words: &[&str], width: u32, height: u32, colors: Colors) -> Option<Rendered> {
+  if height == 0 || width == 0 || words.iter().all(|w| w.trim().is_empty()) {
     return None;
   }
+  // Un margen a los costados para que la letra no toque el borde.
+  let max_width = width.saturating_sub(width / 20).max(1);
   let mut size = height as f32 * 0.8;
-  let width = measure(fonts, words, size);
-  if width > max_width as f32 {
-    size *= max_width as f32 / width;
+  let text_width = measure(fonts, words, size);
+  if text_width > max_width as f32 {
+    size *= max_width as f32 / text_width;
     // El redondeo puede dejar un pixel de mas: se achica hasta que entre.
     while size > 1.0 && measure(fonts, words, size).ceil() > max_width as f32 {
       size *= 0.98;
@@ -87,10 +99,10 @@ pub fn render(fonts: &Fonts, words: &[&str], height: u32, max_width: u32, unsung
   // La linea queda centrada en alto segun la fuente principal.
   let baseline = (height as f32 - (main.ascent() - main.descent())) / 2.0 + main.ascent();
 
-  let width = measure(fonts, words, size).ceil().max(1.0) as u32;
+  let left = ((width as f32 - measure(fonts, words, size)) / 2.0).max(0.0).floor();
   let mut alpha = vec![0f32; (width * height) as usize];
   let mut ranges = Vec::with_capacity(words.len());
-  let mut x = 0.0f32;
+  let mut x = left;
   let mut prev: Option<(usize, ab_glyph::GlyphId)> = None;
   for word in words {
     let start = x;
@@ -118,7 +130,11 @@ pub fn render(fonts: &Fonts, words: &[&str], height: u32, max_width: u32, unsung
     }
     ranges.push((start, end));
   }
-  Some(Rendered { unsung: paint(&alpha, width, height, unsung), sung: paint(&alpha, width, height, sung), words: ranges })
+  Some(Rendered {
+    unsung: paint(&alpha, width, height, colors.background, colors.unsung),
+    sung: paint(&alpha, width, height, colors.background, colors.sung),
+    words: ranges,
+  })
 }
 
 /// Fuente, avance, ajuste por el par con el caracter anterior y glifo.
@@ -144,10 +160,12 @@ fn measure(fonts: &Fonts, words: &[&str], size: f32) -> f32 {
   x
 }
 
-fn paint(alpha: &[f32], width: u32, height: u32, rgb: [u8; 3]) -> RgbaImage {
+/// Texto del color dado sobre el fondo, opaco.
+fn paint(alpha: &[f32], width: u32, height: u32, bg: [u8; 3], fg: [u8; 3]) -> RgbaImage {
   RgbaImage::from_fn(width, height, |x, y| {
-    let a = alpha[(y * width + x) as usize];
-    image::Rgba([rgb[0], rgb[1], rgb[2], (a.clamp(0.0, 1.0) * 255.0).round() as u8])
+    let a = alpha[(y * width + x) as usize].clamp(0.0, 1.0);
+    let mix = |i: usize| (bg[i] as f32 + (fg[i] as f32 - bg[i] as f32) * a).round() as u8;
+    image::Rgba([mix(0), mix(1), mix(2), 255])
   })
 }
 
@@ -202,38 +220,45 @@ mod tests {
     Fonts::from_paths(&paths)
   }
 
+  const C: Colors = Colors { background: [10, 20, 30], unsung: [90, 90, 90], sung: [200, 100, 50] };
+
   #[test]
-  fn render_gives_two_images_of_the_same_shape_and_word_ranges() {
+  fn render_fills_the_canvas_with_the_background_and_centers_the_words() {
     let Some(fonts) = test_fonts() else { return };
-    let r = render(&fonts, &["I ", "gave ", "you"], 40, 2000, [10, 20, 30], [200, 100, 50]).unwrap();
-    assert_eq!(r.unsung.dimensions(), r.sung.dimensions());
-    assert_eq!(r.unsung.height(), 40);
+    let r = render(&fonts, &["I ", "gave ", "you"], 600, 40, C).unwrap();
+    assert_eq!(r.unsung.dimensions(), (600, 40));
+    assert_eq!(r.sung.dimensions(), (600, 40));
     assert_eq!(r.words.len(), 3);
     // Las palabras van en orden, sin pisarse, y el espacio queda afuera.
     for pair in r.words.windows(2) {
       assert!(pair[0].1 < pair[1].0, "{:?}", r.words);
     }
-    assert!(r.words[2].1 <= r.unsung.width() as f32 + 0.5);
-    // Mismo dibujo, distinto color.
-    let same_alpha = r.unsung.pixels().zip(r.sung.pixels()).all(|(a, b)| a.0[3] == b.0[3]);
-    assert!(same_alpha);
-    let lit = r.sung.pixels().find(|p| p.0[3] == 255).expect("solid pixels");
-    assert_eq!(&lit.0[..3], &[200, 100, 50]);
+    // Centrado: el mismo margen a cada lado (salvo redondeo).
+    let (l, rgt) = (r.words[0].0, 600.0 - r.words[2].1);
+    assert!((l - rgt).abs() < 4.0, "{l} vs {rgt}");
+    // Opaco: las esquinas tienen el fondo del tema.
+    assert_eq!(r.unsung.get_pixel(0, 0).0, [10, 20, 30, 255]);
+    assert!(r.sung.pixels().all(|p| p.0[3] == 255));
+    // Mismo dibujo, distinto color de letra.
+    assert!(r.sung.pixels().any(|p| p.0 == [200, 100, 50, 255]));
+    assert!(r.unsung.pixels().any(|p| p.0 == [90, 90, 90, 255]));
+    assert!(!r.unsung.pixels().any(|p| p.0 == [200, 100, 50, 255]));
   }
 
   #[test]
   fn render_shrinks_a_line_that_does_not_fit() {
     let Some(fonts) = test_fonts() else { return };
-    let wide = render(&fonts, &["a very long line of lyrics"], 40, 5000, [0; 3], [255; 3]).unwrap();
-    let narrow = render(&fonts, &["a very long line of lyrics"], 40, 200, [0; 3], [255; 3]).unwrap();
-    assert!(wide.unsung.width() > 200);
-    assert!(narrow.unsung.width() <= 200);
-    assert_eq!(narrow.unsung.height(), 40);
+    let line = ["a very long line of lyrics"];
+    let wide = render(&fonts, &line, 5000, 40, C).unwrap();
+    let narrow = render(&fonts, &line, 200, 40, C).unwrap();
+    assert!(wide.words[0].1 - wide.words[0].0 > 200.0);
+    assert!(narrow.words[0].0 >= 0.0 && narrow.words[0].1 <= 200.0, "{:?}", narrow.words);
+    assert_eq!(narrow.unsung.dimensions(), (200, 40));
   }
 
   #[test]
   fn render_skips_empty_lines() {
     let Some(fonts) = test_fonts() else { return };
-    assert!(render(&fonts, &["  "], 40, 200, [0; 3], [255; 3]).is_none());
+    assert!(render(&fonts, &["  "], 200, 40, C).is_none());
   }
 }

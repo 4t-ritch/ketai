@@ -48,6 +48,11 @@ next = ["n", "ctrl+right"]    # several keys for the same action
 - With Ctrl, uppercase and lowercase are the same key (`"ctrl+p"` and
   `"ctrl+P"` are equal): the terminal does not tell them apart.
 - For the `+` key alone write `"+"`; with Ctrl, `"ctrl++"`.
+- `shift+` only works with letters (without Ctrl) and with `tab`: for a
+  symbol write the symbol itself (`"!"`, not `"shift+1"`).
+- Key sequences (`"g g"`) are not supported yet. The complete list of
+  allowed and not allowed keys is in
+  [docs/config.md](../../docs/config.md#which-keys-are-allowed).
 
 ## Actions
 

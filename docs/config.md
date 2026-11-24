@@ -65,14 +65,60 @@ so it reads well. Without a cover the defaults are used.
 
 ## `[keys]`
 
-Global shortcuts. Each action takes a key (`toggle = "x"`) or a list
+Shortcuts. Each action takes a key (`toggle = "x"`) or a list
 (`next = ["n", "ctrl+right"]`); what you set replaces that action's default
 keys and the rest stays the same.
 
-Key format: a character (`"n"`, `"P"`, `"+"`), or a name (`space`, `enter`,
-`esc`, `tab`, `backspace`, `left`, `right`, `up`, `down`, `home`, `end`,
-`pageup`, `pagedown`, `f1` to `f12`), with `ctrl+`, `alt+` or `shift+`
-modifiers in front (`"ctrl+p"`, `"shift+tab"`).
+### Which keys are allowed
+
+Each shortcut is **one key**, optionally with modifiers in front, separated
+by `+`. An action can have several shortcuts with a list
+(`next = ["n", "ctrl+right"]`).
+
+**Allowed:**
+
+| Type | How to write it | Examples |
+|---|---|---|
+| A character | the character itself | `"n"`, `"P"`, `"+"`, `"*"`, `"!"`, `"["` |
+| Space | `space` | `"space"` |
+| Named keys | `enter`, `esc` (or `escape`), `tab`, `backspace` | `"enter"` |
+| Arrows and navigation | `left`, `right`, `up`, `down`, `home`, `end`, `pageup`, `pagedown` | `"ctrl+right"` |
+| Function keys | `f1` to `f12` | `"f5"`, `"alt+f2"` |
+| Ctrl | `ctrl+` (or `control+`) in front | `"ctrl+p"`, `"ctrl+left"` |
+| Alt | `alt+` in front | `"alt+x"`, `"alt+enter"` |
+| Ctrl and Alt together | both in front, in any order | `"ctrl+alt+p"` |
+| Shift with a letter | `shift+` and the letter, or the uppercase letter | `"shift+p"` is the same as `"P"` |
+| Alt, Shift and a letter | `alt+shift+` and the letter | `"alt+shift+p"` (shown as `Alt+P`) |
+| Shift and Tab | `shift+tab` | `"shift+tab"` |
+| The `+` key | `"+"` alone; with modifiers, `"ctrl++"` | `"ctrl++"` |
+
+Names and modifiers are not case sensitive (`"CTRL+P"` is `"ctrl+p"`).
+
+**Not allowed** (each one is an error: it is shown on the last row with the
+action and the key, and the previous configuration is kept):
+
+| What | Example | Why |
+|---|---|---|
+| Key sequences | `"g g"`, `"ctrl+x ctrl+s"` | each shortcut is a single key (sequences are planned, see [roadmap.md](roadmap.md)) |
+| Two keys at once without a modifier | `"a+b"` | only `ctrl`, `alt` and `shift` combine with a key |
+| Shift with anything other than a letter or Tab | `"shift+left"`, `"shift+enter"`, `"shift+f5"`, `"shift+space"` | the terminal does not tell Shift apart there |
+| Shift with a number or symbol | `"shift+1"`, `"shift+/"` | the terminal sends another character: write that one instead (`"!"`, `"?"`) |
+| Ctrl, Shift and a letter | `"ctrl+shift+p"` | with Ctrl the terminal does not tell uppercase apart: it would be `"ctrl+p"` |
+| Other modifiers | `"super+p"`, `"meta+p"`, `"cmd+p"` | the terminal does not send them |
+| Other named keys | `"insert"`, `"delete"`, `"f13"` | not supported for now |
+| Empty or several characters | `""`, `"ab"`, `"ctrl+"` | not a key |
+
+**Allowed but with special rules:**
+
+- `Ctrl+C` always quits, whatever is configured, so a broken configuration
+  never leaves you without a way out.
+- While typing in Search, keys without Ctrl or Alt are text (`toggle = "x"`
+  types an x there); shortcuts with Ctrl or Alt still work.
+- With Ctrl, uppercase and lowercase are the same key (`"ctrl+P"` is
+  `"ctrl+p"`).
+- A key cannot be in two actions; see the rules after the table.
+
+### Actions
 
 | Action | Default | What it does |
 |---|---|---|

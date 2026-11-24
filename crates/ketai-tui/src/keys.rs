@@ -167,6 +167,19 @@ impl Key {
         KeyCode::Char(c)
       }
     };
+    // Shift solo se distingue en letras (sin Ctrl) y en Tab. En el resto la
+    // terminal no lo manda o manda otro caracter ("shift+1" llega como "!"):
+    // se rechaza en vez de aceptar un atajo que no responde a lo escrito.
+    if shift {
+      let ok = match key.code {
+        KeyCode::BackTab => true,
+        KeyCode::Char(c) => c.is_ascii_alphabetic() && !key.ctrl,
+        _ => false,
+      };
+      if !ok {
+        return None;
+      }
+    }
     Some(key)
   }
 

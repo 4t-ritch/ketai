@@ -69,14 +69,63 @@ para que se lea. Sin caratula se usan los colores por defecto.
 
 ## `[keys]`
 
-Atajos globales. Cada accion recibe una tecla (`toggle = "x"`) o una lista
+Atajos. Cada accion recibe una tecla (`toggle = "x"`) o una lista
 (`next = ["n", "ctrl+right"]`); lo que se configura reemplaza las teclas por
 defecto de esa accion y el resto queda igual.
 
-Formato de una tecla: un caracter (`"n"`, `"P"`, `"+"`), o un nombre
-(`space`, `enter`, `esc`, `tab`, `backspace`, `left`, `right`, `up`, `down`,
-`home`, `end`, `pageup`, `pagedown`, `f1` a `f12`), con modificadores
-`ctrl+`, `alt+` o `shift+` delante (`"ctrl+p"`, `"shift+tab"`).
+### Que teclas se permiten
+
+Cada atajo es **una tecla**, con modificadores opcionales delante,
+separados con `+`. Una accion puede tener varios atajos con una lista
+(`next = ["n", "ctrl+right"]`).
+
+**Permitidas:**
+
+| Tipo | Como se escribe | Ejemplos |
+|---|---|---|
+| Un caracter | el caracter mismo | `"n"`, `"P"`, `"+"`, `"*"`, `"!"`, `"["` |
+| Espacio | `space` | `"space"` |
+| Teclas con nombre | `enter`, `esc` (o `escape`), `tab`, `backspace` | `"enter"` |
+| Flechas y navegacion | `left`, `right`, `up`, `down`, `home`, `end`, `pageup`, `pagedown` | `"ctrl+right"` |
+| Teclas de funcion | `f1` a `f12` | `"f5"`, `"alt+f2"` |
+| Ctrl | `ctrl+` (o `control+`) delante | `"ctrl+p"`, `"ctrl+left"` |
+| Alt | `alt+` delante | `"alt+x"`, `"alt+enter"` |
+| Ctrl y Alt juntos | los dos delante, en cualquier orden | `"ctrl+alt+p"` |
+| Shift con una letra | `shift+` y la letra, o la letra en mayuscula | `"shift+p"` es lo mismo que `"P"` |
+| Alt, Shift y una letra | `alt+shift+` y la letra | `"alt+shift+p"` (se muestra `Alt+P`) |
+| Shift y Tab | `shift+tab` | `"shift+tab"` |
+| La tecla `+` | `"+"` sola; con modificadores, `"ctrl++"` | `"ctrl++"` |
+
+Los nombres y modificadores no distinguen mayusculas (`"CTRL+P"` es
+`"ctrl+p"`).
+
+**No permitidas** (cada una es un error: se muestra en la ultima fila con la
+accion y la tecla, y se mantiene la configuracion anterior):
+
+| Que | Ejemplo | Por que |
+|---|---|---|
+| Secuencias de teclas | `"g g"`, `"ctrl+x ctrl+s"` | cada atajo es una sola tecla (las secuencias estan planeadas, ver [roadmap.md](roadmap.md)) |
+| Dos teclas a la vez sin modificador | `"a+b"` | solo `ctrl`, `alt` y `shift` se combinan con una tecla |
+| Shift con algo que no sea una letra o Tab | `"shift+left"`, `"shift+enter"`, `"shift+f5"`, `"shift+space"` | la terminal no distingue Shift ahi |
+| Shift con un numero o simbolo | `"shift+1"`, `"shift+/"` | la terminal manda otro caracter: se escribe ese (`"!"`, `"?"`) |
+| Ctrl, Shift y una letra | `"ctrl+shift+p"` | con Ctrl la terminal no distingue mayusculas: seria `"ctrl+p"` |
+| Otros modificadores | `"super+p"`, `"meta+p"`, `"cmd+p"` | la terminal no los manda |
+| Otras teclas con nombre | `"insert"`, `"delete"`, `"f13"` | no se soportan por ahora |
+| Vacia o varios caracteres | `""`, `"ab"`, `"ctrl+"` | no es una tecla |
+
+**Permitidas pero con reglas especiales:**
+
+- `Ctrl+C` siempre sale, se configure lo que se configure: una configuracion
+  rota nunca te deja sin salida.
+- Mientras se escribe en Buscar, las teclas sin Ctrl ni Alt son texto
+  (`toggle = "x"` escribe una x ahi); los atajos con Ctrl o Alt siguen
+  funcionando.
+- Con Ctrl, mayusculas y minusculas son la misma tecla (`"ctrl+P"` es
+  `"ctrl+p"`).
+- Una tecla no puede estar en dos acciones; ver las reglas despues de la
+  tabla.
+
+### Acciones
 
 | Accion | Por defecto | Que hace |
 |---|---|---|

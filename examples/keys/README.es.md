@@ -50,6 +50,11 @@ next = ["n", "ctrl+right"]    # varias teclas para la misma accion
 - Con Ctrl, mayusculas y minusculas son la misma tecla (`"ctrl+p"` y
   `"ctrl+P"` son iguales): la terminal no las distingue.
 - Para la tecla `+` sola se escribe `"+"`; con Ctrl, `"ctrl++"`.
+- `shift+` solo funciona con letras (sin Ctrl) y con `tab`: para un simbolo
+  se escribe el simbolo (`"!"`, no `"shift+1"`).
+- Las secuencias de teclas (`"g g"`) todavia no se soportan. La lista
+  completa de teclas permitidas y no permitidas esta en
+  [docs/es/config.md](../../docs/es/config.md#que-teclas-se-permiten).
 
 ## Acciones
 

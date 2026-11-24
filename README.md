@@ -172,7 +172,7 @@ Every document is available in English and in Spanish.
 
 ## Coming next
 
-Planned for the next major update: remote sources with download to cache, installation with package managers, multiple themes, the interface in several languages, automatic lyrics romanization and word timing estimation. Details in [docs/roadmap.md](docs/roadmap.md) ([Spanish](docs/es/roadmap.md)).
+Planned for the next major update: remote sources with download to cache, installation with package managers, multiple themes, the interface in several languages, a graphical karaoke client with background video and shaders, automatic lyrics romanization and word timing estimation. Details in [docs/roadmap.md](docs/roadmap.md) ([Spanish](docs/es/roadmap.md)).
 
 ## Contributing
 

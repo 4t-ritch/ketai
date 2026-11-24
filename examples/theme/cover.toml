@@ -1,6 +1,6 @@
-# Toda la interfaz con los colores de la caratula que suena.
-# Los colores fijos de abajo se ignorarian aunque estuvieran.
-# Ver examples/theme/README.md.
+# The whole interface with the colors of the playing cover.
+# Fixed colors would be ignored even if they were here.
+# See examples/theme/README.md.
 
 [theme]
 cover_color = true

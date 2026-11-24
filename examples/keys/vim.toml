@@ -1,6 +1,6 @@
-# Estilo vim. h / j / k / l ya se usan para moverse dentro de las listas y
-# para cambiar de vista en Biblioteca, asi que los atajos globales van con
-# Alt. Ver examples/keys/README.md.
+# vim style. h / j / k / l are already used to move inside lists and to
+# change view in Library, so the global shortcuts use Alt.
+# See examples/keys/README.md.
 
 [keys]
 seek_back = ["left", "alt+h"]

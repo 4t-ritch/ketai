@@ -1,6 +1,6 @@
-# Reproduccion con Ctrl, Alt y flechas, sin letras sueltas: util si escribis
-# mucho en Buscar o si no queres tocar la reproduccion por accidente.
-# Ver examples/keys/README.md.
+# Playback with Ctrl, Alt and arrows, no plain letters: useful if you type a
+# lot in Search or do not want to touch playback by accident.
+# See examples/keys/README.md.
 
 [keys]
 toggle = "alt+space"

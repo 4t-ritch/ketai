@@ -1,6 +1,6 @@
-# Todos los colores con su valor por defecto.
-# Copia esta seccion a ~/.config/ketai/config.toml y cambia lo que quieras.
-# Ver examples/theme/README.md.
+# Every color with its default value.
+# Copy this section to ~/.config/ketai/config.toml and change what you want.
+# See examples/theme/README.md.
 
 [theme]
 # cover_color = true

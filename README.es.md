@@ -165,7 +165,7 @@ dir = "~/music/playlists"   # donde se copian las playlists (.m3u8)
 
 ## Proximamente
 
-Para la proxima major update estan planificados: fuentes remotas con descarga a cache, instalacion con gestores de paquetes, varios temas, la interfaz en varios idiomas, romanizacion automatica de letras y estimacion de tiempos por palabra. Detalles en [docs/es/roadmap.md](docs/es/roadmap.md).
+Para la proxima major update estan planificados: fuentes remotas con descarga a cache, instalacion con gestores de paquetes, varios temas, la interfaz en varios idiomas, un cliente grafico de karaoke con video de fondo y shaders, romanizacion automatica de letras y estimacion de tiempos por palabra. Detalles en [docs/es/roadmap.md](docs/es/roadmap.md).
 
 ## Participar
 

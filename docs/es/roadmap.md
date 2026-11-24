@@ -64,6 +64,31 @@ elegir el idioma.
   del protocolo): hoy estan en ingles y los clientes podrian traducirlos por
   codigo de error.
 
+### Cliente grafico de karaoke (video y shaders)
+
+Un cliente aparte, con ventana propia, por ejemplo `ketai-karaoke`, que se
+conecta al mismo `ketaid` por el protocolo, como la TUI. Es el lugar para lo
+que una terminal no hace bien: shaders en la GPU y video a 60 cuadros por
+segundo.
+
+- **Letra de karaoke dibujada con shaders**: cada palabra se va pintando de a
+  poco, por dentro de las letras, a medida que se canta, como en los
+  karaokes de video.
+- **Video de fondo opcional** detras de la letra, que se activa o desactiva
+  en `config.toml`. Antes de empezar se define de donde sale el video (por
+  ejemplo un archivo junto a la cancion, o un video que configure el
+  usuario).
+- Hecho con una biblioteca de GPU como `wgpu`; el video se decodifica con una
+  biblioteca como FFmpeg.
+- **Sincronizacion precisa**: hoy el daemon informa la posicion una vez por
+  segundo y los clientes la interpolan. El video necesita un reloj mas
+  preciso, asi que el protocolo podria sumar un evento de posicion mas fino
+  o una marca de tiempo en cada aviso; es un agregado opcional y no rompe a
+  los clientes existentes.
+- La TUI mantiene su propia vista de letras. El video no va en la TUI: en
+  una terminal cada cuadro es una imagen completa que viaja como datos, algo
+  pesado e inestable dentro de multiplexores como herdr.
+
 ### Romanizacion automatica de letras
 
 Generar la letra romanizada cuando el origen no la trae.

@@ -61,7 +61,7 @@ On any tab (except while typing in Search):
 | `*` | mark or unmark the playing song as a favorite |
 | `P` | add the playing song to a playlist |
 | `f` | library folders |
-| `Ctrl+P` or `Ctrl+K` | actions and quick search over the current screen |
+| `Ctrl+P` | actions and quick search over the current screen |
 | `q` | quit (`Ctrl+C` always quits) |
 
 Lyrics (configurable in `[keys]`, see [config.md](config.md#keys)):

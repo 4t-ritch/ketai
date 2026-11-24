@@ -67,7 +67,7 @@ next = ["n", "ctrl+right"]    # several keys for the same action
 | `folders` | `f` | Library folders |
 | `favorite` | `*` | Mark or unmark the playing song as a favorite |
 | `add_to_playlist` | `P` | Add the playing song to a playlist |
-| `actions` | `ctrl+p`, `ctrl+k` | Actions popup and quick search |
+| `actions` | `ctrl+p` | Actions popup and quick search |
 | `quit` | `q` | Quit |
 | `next_tab` | `tab` | Next tab |
 | `prev_tab` | `shift+tab` | Previous tab |

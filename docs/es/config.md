@@ -94,7 +94,7 @@ Formato de una tecla: un caracter (`"n"`, `"P"`, `"+"`), o un nombre
 | `folders` | `f` | Carpetas de la biblioteca |
 | `favorite` | `*` | Marcar como favorita |
 | `add_to_playlist` | `P` | Agregar a una playlist |
-| `actions` | `ctrl+p`, `ctrl+k` | Acciones y busqueda rapida |
+| `actions` | `ctrl+p` | Acciones y busqueda rapida |
 | `quit` | `q` | Salir |
 | `next_tab` | `tab` | Pestana siguiente |
 | `prev_tab` | `shift+tab` | Pestana anterior |

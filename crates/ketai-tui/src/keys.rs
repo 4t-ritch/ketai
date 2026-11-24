@@ -94,7 +94,7 @@ pub const ACTIONS: &[(&str, Action, &[&str], &str)] = &[
   ("folders", Action::Folders, &["f"], "Carpetas de la biblioteca"),
   ("favorite", Action::Favorite, &["*"], "Marcar como favorita"),
   ("add_to_playlist", Action::AddToPlaylist, &["P"], "Agregar a una playlist"),
-  ("actions", Action::Actions, &["ctrl+p", "ctrl+k"], "Acciones y búsqueda rápida"),
+  ("actions", Action::Actions, &["ctrl+p"], "Acciones y búsqueda rápida"),
   ("quit", Action::Quit, &["q"], "Salir"),
   ("next_tab", Action::NextTab, &["tab"], "Pestaña siguiente"),
   ("prev_tab", Action::PrevTab, &["shift+tab"], "Pestaña anterior"),

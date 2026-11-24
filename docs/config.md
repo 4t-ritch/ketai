@@ -90,7 +90,7 @@ modifiers in front (`"ctrl+p"`, `"shift+tab"`).
 | `folders` | `f` | Library folders |
 | `favorite` | `*` | Mark as favorite |
 | `add_to_playlist` | `P` | Add to a playlist |
-| `actions` | `ctrl+p`, `ctrl+k` | Actions and quick search |
+| `actions` | `ctrl+p` | Actions and quick search |
 | `quit` | `q` | Quit |
 | `next_tab` | `tab` | Next tab |
 | `prev_tab` | `shift+tab` | Previous tab |

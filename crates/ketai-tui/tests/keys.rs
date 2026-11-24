@@ -17,10 +17,12 @@ fn ctrl_p_opens_the_actions_popup_by_default() {
   let mut app = App { connected: true, ..App::default() };
   app.on_key(ctrl('p'));
   assert!(app.palette_open);
-  // Las de antes siguen andando.
-  let mut app = App { connected: true, ..App::default() };
-  app.on_key(ctrl('k'));
-  assert!(app.palette_open);
+  // Solo Ctrl+P: ni Ctrl+K ni "/" la abren.
+  for k in [ctrl('k'), key(KeyCode::Char('/'))] {
+    let mut app = App { connected: true, ..App::default() };
+    app.on_key(k);
+    assert!(!app.palette_open);
+  }
 }
 
 #[test]

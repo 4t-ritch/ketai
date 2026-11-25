@@ -179,7 +179,8 @@ accion y la tecla, y se mantiene la configuracion anterior):
   las vistas (por ejemplo, `m` silencia en todas, Letras incluida).
 - Las teclas que se ven en pantalla (por ejemplo las de la cabecera de Letras
   y las del volumen en Reproduciendo) son siempre las configuradas: si se
-  cambia una tecla, la pantalla muestra la nueva.
+  cambia una tecla, la pantalla muestra la nueva. `Ctrl+P` > *Ver atajos de
+  teclado* muestra cada accion con sus teclas actuales.
 - Las demas teclas de cada vista (`h` / `l` en Biblioteca, etc.) son fijas
   por ahora.
 

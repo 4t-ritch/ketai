@@ -225,17 +225,32 @@ fn queue_keys_do_nothing_when_the_queue_is_not_on_screen() {
 }
 
 #[test]
-fn queue_keys_come_from_the_config_and_the_help_shows_them() {
+fn queue_keys_come_from_the_config() {
   let mut app = app_with_queue(4);
-  assert!(text(&render(&app)).contains(" K   J  mover"), "{}", text(&render(&app)));
   app.config = ketai_tui::config::Config::parse("[keys]\nqueue_remove = \"X\"").unwrap();
-  let t = text(&render(&app));
-  assert!(t.contains(" X  quitar"), "{t}");
+  render(&app);
   app.queue_cursor = 2;
   assert!(app.on_key(key(KeyCode::Char('x'))).is_empty());
   assert_eq!(methods(&app.on_key(key(KeyCode::Char('X')))), ["queue.remove"]);
   // Una tecla de la cola no puede repetir una global.
   assert!(ketai_tui::config::Config::parse("[keys]\nqueue_remove = \"n\"").unwrap().keys.duplicates().len() == 1);
+}
+
+#[test]
+fn the_queue_has_no_key_help_only_buttons_on_the_chosen_song() {
+  let mut app = app_with_queue(4);
+  let t = text(&render(&app));
+  assert!(!t.contains("mover") && !t.contains("reproducir") && !t.contains("quitar"), "{t}");
+  // La que suena (elegida al empezar) tiene + pero no ✕.
+  let buf = render(&app);
+  let (_, y) = find_from(&buf, "Song 0", 100).unwrap();
+  let row: String = (100..160).map(|x| buf[(x, y + 1)].symbol().to_string()).collect();
+  assert!(row.contains('+') && !row.contains('✕'), "{row}");
+  app.queue_cursor = 2;
+  let buf = render(&app);
+  let (_, y) = find_from(&buf, "Song 2", 100).unwrap();
+  let row: String = (100..160).map(|x| buf[(x, y + 1)].symbol().to_string()).collect();
+  assert!(row.contains("+ ✕"), "{row}");
 }
 
 #[test]
@@ -324,14 +339,17 @@ fn the_wheel_over_the_queue_moves_the_choice() {
 }
 
 #[test]
-fn the_help_buttons_remove_or_add_the_chosen_song() {
+fn the_buttons_of_the_chosen_song_remove_it_or_add_it_to_a_playlist() {
   let (mut app, buf) = clickable(5);
   let (x, y) = find_from(&buf, "Song 2", 100).unwrap();
   click(&mut app, x, y);
   mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x, y);
-  let (qx, qy) = find_from(&buf, "quitar", 100).unwrap();
-  assert_eq!(click(&mut app, qx, qy), vec![("queue.remove".to_string(), json!({"indexes": [2]}))]);
-  let (px, py) = find_from(&buf, "playlist", 100).unwrap();
+  let buf = render(&app);
+  app.hits = ui::take_hits();
+  let (rx, ry) = find_from(&buf, "✕", 100).unwrap();
+  assert_eq!(click(&mut app, rx, ry), vec![("queue.remove".to_string(), json!({"indexes": [2]}))]);
+  let (px, py) = (rx - 2, ry);
+  assert_eq!(buf[(px, py)].symbol(), "+");
   let cmds = click(&mut app, px, py);
   assert_eq!(cmds[0], ("track.playlists".to_string(), json!({"uri": "file:///m/2.ogg"})));
   assert!(app.add_open);

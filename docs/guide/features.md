@@ -91,8 +91,9 @@ colors can be used too (see [examples/theme/](../../examples/theme/README.md)).
 ![Actions](../assets/actions.png)
 
 From any screen: type to search songs and playlists, or pick an action
-(audio output, scan the library, lyrics layers, folders). `Enter` plays or
-runs, `Tab` adds to the queue.
+(audio output, scan the library, lyrics layers, folders, see the keyboard
+shortcuts). `Enter` plays or runs, `Tab` adds to the queue. *Ver atajos de
+teclado* lists every action with the keys configured right now.
 
 ## Playlists and favorites
 

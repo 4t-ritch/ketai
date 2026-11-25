@@ -673,13 +673,10 @@ const INFO_MIN_W: u16 = 62;
 /// Filas por cancion de la cola: caratula de 2 filas y una de aire.
 const QUEUE_ROW_H: u16 = 3;
 
-/// Filas de la ayuda de teclas al pie de la cola.
-const QUEUE_HELP_H: u16 = 3;
-
 /// Cuantas canciones de la cola entran en un alto de columna (cabecera
-/// de 2 filas y ayuda al pie).
+/// de 2 filas).
 pub fn queue_rows(height: u16) -> usize {
-  (height.saturating_sub(2 + QUEUE_HELP_H) / QUEUE_ROW_H) as usize
+  (height.saturating_sub(2) / QUEUE_ROW_H) as usize
 }
 
 /// La cola completa en su orden real: caratula, titulo (se desplaza si no
@@ -711,7 +708,6 @@ fn queue_panel(f: &mut RFrame, app: &App, area: Rect) {
       return;
     }
   }
-  queue_help(f, app, area);
   let rows = queue_rows(area.height);
   // La elegida queda en el primer tercio: se ve algo de lo que ya sono.
   let first = app.queue_cursor.saturating_sub(rows / 3).min(tracks.len().saturating_sub(rows.max(1)));
@@ -740,46 +736,22 @@ fn queue_panel(f: &mut RFrame, app: &App, area: Rect) {
     if playing {
       put(buf, area.x + 5, y, "▶", t.accent());
     }
+    // La elegida deja lugar a la derecha para sus botones.
+    let tw = if selected { tw.saturating_sub(5) } else { tw };
     putm(buf, app, area.x + 7, y, track_title(track), tw, style);
     putn(buf, area.x + 7, y + 1, track["artist"].as_str().unwrap_or(""), tw, t.faint());
     hit(Rect::new(area.x, y, area.width, 2), Hit::QueueRow(i));
-  }
-}
-
-/// Ayuda al pie de la cola: las teclas configuradas, clickeables (actuan
-/// sobre la elegida).
-fn queue_help(f: &mut RFrame, app: &App, area: Rect) {
-  use crate::keys::Action as A;
-  let t = &app.theme;
-  let buf = f.buffer_mut();
-  let help: [Vec<(Span, Option<A>)>; 2] = [
-    vec![
-      (action_keycap(app, A::QueueMoveUp), Some(A::QueueMoveUp)),
-      (Span::raw(" "), None),
-      (action_keycap(app, A::QueueMoveDown), Some(A::QueueMoveDown)),
-      (Span::styled(" mover   ", t.faint()), None),
-      (Span::styled(" ⏎ ", Style::new().fg(t.fg).bg(t.raised)), None),
-      (Span::styled(" reproducir", t.faint()), None),
-    ],
-    vec![
-      (action_keycap(app, A::QueueRemove), Some(A::QueueRemove)),
-      (Span::styled(" quitar   ", t.faint()), Some(A::QueueRemove)),
-      (action_keycap(app, A::QueueAddToPlaylist), Some(A::QueueAddToPlaylist)),
-      (Span::styled(" playlist", t.faint()), Some(A::QueueAddToPlaylist)),
-    ],
-  ];
-  let hy = (area.y + area.height).saturating_sub(QUEUE_HELP_H - 1);
-  for (k, row) in help.into_iter().enumerate() {
-    let line = Line::from(row.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>());
-    let y = hy + k as u16;
-    put_line(buf, area.x, y, &line, area.width);
-    let mut x = area.x;
-    for (span, a) in &row {
-      let w = span.width() as u16;
-      if let Some(a) = a {
-        hit(Rect::new(x, y, w, 1), Hit::Act(*a));
+    // Botones de la elegida, para el mouse (las teclas estan en la lista de
+    // atajos de Ctrl+P): agregar a una playlist y quitar.
+    if selected {
+      use crate::keys::Action as A;
+      let bx = area.x + area.width.saturating_sub(4);
+      put(buf, bx, y + 1, "+", t.text());
+      hit(Rect::new(bx, y + 1, 1, 1), Hit::Act(A::QueueAddToPlaylist));
+      if !playing {
+        put(buf, bx + 2, y + 1, "✕", t.text());
+        hit(Rect::new(bx + 2, y + 1, 1, 1), Hit::Act(A::QueueRemove));
       }
-      x += w;
     }
   }
 }

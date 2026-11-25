@@ -34,3 +34,4 @@ Tests: `cargo test` (workspace).
 - T3/T4: acciones queue_move_up K, queue_move_down J, queue_remove x, queue_add_to_playlist a (alcance Reproduciendo, chocan con globales); popup de playlist con destino propio (add_uri) y track.playlists asignado por id de peticion (sent_with).
 - T5 de5e78c: clic elige, doble clic reproduce, arrastrar y soltar (queue_drag), rueda, botones del pie.
 - T6: docs en/es (features, tui: teclas y mouse de la cola). Pendiente: prueba del usuario; integracion cuando lo pida.
+- (2026-11-24) Usuario: "quiero que agregues un modal donde se pueda ver los comandos actuales para cada accion ... el modal se debe de encontrar como una opcion disponible en el command palet que se abre con Ctrl+P" (47b8940) y "cuando termines de agregar el modal debes de eliminar estas ayudas para que no sobre saturen la TUI" (ayuda al pie de la cola). Quitada; para el mouse quedan + y ✕ en la fila elegida.

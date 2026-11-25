@@ -171,7 +171,8 @@ action and the key, and the previous configuration is kept):
   example `m` mutes in every view, Lyrics included).
 - The keys shown on screen (for example the ones in the Lyrics header and
   next to the volume in Now Playing) are always the configured ones: change
-  a key and the screen shows the new one.
+  a key and the screen shows the new one. `Ctrl+P` > *Ver atajos de teclado*
+  lists every action with its current keys.
 - The other keys of each view (`h` / `l` in Library, etc.) are fixed for
   now.
 

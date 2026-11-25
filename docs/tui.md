@@ -44,7 +44,10 @@ Tabs at the top, on every screen:
 ## Keys
 
 Global shortcuts can be changed in `[keys]` of `config.toml` (see
-`docs/config.md`); these are the defaults.
+`docs/config.md`); these are the defaults. To see the keys configured right
+now, open `Ctrl+P` and choose *Ver atajos de teclado* ("see keyboard
+shortcuts"): it lists every action with its current keys, grouped by where
+they work.
 
 On any tab (except while typing in Search):
 
@@ -172,8 +175,9 @@ Everything on screen can be used with the mouse; it does the same as its key.
 - In Search: click a filter or a result; a double click plays.
 - In the Now Playing queue: one click chooses a song, a double click plays
   it, and dragging it onto another row moves it there (the row where it
-  would land is marked while dragging). The keys at the bottom of the queue
-  (remove, playlist, move) act on the chosen song.
+  would land is marked while dragging). The chosen song has two buttons on
+  the right: `+` adds it to a playlist and `✕` removes it (the one playing
+  only has `+`).
 - The wheel scrolls the list under the pointer, anywhere on the list.
 - With a popup open, only the popup responds: clicking an option chooses it
   (in Folders it only selects it; the actions keep their keys), in the

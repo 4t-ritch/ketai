@@ -40,7 +40,9 @@ Pestanas arriba, en todas las pantallas:
 ## Teclas
 
 Los atajos globales se pueden cambiar en `[keys]` de `config.toml` (ver
-`docs/config.md`); estos son los de por defecto.
+`docs/config.md`); estos son los de por defecto. Para ver las teclas
+configuradas en este momento, abri `Ctrl+P` y elegi *Ver atajos de teclado*:
+muestra cada accion con sus teclas actuales, agrupadas por donde valen.
 
 En cualquier pestana (salvo mientras se escribe en Buscar):
 
@@ -172,8 +174,8 @@ Todo lo que se ve se puede usar con el mouse; hace lo mismo que su tecla.
 - En Buscar: clic en un filtro o en un resultado; doble clic reproduce.
 - En la cola de Reproduciendo: un clic elige una cancion, doble clic la
   reproduce, y arrastrarla a otra fila la mueve ahi (mientras se arrastra se
-  marca la fila donde caeria). Las teclas al pie de la cola (quitar,
-  playlist, mover) actuan sobre la elegida.
+  marca la fila donde caeria). La elegida tiene dos botones a la derecha: `+`
+  la agrega a una playlist y `x` la quita (la que suena solo tiene `+`).
 - La rueda mueve la lista que esta bajo el puntero, en cualquier parte de
   la lista.
 - Con un popup abierto, solo responde el popup: clic en una opcion la elige

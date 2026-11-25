@@ -21,7 +21,7 @@ Tests: `cargo test` (workspace).
 | T2 | S2, S6 | inline | hecho | Columna de cola: caratula, titulo con desplazamiento, artista; cursor y desplazamiento |
 | T3 | S3, S5 | inline | hecho | Teclado: elegir, mover arriba/abajo, quitar, Enter reproduce; teclas configurables (alcance Reproduciendo) |
 | T4 | S4 | inline | hecho | Agregar la cancion elegida de la cola a una playlist (popup con destino propio) |
-| T5 | S3, S4, S5 | inline | pendiente | Mouse: clic elige, doble clic reproduce, arrastrar y soltar mueve, botones quitar y playlist, rueda |
+| T5 | S3, S4, S5 | inline | hecho | Mouse: clic elige, doble clic reproduce, arrastrar y soltar mueve, botones quitar y playlist, rueda |
 | T6 | S2-S6 | inline | pendiente | Docs en ingles y espanol |
 
 ## Log

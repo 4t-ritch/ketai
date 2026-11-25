@@ -582,9 +582,30 @@ impl App {
             self.on_key(key(code))
           }
           Some(Hit::PopupRow(_) | Hit::Popup) => self.on_key(key(code)),
+          // Sobre la cola: mueve la elegida (y con ella lo que se ve).
+          Some(Hit::QueueRow(_)) => {
+            let last = self.queue_tracks().len().saturating_sub(1);
+            self.queue_cursor = if code == KeyCode::Up { self.queue_cursor.saturating_sub(1) } else { (self.queue_cursor + 1).min(last) };
+            Vec::new()
+          }
           _ => Vec::new(),
         }
       }
+      // Arrastrar una cancion de la cola: se marca donde caeria.
+      MouseEventKind::Drag(MouseButton::Left) if self.queue_drag.is_some() => {
+        if let (Some(drag), Some((_, Hit::QueueRow(j)))) = (self.queue_drag.as_mut(), hit) {
+          drag.over = j;
+        }
+        Vec::new()
+      }
+      // Soltarla en otro lugar la mueve ahi.
+      MouseEventKind::Up(MouseButton::Left) if self.queue_drag.is_some() => match self.queue_drag.take() {
+        Some(QueueDrag { from, over }) if from != over => {
+          self.queue_cursor = over;
+          vec![("queue.move".into(), json!({"from": from, "to": over}))]
+        }
+        _ => Vec::new(),
+      },
       // Arrastrar una barra: sigue al puntero aunque salga de la barra.
       MouseEventKind::Drag(MouseButton::Left) => match self.dragging {
         Some(h @ Hit::Seek { .. }) => {
@@ -628,8 +649,14 @@ impl App {
           }
           Hit::QueueRow(i) => {
             self.queue_cursor = i;
-            // Doble clic: la reproduce.
-            if double { self.queue_play() } else { Vec::new() }
+            // Doble clic: la reproduce. Si no, puede empezar a arrastrarse.
+            if double {
+              self.queue_drag = None;
+              self.queue_play()
+            } else {
+              self.queue_drag = Some(QueueDrag { from: i, over: i });
+              Vec::new()
+            }
           }
           Hit::LyricLine(ms) => {
             // Hasta que llegue la posicion nueva del daemon, se muestra esta.

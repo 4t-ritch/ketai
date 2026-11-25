@@ -267,3 +267,72 @@ fn a_adds_the_chosen_song_to_a_playlist_without_playing_it() {
   app.on_key(key(KeyCode::Char('P')));
   assert_eq!(app.add_target().as_deref(), Some("file:///m/0.ogg"));
 }
+
+fn mouse(app: &mut App, kind: MouseEventKind, x: u16, y: u16) -> Vec<(String, Value)> {
+  app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE }, std::time::Instant::now())
+}
+
+/// App con la cola dibujada y sus zonas clickeables.
+fn clickable(n: usize) -> (App, Buffer) {
+  let mut app = app_with_queue(n);
+  let buf = render(&app);
+  app.hits = ui::take_hits();
+  (app, buf)
+}
+
+#[test]
+fn a_click_chooses_and_a_double_click_plays() {
+  let (mut app, buf) = clickable(5);
+  let (x, y) = find_from(&buf, "Song 3", 100).unwrap();
+  assert!(click(&mut app, x, y).is_empty());
+  assert_eq!(app.queue_cursor, 3);
+  mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x, y);
+  assert_eq!(click(&mut app, x, y), vec![("queue.jump".to_string(), json!({"index": 3}))]);
+}
+
+#[test]
+fn dragging_a_song_onto_another_row_moves_it_there() {
+  let (mut app, buf) = clickable(5);
+  let (x1, y1) = find_from(&buf, "Song 1", 100).unwrap();
+  let (_, y3) = find_from(&buf, "Song 3", 100).unwrap();
+  click(&mut app, x1, y1);
+  // Mientras se arrastra, la fila donde caeria se marca.
+  mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x1, y3);
+  assert_eq!(app.queue_drag.map(|d| (d.from, d.over)), Some((1, 3)));
+  let marked = render(&app);
+  let (x, y) = find_from(&marked, "Song 3", 100).unwrap();
+  assert_eq!(marked[(x, y)].bg, app.theme.raised);
+  app.hits = ui::take_hits();
+  let cmds = mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x1, y3);
+  assert_eq!(cmds, vec![("queue.move".to_string(), json!({"from": 1, "to": 3}))]);
+  assert_eq!(app.queue_cursor, 3, "the choice follows it");
+  assert!(app.queue_drag.is_none());
+  // Soltarla en su mismo lugar no hace nada.
+  click(&mut app, x1, y1);
+  assert!(mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x1, y1).is_empty());
+}
+
+#[test]
+fn the_wheel_over_the_queue_moves_the_choice() {
+  let (mut app, buf) = clickable(5);
+  let (x, y) = find_from(&buf, "Song 1", 100).unwrap();
+  mouse(&mut app, MouseEventKind::ScrollDown, x, y);
+  mouse(&mut app, MouseEventKind::ScrollDown, x, y);
+  assert_eq!(app.queue_cursor, 2);
+  mouse(&mut app, MouseEventKind::ScrollUp, x, y);
+  assert_eq!(app.queue_cursor, 1);
+}
+
+#[test]
+fn the_help_buttons_remove_or_add_the_chosen_song() {
+  let (mut app, buf) = clickable(5);
+  let (x, y) = find_from(&buf, "Song 2", 100).unwrap();
+  click(&mut app, x, y);
+  mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x, y);
+  let (qx, qy) = find_from(&buf, "quitar", 100).unwrap();
+  assert_eq!(click(&mut app, qx, qy), vec![("queue.remove".to_string(), json!({"indexes": [2]}))]);
+  let (px, py) = find_from(&buf, "playlist", 100).unwrap();
+  let cmds = click(&mut app, px, py);
+  assert_eq!(cmds[0], ("track.playlists".to_string(), json!({"uri": "file:///m/2.ogg"})));
+  assert!(app.add_open);
+}

@@ -112,10 +112,11 @@ fn emit(seq: &str) {
 
 /// Envia una peticion y la anota para reconocer su respuesta.
 fn send(client: &mut Option<Client>, app: &mut App, method: &str, params: serde_json::Value) {
+  let asked = params.clone();
   if let Some(c) = client.as_mut()
     && let Ok(id) = c.request(method, params)
   {
-    app.sent(id, method);
+    app.sent_with(id, method, &asked);
   }
 }
 

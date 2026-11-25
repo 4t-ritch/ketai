@@ -88,6 +88,10 @@ next = ["n", "ctrl+right"]    # varias teclas para la misma accion
 | `lyrics_offset_up` | `]` | Letras: offset +50 ms |
 | `lyrics_mode` | `k` | Letras: modo clasico o karaoke |
 | `lyrics_estimate` | `w` | Letras: estimar tiempos por palabra |
+| `queue_move_up` | `K` | Cola (Reproduciendo): subir la cancion elegida |
+| `queue_move_down` | `J` | Cola (Reproduciendo): bajar la cancion elegida |
+| `queue_remove` | `x` | Cola (Reproduciendo): quitar la cancion elegida |
+| `queue_add_to_playlist` | `a` | Cola (Reproduciendo): agregar la cancion elegida a una playlist |
 
 ## Reglas que conviene saber
 

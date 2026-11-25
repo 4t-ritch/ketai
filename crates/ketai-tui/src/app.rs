@@ -114,7 +114,7 @@ pub enum Hit {
   Seek { x: u16, w: u16 },
   /// Barra de volumen.
   Volume { x: u16, w: u16 },
-  /// Una cancion de la cola de Reproduciendo (indice en `upcoming`).
+  /// Una cancion de la cola de Reproduciendo (su posicion en la cola).
   QueueRow(usize),
   /// Una linea de la letra: salta a su inicio (ms).
   LyricLine(u64),
@@ -273,7 +273,14 @@ pub struct App {
   pub lyrics_mode: crate::config::LyricsMode,
   /// `config.toml`, donde `m` guarda el modo (`None` en tests: no se escribe).
   pub config_path: Option<std::path::PathBuf>,
-  /// Cancion elegida en la cola de Reproduciendo (indice en `upcoming`).
+  /// Cancion del popup "Agregar a una playlist" cuando no es la que suena
+  /// (una de la cola); `None` es la que suena.
+  pub add_uri: Option<String>,
+  /// Playlists que ya tienen `add_uri` (como `now_playlists`).
+  pub add_playlists: Vec<String>,
+  /// De que cancion se pidio cada `track.playlists` (por id de peticion).
+  pub asked_playlists: std::collections::HashMap<u64, String>,
+  /// Cancion elegida en la cola de Reproduciendo (posicion en la cola).
   pub queue_cursor: usize,
   /// Arrastre de una cancion de la cola con el mouse.
   pub queue_drag: Option<QueueDrag>,
@@ -383,7 +390,7 @@ pub fn cell_px(size: Option<(u16, u16, u16, u16)>) -> Option<(u16, u16)> {
 }
 
 /// Una cancion de la cola que se esta arrastrando: de donde sale y sobre
-/// cual esta el puntero (indices en `upcoming`).
+/// cual esta el puntero (posiciones en la cola).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QueueDrag {
   pub from: usize,
@@ -457,6 +464,9 @@ impl Default for App {
       lyrics_mode_file: None,
       dup_scroll: 0,
       queue_cursor: 0,
+      add_uri: None,
+      add_playlists: Vec::new(),
+      asked_playlists: Default::default(),
       queue_drag: None,
       config_path: None,
       cell_px: None,
@@ -524,6 +534,11 @@ impl App {
     }
     if self.tab == Tab::Lyrics
       && let Some(cmds) = self.lyrics_key(key)
+    {
+      return cmds;
+    }
+    if self.tab == Tab::NowPlaying
+      && let Some(cmds) = self.queue_key(key)
     {
       return cmds;
     }
@@ -710,6 +725,9 @@ impl App {
     if action.is_lyrics() {
       return self.lyrics_action(action).unwrap_or_default();
     }
+    if action.scope() == crate::keys::Scope::NowPlaying {
+      return self.queue_action(action);
+    }
     let cmd = |m: &str| vec![(m.to_string(), json!({}))];
     let volume = |app: &App, step: f64| {
       let v = app.player["volume"].as_f64().unwrap_or(1.0) + step;
@@ -718,10 +736,20 @@ impl App {
     };
     match action {
       // Ya resueltas arriba.
-      A::LyricsLayer | A::LyricsTranslation | A::LyricsOffsetDown | A::LyricsOffsetUp | A::LyricsMode | A::LyricsEstimate => {}
+      A::LyricsLayer
+      | A::LyricsTranslation
+      | A::LyricsOffsetDown
+      | A::LyricsOffsetUp
+      | A::LyricsMode
+      | A::LyricsEstimate
+      | A::QueueMoveUp
+      | A::QueueMoveDown
+      | A::QueueRemove
+      | A::QueueAddToPlaylist => {}
       A::Devices => return self.open_devices(),
       A::Favorite => return self.toggle_favorite(),
       A::AddToPlaylist if self.now_uri().is_some() => {
+        self.add_uri = None;
         self.add_open = true;
         self.add_cursor = 0;
         self.add_confirm = None;
@@ -1115,6 +1143,31 @@ impl App {
     vec![("favorites.set".into(), json!({"uri": uri, "favorite": favorite}))]
   }
 
+  /// Cancion del popup de playlists: la elegida de la cola o la que suena.
+  pub fn add_target(&self) -> Option<String> {
+    self.add_uri.clone().or_else(|| self.now_uri())
+  }
+
+  /// Playlists que ya tienen la cancion del popup.
+  pub fn add_marks(&self) -> &[String] {
+    if self.add_uri.is_some() { &self.add_playlists } else { &self.now_playlists }
+  }
+
+  /// Abre "Agregar a una playlist" para una cancion de la cola (sin que
+  /// tenga que estar sonando).
+  fn open_add_for(&mut self, uri: String) -> Vec<Command> {
+    self.add_open = true;
+    self.add_cursor = 0;
+    self.add_confirm = None;
+    self.add_playlists.clear();
+    self.add_uri = Some(uri.clone());
+    let mut cmds = vec![("track.playlists".into(), json!({"uri": uri}))];
+    if !self.playlists_loaded {
+      cmds.push(("playlist.list".into(), json!({})));
+    }
+    cmds
+  }
+
   /// Playlists a las que se puede agregar (sin Favoritos, que va con `*`).
   pub fn add_targets(&self) -> Vec<String> {
     self.playlists.iter().filter(|p| p["kind"].is_null()).filter_map(|p| p["name"].as_str().map(str::to_string)).collect()
@@ -1146,7 +1199,7 @@ impl App {
         }
         match from {
           NameFor::Add => {
-            if let Some(uri) = self.now_uri() {
+            if let Some(uri) = self.add_target() {
               self.add_pending = Some(name.clone());
               cmds.push(("playlist.add".into(), json!({"name": name, "uris": [uri]})));
             }
@@ -1168,7 +1221,7 @@ impl App {
         KeyCode::Char('a') | KeyCode::Enter => {
           self.add_confirm = None;
           self.add_pending = Some(name.clone());
-          let Some(uri) = self.now_uri() else { return Vec::new() };
+          let Some(uri) = self.add_target() else { return Vec::new() };
           return vec![("playlist.add".into(), json!({"name": name, "uris": [uri], "duplicates": "add"}))];
         }
         KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
@@ -1184,8 +1237,8 @@ impl App {
       KeyCode::Char('c') => self.naming = Some((String::new(), NameFor::Add)),
       // Quitar la que suena de la playlist elegida (si esta ahi).
       KeyCode::Char('x') => {
-        if let (Some(name), Some(uri)) = (targets.get(self.add_cursor), self.now_uri())
-          && self.now_playlists.contains(name)
+        if let (Some(name), Some(uri)) = (targets.get(self.add_cursor), self.add_target())
+          && self.add_marks().contains(name)
         {
           self.remove_pending = Some(name.clone());
           return vec![("playlist.remove".into(), json!({"name": name, "uris": [uri]}))];
@@ -1195,7 +1248,7 @@ impl App {
       KeyCode::Up | KeyCode::Char('k') => self.add_cursor = self.add_cursor.saturating_sub(1),
       KeyCode::Down | KeyCode::Char('j') => self.add_cursor = (self.add_cursor + 1).min(targets.len().saturating_sub(1)),
       KeyCode::Enter => {
-        if let (Some(name), Some(uri)) = (targets.get(self.add_cursor), self.now_uri()) {
+        if let (Some(name), Some(uri)) = (targets.get(self.add_cursor), self.add_target()) {
           self.add_pending = Some(name.clone());
           return vec![("playlist.add".into(), json!({"name": name, "uris": [uri]}))];
         }
@@ -1483,28 +1536,80 @@ impl App {
     self.lyrics_mode == crate::config::LyricsMode::Karaoke && self.images && self.cell_px.is_some() && self.karaoke_fonts
   }
 
-  /// Lo que viene despues de la que suena, en orden.
-  pub fn upcoming(&self) -> &[Value] {
-    let tracks = self.queue["tracks"].as_array().map(Vec::as_slice).unwrap_or(&[]);
-    match self.queue["current"].as_u64() {
-      Some(c) => tracks.get(c as usize + 1..).unwrap_or(&[]),
-      None => tracks,
-    }
+  /// La cola completa, en su orden real: las que ya sonaron, la que suena
+  /// y las que vienen (con repetir toda la cola, al terminar vuelve al
+  /// principio, asi que todas pueden volver a sonar).
+  pub fn queue_tracks(&self) -> &[Value] {
+    self.queue["tracks"].as_array().map(Vec::as_slice).unwrap_or(&[])
   }
 
-  /// Posicion en la cola (`queue.*`) de la cancion `i` de `upcoming`.
-  pub fn queue_index(&self, i: usize) -> usize {
-    self.queue["current"].as_u64().map_or(i, |c| c as usize + 1 + i)
+  /// Posicion de la que suena en la cola.
+  pub fn queue_current(&self) -> Option<usize> {
+    self.queue["current"].as_u64().map(|c| c as usize)
+  }
+
+  /// Teclas de la cola en Reproduciendo (solo si se ve): flechas o j / k
+  /// eligen, Enter reproduce, y las acciones `queue_*` configurables.
+  fn queue_key(&mut self, key: KeyEvent) -> Option<Vec<Command>> {
+    if !crate::ui::queue_visible() {
+      return None;
+    }
+    if let Some(action) = self.config.keys.view_action(&key, crate::keys::Scope::NowPlaying) {
+      return Some(self.queue_action(action));
+    }
+    let last = self.queue_tracks().len().saturating_sub(1);
+    match key.code {
+      KeyCode::Up | KeyCode::Char('k') => self.queue_cursor = self.queue_cursor.saturating_sub(1).min(last),
+      KeyCode::Down | KeyCode::Char('j') => self.queue_cursor = (self.queue_cursor + 1).min(last),
+      KeyCode::Enter => return Some(self.queue_play()),
+      _ => return None,
+    }
+    Some(Vec::new())
+  }
+
+  /// Una accion de la cola sobre la cancion elegida (su posicion en la cola
+  /// es la del cursor).
+  fn queue_action(&mut self, action: crate::keys::Action) -> Vec<Command> {
+    use crate::keys::Action as A;
+    let len = self.queue_tracks().len();
+    if len == 0 {
+      return Vec::new();
+    }
+    let i = self.queue_cursor.min(len - 1);
+    match action {
+      A::QueueMoveUp if i > 0 => {
+        self.queue_cursor = i - 1;
+        vec![("queue.move".into(), json!({"from": i, "to": i - 1}))]
+      }
+      A::QueueMoveDown if i + 1 < len => {
+        self.queue_cursor = i + 1;
+        vec![("queue.move".into(), json!({"from": i, "to": i + 1}))]
+      }
+      // La que suena no se quita: para eso esta pasar a la siguiente.
+      A::QueueRemove if Some(i) == self.queue_current() => {
+        self.notice = Some("Es la que suena: pasá a la siguiente para cambiarla".into());
+        Vec::new()
+      }
+      A::QueueRemove => {
+        // La elegida pasa a ser la que queda en ese lugar (o la anterior si
+        // era la ultima).
+        self.queue_cursor = if i + 1 == len { i.saturating_sub(1) } else { i };
+        vec![("queue.remove".into(), json!({"indexes": [i]}))]
+      }
+      A::QueueAddToPlaylist => match self.queue_tracks()[i]["uri"].as_str() {
+        Some(uri) => self.open_add_for(uri.to_string()),
+        None => Vec::new(),
+      },
+      _ => Vec::new(),
+    }
   }
 
   /// Reproduce la cancion elegida de la cola.
   fn queue_play(&mut self) -> Vec<Command> {
-    if self.queue_cursor >= self.upcoming().len() {
+    if self.queue_cursor >= self.queue_tracks().len() {
       return Vec::new();
     }
-    let index = self.queue_index(self.queue_cursor);
-    self.queue_cursor = 0;
-    vec![("queue.jump".into(), json!({"index": index}))]
+    vec![("queue.jump".into(), json!({"index": self.queue_cursor}))]
   }
 
   /// Hay un popup abierto (tapa parte de la vista).
@@ -1551,6 +1656,17 @@ impl App {
   }
 
   /// Se envio la peticion `id`: su respuesta se reconoce por el metodo.
+  /// Como `sent`, con los parametros: recuerda de que cancion se pidio cada
+  /// `track.playlists` (la respuesta no lo dice).
+  pub fn sent_with(&mut self, id: u64, method: &str, params: &Value) {
+    if method == "track.playlists"
+      && let Some(uri) = params["uri"].as_str()
+    {
+      self.asked_playlists.insert(id, uri.to_string());
+    }
+    self.sent(id, method);
+  }
+
   pub fn sent(&mut self, id: u64, method: &str) {
     match method {
       "library.groups" => self.lib_groups_inflight += 1,
@@ -1677,7 +1793,18 @@ impl App {
         }
         if let Ok(v) = result {
           match method.as_str() {
-            "queue.list" => self.queue = v,
+            "queue.list" => {
+              // Al cambiar la que suena, la elegida pasa a ser esa.
+              let before = self.queue_current();
+              self.queue = v;
+              let len = self.queue_tracks().len();
+              if self.queue_current() != before
+                && let Some(c) = self.queue_current()
+              {
+                self.queue_cursor = c;
+              }
+              self.queue_cursor = self.queue_cursor.min(len.saturating_sub(1));
+            }
             "player.state" => {
               self.player = v;
               self.pos_at = Instant::now();
@@ -1732,9 +1859,17 @@ impl App {
               }
             }
             "track.playlists" => {
-              self.now_favorite = v["favorite"].as_bool();
-              self.now_playlists =
+              let list: Vec<String> =
                 v["playlists"].as_array().map(|l| l.iter().filter_map(|n| n.as_str().map(str::to_string)).collect()).unwrap_or_default();
+              // Sin cancion anotada, es la que suena (como antes).
+              let asked = self.asked_playlists.remove(&id);
+              if asked.is_none() || asked == self.now_uri() {
+                self.now_favorite = v["favorite"].as_bool();
+                self.now_playlists = list.clone();
+              }
+              if asked.is_some() && asked == self.add_uri {
+                self.add_playlists = list;
+              }
             }
             "library.groups" if latest => {
               self.lib_groups = v["groups"].as_array().cloned().unwrap_or_default();

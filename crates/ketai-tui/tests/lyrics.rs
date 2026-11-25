@@ -487,7 +487,7 @@ fn duplicated_keys_block_the_app_with_a_grouped_scrollable_list() {
   let mut term = Terminal::new(TestBackend::new(100, 16)).unwrap();
   term.draw(|f| ui::draw(f, &app)).unwrap();
   let t = text(term.backend().buffer());
-  for want in ["Teclas repetidas en config.toml", "Corregí [keys] y guardá: ketai se desbloquea solo.", " x   en 2 acciones", "next", "previous", " z   en 2 acciones", "↑ ↓ desplazar", "q salir"] {
+  for want in ["Teclas repetidas en config.toml", "Corregí [keys] y guardá: ketai se desbloquea solo.", " x   en 3 acciones", "next", "previous", " z   en 2 acciones", "↑ ↓ desplazar", "q salir"] {
     assert!(t.contains(want), "missing {want:?}\n{t}");
   }
   // En 16 filas no entra todo: se desplaza hasta el ultimo grupo.
@@ -501,9 +501,9 @@ fn duplicated_keys_block_the_app_with_a_grouped_scrollable_list() {
   // Los clics no hacen nada (la rueda desplaza).
   app.hits = ui::take_hits();
   // Al guardar la configuracion corregida, se desbloquea.
-  app.config = Config::parse("[keys]\nnext = \"x\"").unwrap();
+  app.config = Config::parse("[keys]\nnext = \"y\"").unwrap();
   assert!(!app.keys_blocked());
-  assert_eq!(methods(&app.on_key(key(KeyCode::Char('x')))), ["player.next"]);
+  assert_eq!(methods(&app.on_key(key(KeyCode::Char('y')))), ["player.next"]);
   // `q` sale aun bloqueada.
   app.config = bad;
   app.on_key(key(KeyCode::Char('q')));

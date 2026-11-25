@@ -28,8 +28,8 @@ fn ctrl_p_opens_the_actions_popup_by_default() {
 #[test]
 fn keys_from_the_config_replace_the_defaults() {
   let mut app = App { connected: true, ..App::default() };
-  app.config = Config::parse("[keys]\ntoggle = \"x\"\nnext = [\"ctrl+right\", \"N\"]\nactions = \"ctrl+o\"\n").unwrap();
-  assert_eq!(app.on_key(key(KeyCode::Char('x'))), vec![("player.toggle".to_string(), json!({}))]);
+  app.config = Config::parse("[keys]\ntoggle = \"y\"\nnext = [\"ctrl+right\", \"N\"]\nactions = \"ctrl+o\"\n").unwrap();
+  assert_eq!(app.on_key(key(KeyCode::Char('y'))), vec![("player.toggle".to_string(), json!({}))]);
   assert!(app.on_key(key(KeyCode::Char(' '))).is_empty(), "space no longer toggles");
   assert_eq!(app.on_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)), vec![("player.next".to_string(), json!({}))]);
   assert_eq!(app.on_key(KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT)), vec![("player.next".to_string(), json!({}))]);
@@ -54,10 +54,10 @@ fn ctrl_c_always_quits() {
 #[test]
 fn while_typing_in_search_plain_letters_are_text() {
   let mut app = App { connected: true, ..App::default() };
-  app.config = Config::parse("[keys]\ntoggle = \"x\"\nactions = \"ctrl+p\"\n").unwrap();
+  app.config = Config::parse("[keys]\ntoggle = \"y\"\nactions = \"ctrl+p\"\n").unwrap();
   app.on_key(key(KeyCode::Char('4')));
-  assert!(app.on_key(key(KeyCode::Char('x'))).is_empty());
-  assert_eq!(app.search_query, "x");
+  assert!(app.on_key(key(KeyCode::Char('y'))).is_empty());
+  assert_eq!(app.search_query, "y");
   app.on_key(ctrl('p'));
   assert!(app.palette_open, "keys with ctrl still work while typing");
 }
@@ -111,7 +111,8 @@ fn duplicates_are_grouped_by_key() {
   assert_eq!(
     got,
     vec![
-      ("x".to_string(), vec!["next", "previous", "shuffle"]),
+      // La de la cola (una vista) con globales tambien choca.
+      ("x".to_string(), vec!["next", "previous", "shuffle", "queue_remove"]),
       ("z".to_string(), vec!["mute", "repeat"]),
       // Una de Letras con una global tambien.
       ("d".to_string(), vec!["devices", "lyrics_estimate"]),

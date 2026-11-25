@@ -63,29 +63,41 @@ pub fn find(buf: &Buffer, needle: &str) -> Option<(u16, u16)> {
 }
 
 #[test]
-fn the_queue_shows_what_comes_next_with_title_and_artist() {
-  let app = app_with_queue(4);
+fn the_queue_shows_the_whole_queue_with_the_playing_song_marked() {
+  let mut app = app_with_queue(4);
+  set_queue(&mut app, 1, 4);
   let buf = render(&app);
   let t = text(&buf);
-  assert!(t.contains("COLA  ·  3 canciones"), "{t}");
-  for want in ["Song 1", "Artist 1", "Song 2", "Song 3", "Artist 3"] {
-    assert!(t.contains(want), "missing {want:?}\n{t}");
+  assert!(t.contains("COLA  ·  4 canciones"), "{t}");
+  for want in ["Song 0", "Song 1", "Artist 1", "Song 2", "Song 3", "Artist 3"] {
+    assert!(find_from(&buf, want, 100).is_some(), "missing {want:?}\n{t}");
   }
-  // En la columna derecha: lo que suena (Song 0) no esta en la cola.
-  let (x, _) = find(&buf, "Song 1").unwrap();
-  assert!(x > 100, "on the right: {x}");
-  assert!(find(&buf, "Artist 0").is_some_and(|(ax, _)| ax < 100));
-  // La elegida (la primera) resaltada.
-  let (x, y) = find(&buf, "Song 1").unwrap();
+  // La que suena (Song 1) marcada y con acento; la que ya sono, tenue; las
+  // que vienen, normales.
+  let (x, y) = find_from(&buf, "Song 1", 100).unwrap();
   assert_eq!(buf[(x, y)].fg, app.theme.accent);
-  assert_eq!(buf[(x, y)].bg, app.theme.row);
-  let (x, y) = find(&buf, "Song 2").unwrap();
+  assert_eq!(buf[(x - 2, y)].symbol(), "▶");
+  assert_eq!(buf[(x, y)].bg, app.theme.row, "chosen: the playing one after a track change");
+  let (x, y) = find_from(&buf, "Song 0", 100).unwrap();
+  assert_eq!(buf[(x, y)].fg, app.theme.faint);
+  let (x, y) = find_from(&buf, "Song 2", 100).unwrap();
   assert_eq!(buf[(x, y)].fg, app.theme.fg);
 }
 
 #[test]
+fn the_header_says_when_the_order_is_not_the_list_one() {
+  let mut app = app_with_queue(3);
+  assert!(!text(&render(&app)).contains("se repite"));
+  app.player["repeat"] = json!("queue");
+  assert!(text(&render(&app)).contains("se repite al terminar"));
+  app.player["shuffle"] = json!(true);
+  assert!(text(&render(&app)).contains("orden aleatorio"));
+}
+
+#[test]
 fn an_empty_queue_says_so_and_a_narrow_screen_hides_it() {
-  let app = app_with_queue(1);
+  let mut app = app_with_queue(1);
+  set_queue(&mut app, 0, 0);
   let t = text(&render(&app));
   assert!(t.contains("COLA  ·  0 canciones") && t.contains("La cola está vacía"), "{t}");
   let app = app_with_queue(4);
@@ -101,11 +113,12 @@ fn a_long_queue_scrolls_to_keep_the_chosen_song_visible() {
   let in_queue = |buf: &Buffer, s: &str| find_from(buf, s, 100).is_some();
   let buf = render(&app);
   assert!(in_queue(&buf, "Song 1 ") && !in_queue(&buf, "Song 30"), "{}", text(&buf));
-  app.queue_cursor = 29;
+  app.queue_cursor = 30;
   let buf = render(&app);
   assert!(in_queue(&buf, "Song 30") && !in_queue(&buf, "Song 1 "), "{}", text(&buf));
-  let (x, y) = find(&buf, "Song 30").unwrap();
-  assert_eq!(buf[(x, y)].fg, app.theme.accent);
+  let (x, y) = find_from(&buf, "Song 30", 100).unwrap();
+  assert_eq!(buf[(x, y)].fg, app.theme.fg, "chosen (not playing): bright");
+  assert_eq!(buf[(x, y)].bg, app.theme.row);
 }
 
 #[test]
@@ -127,10 +140,130 @@ fn every_row_is_a_click_target_with_its_queue_position() {
   render(&app);
   let hits = ui::take_hits();
   let rows: Vec<usize> = hits.iter().filter_map(|(_, h)| if let Hit::QueueRow(i) = h { Some(*i) } else { None }).collect();
-  assert_eq!(rows, [0, 1, 2]);
-  assert_eq!((app.queue_index(0), app.queue_index(2)), (1, 3), "position in queue.*");
+  assert_eq!(rows, [0, 1, 2, 3]);
 }
 
 pub fn click(app: &mut App, x: u16, y: u16) -> Vec<(String, Value)> {
   app.on_mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: x, row: y, modifiers: KeyModifiers::NONE }, std::time::Instant::now())
+}
+
+fn methods(cmds: &[(String, Value)]) -> Vec<&str> {
+  cmds.iter().map(|(m, _)| m.as_str()).collect()
+}
+
+/// App con la cola dibujada (las teclas de la cola valen si se ve).
+fn shown(n: usize) -> App {
+  let app = app_with_queue(n);
+  render(&app);
+  app
+}
+
+#[test]
+fn arrows_choose_and_enter_plays_the_chosen_song() {
+  let mut app = shown(5);
+  assert_eq!(app.queue_cursor, 0, "starts on the playing one");
+  app.on_key(key(KeyCode::Down));
+  app.on_key(key(KeyCode::Char('j')));
+  assert_eq!(app.queue_cursor, 2);
+  app.on_key(key(KeyCode::Char('k')));
+  assert_eq!(app.queue_cursor, 1);
+  for _ in 0..10 {
+    app.on_key(key(KeyCode::Down));
+  }
+  assert_eq!(app.queue_cursor, 4, "stops at the last one");
+  app.queue_cursor = 2;
+  assert_eq!(app.on_key(key(KeyCode::Enter)), vec![("queue.jump".to_string(), json!({"index": 2}))]);
+}
+
+#[test]
+fn shift_k_and_j_move_the_chosen_song_and_the_choice_follows_it() {
+  let mut app = shown(5);
+  app.queue_cursor = 2;
+  assert_eq!(app.on_key(key(KeyCode::Char('K'))), vec![("queue.move".to_string(), json!({"from": 2, "to": 1}))]);
+  assert_eq!(app.queue_cursor, 1);
+  app.on_key(key(KeyCode::Char('K')));
+  assert!(app.on_key(key(KeyCode::Char('K'))).is_empty(), "already the first one");
+  assert_eq!(app.on_key(key(KeyCode::Char('J'))), vec![("queue.move".to_string(), json!({"from": 0, "to": 1}))]);
+  app.queue_cursor = 4;
+  assert!(app.on_key(key(KeyCode::Char('J'))).is_empty(), "already the last one");
+}
+
+#[test]
+fn x_removes_the_chosen_song_but_not_the_playing_one() {
+  let mut app = shown(4);
+  app.queue_cursor = 2;
+  assert_eq!(app.on_key(key(KeyCode::Char('x'))), vec![("queue.remove".to_string(), json!({"indexes": [2]}))]);
+  assert_eq!(app.queue_cursor, 2, "the next one takes its place");
+  app.queue_cursor = 3;
+  app.on_key(key(KeyCode::Char('x')));
+  assert_eq!(app.queue_cursor, 2, "removing the last one chooses the previous");
+  // La que suena (0) no se quita.
+  app.queue_cursor = 0;
+  assert!(app.on_key(key(KeyCode::Char('x'))).is_empty());
+  assert!(app.notice.as_deref().is_some_and(|n| n.contains("Es la que suena")));
+}
+
+#[test]
+fn a_track_change_moves_the_choice_to_the_playing_song() {
+  let mut app = shown(5);
+  app.queue_cursor = 3;
+  set_queue(&mut app, 0, 5);
+  assert_eq!(app.queue_cursor, 3, "same playing song: the choice stays");
+  set_queue(&mut app, 2, 5);
+  assert_eq!(app.queue_cursor, 2);
+  set_queue(&mut app, 2, 1);
+  assert_eq!(app.queue_cursor, 0, "kept inside the queue");
+}
+
+#[test]
+fn queue_keys_do_nothing_when_the_queue_is_not_on_screen() {
+  let mut app = app_with_queue(4);
+  let mut term = Terminal::new(TestBackend::new(100, 44)).unwrap();
+  term.draw(|f| ui::draw(f, &app)).unwrap();
+  assert!(app.on_key(key(KeyCode::Char('x'))).is_empty());
+  assert!(app.on_key(key(KeyCode::Char('K'))).is_empty());
+}
+
+#[test]
+fn queue_keys_come_from_the_config_and_the_help_shows_them() {
+  let mut app = app_with_queue(4);
+  assert!(text(&render(&app)).contains(" K   J  mover"), "{}", text(&render(&app)));
+  app.config = ketai_tui::config::Config::parse("[keys]\nqueue_remove = \"X\"").unwrap();
+  let t = text(&render(&app));
+  assert!(t.contains(" X  quitar"), "{t}");
+  app.queue_cursor = 2;
+  assert!(app.on_key(key(KeyCode::Char('x'))).is_empty());
+  assert_eq!(methods(&app.on_key(key(KeyCode::Char('X')))), ["queue.remove"]);
+  // Una tecla de la cola no puede repetir una global.
+  assert!(ketai_tui::config::Config::parse("[keys]\nqueue_remove = \"n\"").unwrap().keys.duplicates().len() == 1);
+}
+
+#[test]
+fn a_adds_the_chosen_song_to_a_playlist_without_playing_it() {
+  let mut app = shown(4);
+  app.queue_cursor = 3;
+  let cmds = app.on_key(key(KeyCode::Char('a')));
+  assert_eq!(cmds[0], ("track.playlists".to_string(), json!({"uri": "file:///m/3.ogg"})));
+  assert!(app.add_open);
+  // Las respuestas: la de la cancion de la cola y despues la que suena.
+  app.sent_with(90, "track.playlists", &json!({"uri": "file:///m/3.ogg"}));
+  app.on_daemon(DaemonMsg::Reply { id: 90, result: Ok(json!({"playlists": ["rock"], "favorite": false})) });
+  app.sent_with(91, "track.playlists", &json!({"uri": "file:///m/0.ogg"}));
+  app.on_daemon(DaemonMsg::Reply { id: 91, result: Ok(json!({"playlists": ["chill"], "favorite": true})) });
+  assert_eq!(app.add_playlists, ["rock"]);
+  assert_eq!(app.now_playlists, ["chill"], "the playing song keeps its own");
+  app.sent(92, "playlist.list");
+  app.on_daemon(DaemonMsg::Reply { id: 92, result: Ok(json!({"playlists": [{"name": "chill", "count": 1}, {"name": "rock", "count": 1}]})) });
+  // El popup dice que cancion se agrega y marca donde ya esta.
+  let t = text(&render(&app));
+  assert!(t.contains("Song 3") && t.contains("rock  ✓") && !t.contains("chill  ✓"), "{t}");
+  // Enter agrega esa cancion, no la que suena.
+  assert_eq!(app.on_key(key(KeyCode::Enter)), vec![("playlist.add".to_string(), json!({"name": "chill", "uris": ["file:///m/3.ogg"]}))]);
+  // x la quita de una playlist que la tiene.
+  app.add_cursor = 1;
+  assert_eq!(app.on_key(key(KeyCode::Char('x'))), vec![("playlist.remove".to_string(), json!({"name": "rock", "uris": ["file:///m/3.ogg"]}))]);
+  // Con P (la que suena) vuelve a ser la que suena.
+  app.add_open = false;
+  app.on_key(key(KeyCode::Char('P')));
+  assert_eq!(app.add_target().as_deref(), Some("file:///m/0.ogg"));
 }

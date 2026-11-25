@@ -157,6 +157,10 @@ accion y la tecla, y se mantiene la configuracion anterior):
 | `lyrics_offset_up` | `]` | Letras: offset +50 ms |
 | `lyrics_mode` | `k` | Letras: modo clasico o karaoke |
 | `lyrics_estimate` | `w` | Letras: estimar tiempos por palabra |
+| `queue_move_up` | `K` | Cola (Reproduciendo): subir la cancion elegida |
+| `queue_move_down` | `J` | Cola (Reproduciendo): bajar la cancion elegida |
+| `queue_remove` | `x` | Cola (Reproduciendo): quitar la cancion elegida |
+| `queue_add_to_playlist` | `a` | Cola (Reproduciendo): agregar la cancion elegida a una playlist |
 
 - `Ctrl+C` siempre sale, aunque se configure otra cosa.
 - Mientras se escribe en Buscar, las teclas sin Ctrl ni Alt son texto.

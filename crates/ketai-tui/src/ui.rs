@@ -407,12 +407,6 @@ pub const I_VOLUME: &str = "\u{f028}";
 pub const I_MUTE: &str = "\u{f026}";
 pub const I_MUSIC: &str = "\u{f001}";
 
-/// `44.1 kHz`, `48 kHz`.
-fn fmt_rate(hz: u64) -> String {
-  let k = hz as f64 / 1000.0;
-  if k.fract() == 0.0 { format!("{k:.0} kHz") } else { format!("{k:.1} kHz") }
-}
-
 /// Barra de progreso fina: hecho en blanco, resto en tono de fondo.
 fn progress(buf: &mut Buffer, t: &Theme, x: u16, y: u16, w: u16, pos: u64, dur: Option<u64>) {
   let left = fmt_ms(pos);
@@ -553,13 +547,8 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
     span_hits(x, y, &mine, &[Some(A::Favorite), Some(A::Favorite), None, Some(A::AddToPlaylist), Some(A::AddToPlaylist)]);
   }
   y += 2;
-  // Formato y en cuantas playlists esta.
+  // En cuantas playlists esta.
   let mut info = Vec::new();
-  let codec = s("codec");
-  if !codec.is_empty() {
-    let rate = track["sample_rate"].as_u64().map(|r| format!(" · {}", fmt_rate(r))).unwrap_or_default();
-    info.push(format!("{codec}{rate}"));
-  }
   let n = app.now_playlists.len();
   if n > 0 {
     info.push(format!("En {n} {}", if n == 1 { "playlist" } else { "playlists" }));
@@ -1757,11 +1746,12 @@ fn header(f: &mut RFrame, app: &App, area: Rect) {
     ]);
     put_line(buf, fx + 2, area.y + 1, &field, fw.saturating_sub(4));
   }
-  let status = if app.connected {
-    Line::from(vec![Span::styled("● ", Style::new().fg(t.ok)), Span::styled("ketaid", Style::new().fg(t.ok))])
-  } else {
-    Line::from(vec![Span::styled("● ", Style::new().fg(t.error)), Span::styled("ketaid sin conexión", Style::new().fg(t.error))])
-  };
+  // Solo se avisa cuando se pierde la conexion: estando conectado no hace
+  // falta ocupar lugar.
+  if app.connected {
+    return;
+  }
+  let status = Line::from(vec![Span::styled("● ", Style::new().fg(t.error)), Span::styled("ketaid sin conexión", Style::new().fg(t.error))]);
   // La salida activa se ve en el reproductor, no aca.
   let w = status.width() as u16;
   if area.width > w + 2 {

@@ -79,7 +79,10 @@ fn header_shows_tabs_with_the_active_one_highlighted() {
   for name in ["Reproduciendo", "Letras", "Biblioteca", "Buscar"] {
     assert!(header.contains(name), "{header}");
   }
-  assert!(header.contains("ketaid"));
+  // Conectado no se muestra el estado del daemon; sin conexion, si.
+  assert!(!header.contains("ketaid"), "{header}");
+  app.connected = false;
+  assert!(row(&render(&app), 1).contains("ketaid sin conexión"));
   let x = header.find("Letras").unwrap() as u16;
   let active = &buf[(x, 1)];
   assert!(active.modifier.contains(Modifier::BOLD | Modifier::UNDERLINED));

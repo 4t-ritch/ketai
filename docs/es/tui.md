@@ -195,8 +195,9 @@ reproduccion siguen funcionando.
 
 En paneles medianos (por ejemplo 4:3, unas 88x40) la vista completa se
 compacta: caratula mas chica, controles mas juntos, en Biblioteca se oculta
-la columna de lo que suena (queda la barra de abajo) y, con poco alto, se
-omiten la letra y lo que sigue.
+la columna de lo que suena (queda la barra de abajo), con poco alto se
+omite la vista previa de la letra, y si no alcanza el ancho se oculta la
+columna de la cola.
 
 ## Caratulas
 

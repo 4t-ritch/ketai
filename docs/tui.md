@@ -196,8 +196,8 @@ keep working.
 
 In medium panes (for example 4:3, about 88x40) the full view gets compact: a
 smaller cover, tighter controls, in Library the Now Playing column is hidden
-(the bottom bar stays) and, with little height, the lyrics and next track are
-left out.
+(the bottom bar stays), with little height the lyrics preview is left out,
+and when the width is not enough the queue column is hidden.
 
 ## Covers
 

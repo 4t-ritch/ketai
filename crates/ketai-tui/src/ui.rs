@@ -68,6 +68,11 @@ pub fn draw(f: &mut RFrame, app: &App) {
     begin_overlay();
     add_popup(f, app);
   }
+  if app.keys_open {
+    dim(f, t);
+    begin_overlay();
+    keys_list(f, app);
+  }
   if app.keys_blocked() {
     dim(f, t);
     begin_overlay();
@@ -176,6 +181,60 @@ fn popup_frame(f: &mut RFrame, t: &Theme, area: Rect) {
   use ratatui::widgets::{Block, BorderType, Clear, Widget};
   Clear.render(area, f.buffer_mut());
   Block::bordered().border_type(BorderType::Rounded).border_style(t.accent()).style(Style::new().bg(t.popup())).render(area, f.buffer_mut());
+}
+
+/// Lista de atajos (desde Ctrl+P): cada accion configurable con sus teclas
+/// actuales (las de config.toml en este momento), agrupadas por donde
+/// valen, con desplazamiento.
+fn keys_list(f: &mut RFrame, app: &App) {
+  use crate::keys::{ACTIONS, Scope};
+  let t = &app.theme;
+  let area = f.area();
+  let mut lines: Vec<Line> = Vec::new();
+  for (scope, title) in [(Scope::Global, "En todas las vistas"), (Scope::Lyrics, "En Letras"), (Scope::NowPlaying, "En Reproduciendo (cola)")] {
+    lines.push(Line::styled(title, t.title()));
+    for (name, action, _, desc) in ACTIONS.iter().filter(|(_, a, _, _)| a.scope() == scope) {
+      let keys = app.config.keys.keys(*action);
+      let mut spans: Vec<Span> = Vec::new();
+      if keys.is_empty() {
+        spans.push(Span::styled("sin tecla", t.faint()));
+      }
+      for (k, key) in keys.iter().enumerate() {
+        if k > 0 {
+          spans.push(Span::raw(" "));
+        }
+        spans.push(keycap(t, &key.label()));
+      }
+      // Tres columnas: teclas, nombre en [keys] y que hace (sin el
+      // "Letras:" o "Cola:", que ya dice el titulo del grupo).
+      let used = spans.iter().map(|s| s.width()).sum::<usize>();
+      spans.push(Span::raw(" ".repeat(18usize.saturating_sub(used).max(2))));
+      spans.push(Span::styled(format!("{name:<24}"), t.faint()));
+      let desc = desc.split_once(": ").filter(|(p, _)| *p == "Letras" || *p == "Cola").map_or(*desc, |(_, d)| d);
+      spans.push(Span::styled(desc.to_string(), t.text()));
+      lines.push(Line::from(spans));
+    }
+    lines.push(Line::raw(""));
+  }
+  lines.push(Line::styled("Ctrl+C siempre sale. Se cambian en [keys] de config.toml.", t.faint()));
+  let w = 92.min(area.width.saturating_sub(2));
+  let h = (lines.len() as u16 + 6).min(area.height.saturating_sub(2)).max(8.min(area.height));
+  let pop = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 2, w, h);
+  popup_frame(f, t, pop);
+  modal(area, pop);
+  let buf = f.buffer_mut();
+  let x = pop.x + 3;
+  let inner = w.saturating_sub(6);
+  put(buf, x, pop.y + 1, "Atajos de teclado", t.title());
+  put(buf, pop.x + pop.width.saturating_sub(9), pop.y + 1, "esc ✕", t.faint());
+  let rows = h.saturating_sub(6) as usize;
+  let max = lines.len().saturating_sub(rows);
+  let from = (app.keys_scroll as usize).min(max);
+  for (k, line) in lines.iter().skip(from).take(rows).enumerate() {
+    put_line(buf, x, pop.y + 3 + k as u16, line, inner);
+  }
+  let more = if max > 0 { format!("{}/{}   ↑ ↓ desplazar   ", from + 1, max + 1) } else { String::new() };
+  putn(buf, x, pop.y + h - 2, format!("{more}esc cerrar"), inner as usize, t.faint());
 }
 
 /// Bloqueo por teclas repetidas en `[keys]`: la lista completa, agrupada

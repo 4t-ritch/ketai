@@ -284,6 +284,9 @@ pub struct App {
   pub queue_cursor: usize,
   /// Arrastre de una cancion de la cola con el mouse.
   pub queue_drag: Option<QueueDrag>,
+  /// Lista de atajos (desde Ctrl+P) abierta, y su desplazamiento.
+  pub keys_open: bool,
+  pub keys_scroll: u16,
   /// Desplazamiento de la lista de teclas repetidas.
   pub dup_scroll: u16,
   /// Ultimo `mode` leido del archivo.
@@ -335,10 +338,12 @@ pub enum PaletteAction {
   ScanAll,
   Lyrics,
   Folders,
+  Keys,
 }
 
 impl PaletteAction {
-  pub const ALL: [PaletteAction; 4] = [PaletteAction::Devices, PaletteAction::ScanAll, PaletteAction::Lyrics, PaletteAction::Folders];
+  pub const ALL: [PaletteAction; 5] =
+    [PaletteAction::Devices, PaletteAction::ScanAll, PaletteAction::Lyrics, PaletteAction::Folders, PaletteAction::Keys];
 
   pub fn label(self) -> &'static str {
     match self {
@@ -346,6 +351,7 @@ impl PaletteAction {
       PaletteAction::ScanAll => "Escanear toda la biblioteca",
       PaletteAction::Lyrics => "Letras: elegir capas…",
       PaletteAction::Folders => "Carpetas de la biblioteca…",
+      PaletteAction::Keys => "Ver atajos de teclado…",
     }
   }
 }
@@ -463,6 +469,8 @@ impl Default for App {
       lyrics_mode: Default::default(),
       lyrics_mode_file: None,
       dup_scroll: 0,
+      keys_open: false,
+      keys_scroll: 0,
       queue_cursor: 0,
       add_uri: None,
       add_playlists: Vec::new(),
@@ -516,6 +524,9 @@ impl App {
     }
     if self.palette_open {
       return self.palette_key(key);
+    }
+    if self.keys_open {
+      return self.keys_list_key(key);
     }
     let typing = self.tab == Tab::Search && self.search_editing;
     use crate::keys::Action as A;
@@ -580,6 +591,10 @@ impl App {
           Some(Hit::LibSide(_) | Hit::LibSideArea) => {
             self.lib_focus = LibFocus::Playlists;
             self.on_key(key(code))
+          }
+          Some(Hit::Popup) if self.keys_open => {
+            self.keys_scroll = if code == KeyCode::Up { self.keys_scroll.saturating_sub(1) } else { self.keys_scroll.saturating_add(1) };
+            Vec::new()
           }
           Some(Hit::PopupRow(_) | Hit::Popup) => self.on_key(key(code)),
           // Sobre la cola: mueve la elegida (y con ella lo que se ve).
@@ -718,6 +733,7 @@ impl App {
             self.naming = None;
             self.folders_open = false;
             self.palette_open = false;
+            self.keys_open = false;
             Vec::new()
           }
         }
@@ -1364,6 +1380,11 @@ impl App {
           Some(PaletteItem::Action(PaletteAction::Lyrics)) => self.tab = Tab::Lyrics,
           Some(PaletteItem::Action(PaletteAction::ScanAll)) => return vec![("library.scan".into(), json!({}))],
           Some(PaletteItem::Action(PaletteAction::Folders)) => return self.open_folders(),
+          Some(PaletteItem::Action(PaletteAction::Keys)) => {
+            self.palette_open = false;
+            self.keys_open = true;
+            self.keys_scroll = 0;
+          }
           None => self.palette_open = true,
         }
       }
@@ -1641,13 +1662,27 @@ impl App {
 
   /// Hay un popup abierto (tapa parte de la vista).
   pub fn popup_open(&self) -> bool {
-    self.palette_open || self.devices_open || self.folders_open || self.add_open || self.keys_blocked()
+    self.palette_open || self.devices_open || self.folders_open || self.add_open || self.keys_open || self.keys_blocked()
   }
 
   /// Hay teclas repetidas en `[keys]`: la TUI no se puede usar hasta
   /// corregirlas (se desbloquea sola al guardar el archivo arreglado).
   pub fn keys_blocked(&self) -> bool {
     !self.config.keys.duplicates().is_empty()
+  }
+
+  /// Teclas con la lista de atajos abierta: desplazar y cerrar.
+  fn keys_list_key(&mut self, key: KeyEvent) -> Vec<Command> {
+    match key.code {
+      KeyCode::Esc | KeyCode::Char('q') => self.keys_open = false,
+      KeyCode::Down | KeyCode::Char('j') => self.keys_scroll = self.keys_scroll.saturating_add(1),
+      KeyCode::Up | KeyCode::Char('k') => self.keys_scroll = self.keys_scroll.saturating_sub(1),
+      KeyCode::PageDown => self.keys_scroll = self.keys_scroll.saturating_add(10),
+      KeyCode::PageUp => self.keys_scroll = self.keys_scroll.saturating_sub(10),
+      KeyCode::Home => self.keys_scroll = 0,
+      _ => {}
+    }
+    Vec::new()
   }
 
   /// Teclas con el bloqueo de teclas repetidas: solo desplazar la lista y

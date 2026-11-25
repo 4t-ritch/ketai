@@ -34,7 +34,7 @@ Tabs at the top, on every screen:
 
 | Key | Tab |
 |---|---|
-| `1` | Now Playing (*Reproduciendo*): cover, progress, controls, lyrics, next track and spectrum |
+| `1` | Now Playing (*Reproduciendo*): cover, progress, controls, lyrics, the queue and spectrum |
 | `2` | Lyrics (*Letras*): current line with the word being sung, translations below |
 | `3` | Library (*Biblioteca*): playlists, all songs, or by artist, album, folder, year or genre |
 | `4` | Search (*Buscar*): search in the local library |
@@ -77,6 +77,22 @@ Lyrics (configurable in `[keys]`, see [config.md](config.md#keys)):
 The top right of Lyrics shows each option with its key, like Now Playing:
 the layer (`o`), the translation (`t`), the offset (`[` / `]`) and the mode
 (`k`). Clicking an option does the same as its key.
+
+Queue, in Now Playing (only when it is on screen; `K`, `J`, `x` and `a` are
+configurable in `[keys]`, see [config.md](config.md#keys)):
+
+| Key | Action |
+|---|---|
+| arrows up and down, or `k` `j` | choose a song |
+| `Enter` | play the chosen song |
+| `K` / `J` | move the chosen song up / down |
+| `x` | remove the chosen song (not the one playing) |
+| `a` | add the chosen song to a playlist |
+
+The queue shows the whole queue in its real order: the songs already played
+(dimmer), the one playing (marked) and the ones coming. With repeat queue
+it starts over at the end; with shuffle the next song is picked at random
+when it comes, so the header says so.
 
 Library:
 
@@ -154,6 +170,10 @@ Everything on screen can be used with the mouse; it does the same as its key.
   each side of the views, a playlist or group on the left, or a song. One click selects; a
   double click plays (like `Enter`).
 - In Search: click a filter or a result; a double click plays.
+- In the Now Playing queue: one click chooses a song, a double click plays
+  it, and dragging it onto another row moves it there (the row where it
+  would land is marked while dragging). The keys at the bottom of the queue
+  (remove, playlist, move) act on the chosen song.
 - The wheel scrolls the list under the pointer, anywhere on the list.
 - With a popup open, only the popup responds: clicking an option chooses it
   (in Folders it only selects it; the actions keep their keys), in the

@@ -18,7 +18,15 @@ with its on-screen label in italics.
 - Volume with its keys (`-` / `+`) and the active audio output (`d` to
   change it).
 - **Favorite** (`*`) and **Add to playlist** (`P`).
-- File format and in how many playlists the song is.
+- In how many playlists the song is.
+- **Queue** on the right: the whole queue in its real order, with each
+  song's cover, title (it scrolls if it does not fit) and artist. The one
+  playing is marked and the ones already played are dimmer; it says when the
+  queue repeats at the end or plays in random order. Choose a song with the
+  arrows or a click, play it with `Enter` or a double click, move it with
+  `K` / `J` or by dragging it, remove it with `x` and add it to a playlist
+  with `a` (without playing it). It only shows when the screen is wide
+  enough.
 - Progress bar (click or drag to move), controls and live spectrum.
 - If the title does not fit, it scrolls so it can be read in full.
 

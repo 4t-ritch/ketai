@@ -22,7 +22,7 @@ Tests: `cargo test` (workspace).
 | T3 | S3, S5 | inline | hecho | Teclado: elegir, mover arriba/abajo, quitar, Enter reproduce; teclas configurables (alcance Reproduciendo) |
 | T4 | S4 | inline | hecho | Agregar la cancion elegida de la cola a una playlist (popup con destino propio) |
 | T5 | S3, S4, S5 | inline | hecho | Mouse: clic elige, doble clic reproduce, arrastrar y soltar mueve, botones quitar y playlist, rueda |
-| T6 | S2-S6 | inline | pendiente | Docs en ingles y espanol |
+| T6 | S2-S6 | inline | hecho | Docs en ingles y espanol |
 
 ## Log
 
@@ -32,4 +32,5 @@ Tests: `cargo test` (workspace).
 - T2 e610d5f: columna de cola (la informacion tiene prioridad de ancho: INFO_MIN_W 62).
 - (2026-11-24) Usuario: "ahorita dice que no tengo mas canciones en cola, pero si activo el repeat all, y pulso next me aparecen en cola todas las canciones de una playlist que tuve antes de poder la cancion en curso" y "no coincide la cancion que muestra en la lista de la cola con la cancion que esta sonando en curso". Causa: la columna mostraba solo lo posterior a la actual; la cola del daemon es lineal y con repeat queue vuelve al principio; en shuffle el siguiente se elige al azar al pasar. Arreglo: cola completa en orden real (actual marcada, las ya sonadas tenues), nota "se repite al terminar" / "orden aleatorio"; posiciones = indices de queue.*; la actual no se quita.
 - T3/T4: acciones queue_move_up K, queue_move_down J, queue_remove x, queue_add_to_playlist a (alcance Reproduciendo, chocan con globales); popup de playlist con destino propio (add_uri) y track.playlists asignado por id de peticion (sent_with).
-- Siguiente paso: T5 (mouse).
+- T5 de5e78c: clic elige, doble clic reproduce, arrastrar y soltar (queue_drag), rueda, botones del pie.
+- T6: docs en/es (features, tui: teclas y mouse de la cola). Pendiente: prueba del usuario; integracion cuando lo pida.

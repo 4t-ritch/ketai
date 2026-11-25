@@ -114,6 +114,8 @@ pub enum Hit {
   Seek { x: u16, w: u16 },
   /// Barra de volumen.
   Volume { x: u16, w: u16 },
+  /// Una cancion de la cola de Reproduciendo (indice en `upcoming`).
+  QueueRow(usize),
   /// Una linea de la letra: salta a su inicio (ms).
   LyricLine(u64),
   LibView(LibView),
@@ -271,6 +273,10 @@ pub struct App {
   pub lyrics_mode: crate::config::LyricsMode,
   /// `config.toml`, donde `m` guarda el modo (`None` en tests: no se escribe).
   pub config_path: Option<std::path::PathBuf>,
+  /// Cancion elegida en la cola de Reproduciendo (indice en `upcoming`).
+  pub queue_cursor: usize,
+  /// Arrastre de una cancion de la cola con el mouse.
+  pub queue_drag: Option<QueueDrag>,
   /// Desplazamiento de la lista de teclas repetidas.
   pub dup_scroll: u16,
   /// Ultimo `mode` leido del archivo.
@@ -376,6 +382,14 @@ pub fn cell_px(size: Option<(u16, u16, u16, u16)>) -> Option<(u16, u16)> {
   Some((w / cols, h / rows))
 }
 
+/// Una cancion de la cola que se esta arrastrando: de donde sale y sobre
+/// cual esta el puntero (indices en `upcoming`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QueueDrag {
+  pub from: usize,
+  pub over: usize,
+}
+
 impl Default for App {
   fn default() -> Self {
     Self {
@@ -442,6 +456,8 @@ impl Default for App {
       lyrics_mode: Default::default(),
       lyrics_mode_file: None,
       dup_scroll: 0,
+      queue_cursor: 0,
+      queue_drag: None,
       config_path: None,
       cell_px: None,
       karaoke: crate::karaoke::Karaoke::new(KARAOKE_IDS, None),
@@ -594,6 +610,11 @@ impl App {
           Hit::Volume { .. } => {
             self.dragging = Some(hit);
             self.set_volume_at(hit, ev.column)
+          }
+          Hit::QueueRow(i) => {
+            self.queue_cursor = i;
+            // Doble clic: la reproduce.
+            if double { self.queue_play() } else { Vec::new() }
           }
           Hit::LyricLine(ms) => {
             // Hasta que llegue la posicion nueva del daemon, se muestra esta.
@@ -1460,6 +1481,30 @@ impl App {
   /// fuente.
   pub fn karaoke_on(&self) -> bool {
     self.lyrics_mode == crate::config::LyricsMode::Karaoke && self.images && self.cell_px.is_some() && self.karaoke_fonts
+  }
+
+  /// Lo que viene despues de la que suena, en orden.
+  pub fn upcoming(&self) -> &[Value] {
+    let tracks = self.queue["tracks"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    match self.queue["current"].as_u64() {
+      Some(c) => tracks.get(c as usize + 1..).unwrap_or(&[]),
+      None => tracks,
+    }
+  }
+
+  /// Posicion en la cola (`queue.*`) de la cancion `i` de `upcoming`.
+  pub fn queue_index(&self, i: usize) -> usize {
+    self.queue["current"].as_u64().map_or(i, |c| c as usize + 1 + i)
+  }
+
+  /// Reproduce la cancion elegida de la cola.
+  fn queue_play(&mut self) -> Vec<Command> {
+    if self.queue_cursor >= self.upcoming().len() {
+      return Vec::new();
+    }
+    let index = self.queue_index(self.queue_cursor);
+    self.queue_cursor = 0;
+    vec![("queue.jump".into(), json!({"index": index}))]
   }
 
   /// Hay un popup abierto (tapa parte de la vista).

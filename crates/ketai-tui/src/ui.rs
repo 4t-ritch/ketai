@@ -475,7 +475,14 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   draw_cover(f, app, cover, app.player["track"]["uri"].as_str());
   let buf = f.buffer_mut();
   let x = cover.x + cover.width + margin;
-  let w = (area.x + area.width).saturating_sub(x + margin);
+  let full_w = (area.x + area.width).saturating_sub(x + margin);
+  // La cola va en una columna a la derecha, hasta la barra de progreso. La
+  // informacion tiene prioridad: la cola usa lo que sobra despues de su
+  // ancho (el volumen y la salida en una fila); si no alcanza, no se
+  // muestra.
+  let spare = full_w.saturating_sub(INFO_MIN_W + 4);
+  let queue_w = if spare >= QUEUE_MIN_W { (full_w / 3).clamp(QUEUE_MIN_W, 48).min(spare) } else { 0 };
+  let w = if queue_w > 0 { full_w - queue_w - 4 } else { full_w };
   let s = |k: &str| track[k].as_str().unwrap_or("").to_string();
   let title = track_title(track);
   let roomy = top_h >= 24;
@@ -571,6 +578,7 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   }
   // Progreso y controles al pie de la columna.
   let py = y.max((area.y + top_h).saturating_sub(3));
+  let w = full_w;
   progress(buf, t, x, py, w, app.position_ms(), track["duration_ms"].as_u64());
   let mut controls = controls(app, false, true);
   if controls.width() as u16 > w {
@@ -583,6 +591,60 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   if app.playing() {
     let viz = Rect::new(area.x + 2, area.y + area.height - viz_h - 1, area.width.saturating_sub(4), viz_h);
     spectrum(buf, t, viz, &app.viz);
+  }
+  if queue_w > 0 {
+    let top = area.y + 1;
+    queue_panel(f, app, Rect::new(x + full_w - queue_w, top, queue_w, py.saturating_sub(top + 1)));
+  }
+}
+
+/// Ancho minimo de la columna de la cola.
+const QUEUE_MIN_W: u16 = 28;
+/// Ancho que necesita la informacion de Reproduciendo junto a la cola (la
+/// fila del volumen y la salida sin partirse).
+const INFO_MIN_W: u16 = 62;
+/// Filas por cancion de la cola: caratula de 2 filas y una de aire.
+const QUEUE_ROW_H: u16 = 3;
+
+/// Cuantas canciones de la cola entran en un alto de columna.
+pub fn queue_rows(height: u16) -> usize {
+  (height.saturating_sub(2) / QUEUE_ROW_H) as usize
+}
+
+/// La cola (lo que viene despues de la que suena): caratula, titulo (se
+/// desplaza si no entra) y artista. La elegida, resaltada.
+fn queue_panel(f: &mut RFrame, app: &App, area: Rect) {
+  let t = &app.theme;
+  let next = app.upcoming();
+  {
+    let buf = f.buffer_mut();
+    let head = Line::from(vec![
+      Span::styled("COLA", t.faint()),
+      Span::styled(format!("  ·  {}", match next.len() { 1 => "1 canción".to_string(), n => format!("{n} canciones") }), t.faint()),
+    ]);
+    put_line(buf, area.x, area.y, &head, area.width);
+    if next.is_empty() {
+      putn(buf, area.x, area.y + 2, "La cola está vacía", area.width as usize, t.faint());
+      return;
+    }
+  }
+  let rows = queue_rows(area.height);
+  let first = app.queue_cursor.saturating_sub(rows.saturating_sub(1)).min(next.len().saturating_sub(rows.max(1)));
+  for (k, (i, track)) in next.iter().enumerate().skip(first).take(rows).enumerate() {
+    let y = area.y + 2 + k as u16 * QUEUE_ROW_H;
+    let selected = i == app.queue_cursor;
+    let dragged = app.queue_drag.is_some_and(|d| d.over == i);
+    if selected || dragged {
+      let bg = if dragged { t.raised } else { t.row };
+      f.buffer_mut().set_style(Rect::new(area.x, y, area.width, 2), Style::new().bg(bg));
+    }
+    draw_cover(f, app, Rect::new(area.x, y, 4, 2), track["uri"].as_str());
+    let buf = f.buffer_mut();
+    let tw = area.width.saturating_sub(6) as usize;
+    let style = if selected { t.accent().add_modifier(Modifier::BOLD) } else { t.text() };
+    putm(buf, app, area.x + 6, y, &track_title(track), tw, style);
+    putn(buf, area.x + 6, y + 1, track["artist"].as_str().unwrap_or(""), tw, t.faint());
+    hit(Rect::new(area.x, y, area.width, 2), Hit::QueueRow(i));
   }
 }
 

@@ -20,7 +20,11 @@ fn playing() -> App {
 }
 
 fn draw(app: &App) -> (ratatui::buffer::Buffer, ui::Frame) {
-  let mut term = Terminal::new(TestBackend::new(160, 44)).unwrap();
+  draw_sized(app, 160, 44)
+}
+
+fn draw_sized(app: &App, w: u16, h: u16) -> (ratatui::buffer::Buffer, ui::Frame) {
+  let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
   term.draw(|f| ui::draw(f, app)).unwrap();
   (term.backend().buffer().clone(), ui::take_frame(app))
 }
@@ -110,7 +114,8 @@ fn ready(app: &mut App, uri: &str, rgb: [u8; 3]) {
 fn the_next_track_cover_is_prepared_ahead_and_only_that_one() {
   let mut app = playing();
   queue(&mut app, 0);
-  let (_, frame) = draw(&app);
+  // Angosto: la cola no entra en pantalla (si se ve, pide las suyas).
+  let (_, frame) = draw_sized(&app, 100, 44);
   assert!(frame.wanted.contains(&"file:///m/b.ogg".to_string()), "{:?}", frame.wanted);
   assert!(!frame.wanted.contains(&"file:///m/c.ogg".to_string()), "never more than the next one: {:?}", frame.wanted);
   assert!(frame.keep.contains(&"file:///m/b.ogg".to_string()), "kept in memory until it plays");
@@ -131,4 +136,14 @@ fn moving_to_the_next_track_changes_the_colors_at_once() {
   });
   let ratatui::style::Color::Rgb(r, _, b) = app.theme.accent else { panic!() };
   assert!(b > r && app.theme.accent != red, "{:?}", app.theme.accent);
+}
+
+#[test]
+fn the_queue_column_shows_the_covers_of_what_comes_next() {
+  let mut app = playing();
+  queue(&mut app, 0);
+  let (_, frame) = draw(&app);
+  for uri in ["file:///m/b.ogg", "file:///m/c.ogg"] {
+    assert!(frame.wanted.contains(&uri.to_string()), "{uri}: {:?}", frame.wanted);
+  }
 }

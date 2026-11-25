@@ -632,14 +632,7 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   if roomy {
     lyrics_preview(buf, app, x, y, w);
     y += 5;
-    if let Some(next) = app.next_track() {
-      let line = Line::from(vec![
-        Span::styled("Siguiente  ", t.faint()),
-        Span::styled(next["title"].as_str().unwrap_or("").to_string(), t.text()),
-        Span::styled(format!(" · {}", next["artist"].as_str().unwrap_or("")), t.faint()),
-      ]);
-      put_line(buf, x, y, &line, w);
-    }
+    // Lo que sigue lo muestra la cola.
     y += 2;
   }
   // Progreso y controles al pie de la columna.
@@ -738,7 +731,13 @@ fn queue_panel(f: &mut RFrame, app: &App, area: Rect) {
     }
     // La elegida deja lugar a la derecha para sus botones.
     let tw = if selected { tw.saturating_sub(5) } else { tw };
-    putm(buf, app, area.x + 7, y, track_title(track), tw, style);
+    // Solo se anima el titulo de la que suena: con listas enormes, todas
+    // moviendose cansan la vista. Las demas se cortan.
+    if playing {
+      putm(buf, app, area.x + 7, y, track_title(track), tw, style);
+    } else {
+      putn(buf, area.x + 7, y, track_title(track), tw, style);
+    }
     putn(buf, area.x + 7, y + 1, track["artist"].as_str().unwrap_or(""), tw, t.faint());
     hit(Rect::new(area.x, y, area.width, 2), Hit::QueueRow(i));
     // Botones de la elegida, para el mouse (las teclas estan en la lista de

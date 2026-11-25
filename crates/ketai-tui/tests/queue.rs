@@ -109,7 +109,7 @@ fn an_empty_queue_says_so_and_a_narrow_screen_hides_it() {
 #[test]
 fn a_long_queue_scrolls_to_keep_the_chosen_song_visible() {
   let mut app = app_with_queue(40);
-  // Solo la columna de la cola (la de informacion dice "Siguiente  Song 1").
+  // Solo la columna de la cola.
   let in_queue = |buf: &Buffer, s: &str| find_from(buf, s, 100).is_some();
   let buf = render(&app);
   assert!(in_queue(&buf, "Song 1 ") && !in_queue(&buf, "Song 30"), "{}", text(&buf));
@@ -122,16 +122,21 @@ fn a_long_queue_scrolls_to_keep_the_chosen_song_visible() {
 }
 
 #[test]
-fn a_long_title_scrolls_sideways() {
-  let mut app = app_with_queue(2);
+fn only_the_playing_song_title_scrolls() {
+  let mut app = app_with_queue(3);
   let long = "A very very long song title that never fits in the queue column";
-  app.queue["tracks"][1]["title"] = json!(long);
+  app.queue["tracks"][0]["title"] = json!(long);
+  app.queue["tracks"][2]["title"] = json!(format!("Other {long}"));
+  let col = |app: &App| -> String { let b = render(app); (0..b.area.height).map(|y| (100..160).map(|x| b[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect() };
   app.anim_ms = 0;
-  let a = text(&render(&app));
+  let a = col(&app);
   app.anim_ms = 4000;
-  let b = text(&render(&app));
-  assert!(a.contains("A very very long") && !a.contains(long), "{a}");
-  assert_ne!(a, b, "it moves with time");
+  let b = col(&app);
+  assert!(a.contains("A very very lo") && !a.contains(long), "{a}");
+  // La que suena se mueve; la otra queda quieta (cortada).
+  let line = |s: &str, start: &str| s.lines().find(|l| l.contains(start)).map(str::to_string);
+  assert!(line(&a, "Other A very").is_some() && line(&a, "Other A very") == line(&b, "Other A very"), "{a}\n{b}");
+  assert_ne!(a, b, "the playing one moves with time");
 }
 
 #[test]

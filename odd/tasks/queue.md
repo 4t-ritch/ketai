@@ -35,3 +35,4 @@ Tests: `cargo test` (workspace).
 - T5 de5e78c: clic elige, doble clic reproduce, arrastrar y soltar (queue_drag), rueda, botones del pie.
 - T6: docs en/es (features, tui: teclas y mouse de la cola). Pendiente: prueba del usuario; integracion cuando lo pida.
 - (2026-11-24) Usuario: "quiero que agregues un modal donde se pueda ver los comandos actuales para cada accion ... el modal se debe de encontrar como una opcion disponible en el command palet que se abre con Ctrl+P" (47b8940) y "cuando termines de agregar el modal debes de eliminar estas ayudas para que no sobre saturen la TUI" (ayuda al pie de la cola). Quitada; para el mouse quedan + y ✕ en la fila elegida.
+- (2026-11-24) Usuario: "solo anima el texto de la cancion que esta en reproduccion" y "elimina el texto de siguiente track, esto porque la queue ya hace la funcion de next track". Hecho.

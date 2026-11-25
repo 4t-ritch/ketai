@@ -20,7 +20,8 @@ with its on-screen label in italics.
 - **Favorite** (`*`) and **Add to playlist** (`P`).
 - In how many playlists the song is.
 - **Queue** on the right: the whole queue in its real order, with each
-  song's cover, title (it scrolls if it does not fit) and artist. The one
+  song's cover, title and artist (the title of the one playing scrolls if it
+  does not fit; the others are cut, so long lists stay calm). The one
   playing is marked and the ones already played are dimmer; it says when the
   queue repeats at the end or plays in random order. Choose a song with the
   arrows or a click, play it with `Enter` or a double click, move it with

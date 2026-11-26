@@ -59,6 +59,15 @@ actions = "ctrl+p"
 quit = "q"
 
 
+# --- Terminal ----------------------------------------------------------
+
+[terminal]
+# true: redraw everything (and send the covers again) when the terminal gets
+# the focus back. Only needed if your multiplexer erases the panel when you
+# switch tabs.
+redraw_on_focus = false
+
+
 # --- Playlists ---------------------------------------------------------
 
 [playlists]

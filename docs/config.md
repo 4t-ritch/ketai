@@ -221,6 +221,17 @@ size = 4
   does, and so do the multiplexers that pass it on). If it does not, or no
   font is found, the view stays in classic mode.
 
+## `[terminal]`
+
+| Key | Values | Default |
+|---|---|---|
+| `redraw_on_focus` | `true` or `false` | `false` |
+
+With `true`, every time the terminal gets the focus back ketai redraws the
+whole screen and sends the covers again. Turn it on only if your multiplexer
+(herdr, tmux) erases the panel when you switch tabs. Resizing the terminal
+always redraws, whatever this says.
+
 ## `[playlists]`
 
 | Key | Values | Default |

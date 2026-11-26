@@ -359,6 +359,10 @@ fn main() -> io::Result<()> {
         None => {}
         // Al cambiar el tamano se vuelven a mandar y ubicar todas las
         // imagenes: algunas terminales (herdr) las pierden.
+        // Recuperar el foco no cambia nada en pantalla: solo se redibuja si
+        // se pidio (`[terminal] redraw_on_focus`), para multiplexores que
+        // borran el panel al cambiar de pestana.
+        Some(Input::Focus) if !app.config.terminal.redraw_on_focus => {}
         Some(input @ (Input::Resize | Input::Focus)) => {
           placed.clear();
           app.karaoke.invalidate();

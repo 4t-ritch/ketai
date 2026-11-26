@@ -13,7 +13,7 @@
 
 </div>
 
-https://github.com/user-attachments/assets/7e0117d7-3690-4c25-8af7-e2c649105088
+https://github.com/user-attachments/assets/83eae727-f8c6-4894-bb95-a84329965fac
 
 <div align="center">
 <sub>Las canciones, caratulas y letras del video son de demostracion (audio generado). Tambien en el repo: <a href="docs/assets/demo.mp4">docs/assets/demo.mp4</a>.</sub>

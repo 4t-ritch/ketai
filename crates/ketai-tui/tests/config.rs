@@ -175,3 +175,13 @@ fn saving_the_mode_creates_or_updates_the_file() {
   assert!(!path.with_file_name(".config.toml.ketai-tmp").exists(), "no temp file left");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn redraw_on_focus_is_off_unless_asked() {
+  assert!(!Config::parse("").unwrap().terminal.redraw_on_focus);
+  assert!(Config::parse("[terminal]\nredraw_on_focus = true\n").unwrap().terminal.redraw_on_focus);
+  let err = Config::parse("[terminal]\nredraw_on_focus = \"yes\"\n").unwrap_err();
+  assert!(err.contains("terminal.redraw_on_focus"), "{err}");
+  let c = Config::parse("[terminal]\nother = 1\n").unwrap();
+  assert!(c.warnings.iter().any(|w| w.contains("terminal.other")), "{:?}", c.warnings);
+}

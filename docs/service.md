@@ -272,13 +272,13 @@ If any validation fails, the process is not touched.
 
 ## Files
 
-- `dist/systemd/ketaid.socket`
-- `dist/systemd/ketaid.service`
+- `crates/ketai-tui/systemd/ketaid.socket`
+- `crates/ketai-tui/systemd/ketaid.service`
 
 Manual install:
 
 ```sh
-install -Dm644 dist/systemd/ketaid.{socket,service} -t ~/.config/systemd/user/
+install -Dm644 crates/ketai-tui/systemd/ketaid.{socket,service} -t ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now ketaid.socket
 ```

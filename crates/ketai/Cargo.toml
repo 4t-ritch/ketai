@@ -1,0 +1,36 @@
+[package]
+name = "ketai"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+default-run = "ketai"
+description = "Music player for the terminal: the ketaid daemon and the ketai TUI"
+readme = "../../README.md"
+keywords = ["music", "player", "tui", "daemon", "mpris"]
+categories = ["multimedia::audio", "command-line-utilities"]
+
+[[bin]]
+name = "ketaid"
+path = "src/main.rs"
+
+[[bin]]
+name = "ketai"
+path = "src/bin/ketai.rs"
+
+[dependencies]
+ketai-tui.workspace = true
+ketai-core.workspace = true
+ketai-protocol.workspace = true
+dbus = "0.9"
+dbus-crossroads = "0.5"
+libc = "0.2"
+serde_json.workspace = true
+toml = "0.8"
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[dev-dependencies]
+dbus = "0.9"
+libc = "0.2"
+serde_json.workspace = true
+toml = "0.8"

@@ -33,7 +33,7 @@ ketai tiene dos partes: el servicio de audio (`ketaid`) y el cliente
 vez que lo necesitas:
 
 ```sh
-install -Dm644 dist/systemd/ketaid.{socket,service} -t ~/.config/systemd/user/
+install -Dm644 crates/ketai-tui/systemd/ketaid.{socket,service} -t ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now ketaid.socket
 ```

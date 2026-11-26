@@ -68,7 +68,7 @@ maneja con el protocolo de ketai.
 
 ## Pruebas
 
-Los tests de conformidad (`crates/ketaid/tests/mpris.rs`) levantan un
+Los tests de conformidad (`crates/ketai/tests/mpris.rs`) levantan un
 `dbus-daemon` propio por test. El resto de la suite apunta
 `DBUS_SESSION_BUS_ADDRESS` a una ruta inexistente: ningun daemon de test
 aparece en el bus del usuario.

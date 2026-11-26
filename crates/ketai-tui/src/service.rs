@@ -18,8 +18,8 @@ const MANAGER: &str = "org.freedesktop.systemd1.Manager";
 const UNIT: &str = "org.freedesktop.systemd1.Unit";
 const TIMEOUT: Duration = Duration::from_secs(3);
 
-const SOCKET_UNIT: &str = include_str!("../../../dist/systemd/ketaid.socket");
-const SERVICE_UNIT: &str = include_str!("../../../dist/systemd/ketaid.service");
+const SOCKET_UNIT: &str = include_str!("../systemd/ketaid.socket");
+const SERVICE_UNIT: &str = include_str!("../systemd/ketaid.service");
 
 /// Estado de las unidades de ketai en systemd.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,7 +130,7 @@ fn owner(path: &Path) -> Option<u32> {
   std::fs::metadata(path).ok().map(|m| m.uid())
 }
 
-/// `~/.local/bin/ketaid` (lo que usa la unidad) o el primero del PATH.
+/// `~/.local/bin/ketaid` o el primero del PATH (por ejemplo `~/.cargo/bin`).
 fn find_binary() -> Option<PathBuf> {
   let home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/bin/ketaid"));
   let in_path = std::env::var_os("PATH")
@@ -145,7 +145,7 @@ pub fn execute(action: Action, observed: &Observed) -> Result<(), String> {
     Action::Retry => Ok(()),
     Action::Start { enable } => start(enable),
     Action::Install => {
-      install()?;
+      install(observed.binary.as_deref().ok_or("no se encontró el binario ketaid")?)?;
       start(true)
     }
     Action::Restart { pid } => restart(pid, observed),
@@ -181,16 +181,27 @@ fn start(enable: bool) -> Result<(), String> {
   Ok(())
 }
 
-/// Copia las unidades a `~/.config/systemd/user/` y recarga systemd.
-fn install() -> Result<(), String> {
+/// Unidad del servicio que ejecuta `binary` (por ejemplo `~/.cargo/bin/ketaid`
+/// tras un `cargo install`) en lugar de la ruta fija de `systemd/`.
+pub fn service_unit(binary: &Path) -> String {
+  let path = binary.display().to_string();
+  let exec = if path.contains(char::is_whitespace) { format!("\"{path}\"") } else { path };
+  SERVICE_UNIT
+    .lines()
+    .map(|l| if l.starts_with("ExecStart=") { format!("ExecStart={exec}") } else { l.to_string() })
+    .collect::<Vec<_>>()
+    .join("\n")
+    + "\n"
+}
+
+/// Copia las unidades a `~/.config/systemd/user/`, con la del servicio
+/// apuntando a `binary`, y recarga systemd.
+fn install(binary: &Path) -> Result<(), String> {
   let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME no está definido")?;
-  if !home.join(".local/bin/ketaid").is_file() {
-    return Err("la unidad usa ~/.local/bin/ketaid y no existe: instala el binario primero".into());
-  }
   let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).filter(|p| p.is_absolute()).unwrap_or(home.join(".config"));
   let dir = config.join("systemd/user");
   std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-  for (name, content) in [("ketaid.socket", SOCKET_UNIT), ("ketaid.service", SERVICE_UNIT)] {
+  for (name, content) in [("ketaid.socket", SOCKET_UNIT.to_string()), ("ketaid.service", service_unit(binary))] {
     std::fs::write(dir.join(name), content).map_err(|e| format!("{name}: {e}"))?;
   }
   let _: () = manager_call("Reload", ())?;

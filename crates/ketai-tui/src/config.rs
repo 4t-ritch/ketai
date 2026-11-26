@@ -85,6 +85,7 @@ pub struct Config {
   pub lyrics: LyricsConfig,
   /// Atajos globales (`[keys]`).
   pub keys: crate::keys::Keymap,
+  pub terminal: TerminalConfig,
   /// Claves que no se reconocen (no frenan la carga).
   pub warnings: Vec<String>,
 }
@@ -94,9 +95,18 @@ impl Default for Config {
     Self { theme: ThemeConfig { cover_color: None, background: Color::Cover, accent: Color::Cover, fixed: Vec::new() },
       lyrics: LyricsConfig::default(),
       keys: crate::keys::Keymap::default(),
+      terminal: TerminalConfig::default(),
       warnings: Vec::new(),
     }
   }
+}
+
+/// Seccion `[terminal]`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TerminalConfig {
+  /// Redibujar todo (y reenviar las caratulas) al recuperar el foco. Solo
+  /// hace falta en multiplexores que borran el panel al cambiar de pestana.
+  pub redraw_on_focus: bool,
 }
 
 /// Claves de `[theme]` que solo admiten un color fijo.
@@ -212,6 +222,18 @@ impl Config {
               "font" => {
                 let path = v.as_str().ok_or_else(|| format!("{name}: tiene que ser la ruta de un archivo de fuente"))?;
                 config.lyrics.font = Some(expand_home(path));
+              }
+              _ => config.warnings.push(format!("{name}: clave desconocida, se ignora")),
+            }
+          }
+        }
+        "terminal" => {
+          let terminal = value.as_table().ok_or("terminal: tiene que ser una sección [terminal]")?;
+          for (k, v) in terminal {
+            let name = format!("terminal.{k}");
+            match k.as_str() {
+              "redraw_on_focus" => {
+                config.terminal.redraw_on_focus = v.as_bool().ok_or_else(|| format!("{name}: tiene que ser true o false"))?;
               }
               _ => config.warnings.push(format!("{name}: clave desconocida, se ignora")),
             }

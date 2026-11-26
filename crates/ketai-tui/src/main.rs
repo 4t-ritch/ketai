@@ -79,14 +79,14 @@ fn kitty_supported() -> bool {
 const KEEP_COVERS: usize = 48;
 /// Cada cuanto se vuelven a poner las ubicaciones de las imagenes.
 const REFRESH_PLACEMENTS: Duration = Duration::from_secs(2);
-/// Caratulas que ketai guarda en memoria (~300 KB cada una, ~36 MB en total).
+/// Caratulas que ketai recuerda (archivo y paleta, pocos bytes cada una: la
+/// imagen no queda en memoria).
 const KEEP_IN_MEMORY: usize = 120;
 
 /// Trabajo para el thread de caratulas.
 enum Prep {
   File(String, std::path::PathBuf, u32),
-  Image(String, image::RgbImage, u32),
-  Dimmed(String, image::RgbImage, u32),
+  Dimmed(String, std::path::PathBuf, u32),
 }
 
 /// Escribe secuencias de la capa de imagenes sin perder el cursor.
@@ -249,8 +249,9 @@ fn main() -> io::Result<()> {
       for job in prep_rx {
         let input = match job {
           Prep::File(uri, path, id) => Input::Cover(uri, covers::prepare(&path, id)),
-          Prep::Image(uri, img, id) => Input::Cover(uri, Some(covers::prepare_image(img, id))),
-          Prep::Dimmed(uri, img, id) => Input::CoverDim(uri, covers::dimmed_transmit(&img, id)),
+          Prep::Dimmed(uri, path, id) => {
+            Input::CoverDim(uri, covers::decode(&path).map(|img| covers::dimmed_transmit(&img, id)).unwrap_or_default())
+          }
         };
         if tx.send(input).is_err() {
           return;
@@ -292,15 +293,15 @@ fn main() -> io::Result<()> {
           }
         }
         for uri in frame.wanted_dimmed {
-          if let Some((img, id)) = app.covers.want_dimmed(&uri) {
-            let _ = prep.send(Prep::Dimmed(uri, img, id));
+          if let Some((path, id)) = app.covers.want_dimmed(&uri) {
+            let _ = prep.send(Prep::Dimmed(uri, path, id));
           }
         }
         // Las que la terminal pudo haber perdido se mandan al dibujarse.
         for uri in frame.resend {
-          if let Some((img, id)) = app.covers.restage(&uri) {
+          if let Some((path, id)) = app.covers.restage(&uri) {
             ketai_tui::log::log(format_args!("resend {uri}"));
-            let _ = prep.send(Prep::Image(uri, img, id));
+            let _ = prep.send(Prep::File(uri, path, id));
           }
         }
         // La linea del karaoke: la primera vez sus imagenes, despues solo
@@ -358,6 +359,10 @@ fn main() -> io::Result<()> {
         None => {}
         // Al cambiar el tamano se vuelven a mandar y ubicar todas las
         // imagenes: algunas terminales (herdr) las pierden.
+        // Recuperar el foco no cambia nada en pantalla: solo se redibuja si
+        // se pidio (`[terminal] redraw_on_focus`), para multiplexores que
+        // borran el panel al cambiar de pestana.
+        Some(Input::Focus) if !app.config.terminal.redraw_on_focus => {}
         Some(input @ (Input::Resize | Input::Focus)) => {
           placed.clear();
           app.karaoke.invalidate();

@@ -43,6 +43,11 @@ accent = "cover"
 # Font for karaoke mode. Default: chosen by fontconfig.
 # font = "~/.local/share/fonts/MyFont-Bold.ttf"
 
+[terminal]
+# Redraw everything when the terminal gets the focus back. Only needed if
+# your multiplexer erases the panel when you switch tabs. Default false.
+# redraw_on_focus = false
+
 [playlists]
 # Playlists folder (.m3u8). Default XDG_MUSIC_DIR/playlists
 # (~/music/playlists). It is created if missing.

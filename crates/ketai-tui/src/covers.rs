@@ -63,8 +63,9 @@ pub struct CoverCache {
   covers: HashMap<String, CoverState>,
   /// `track.cover` en vuelo: id -> uri.
   pending: HashMap<u64, String>,
-  /// Imagen chica de cada caratula lista (para armar la atenuada).
-  images: HashMap<String, RgbImage>,
+  /// Archivo de cada caratula: la imagen no queda en memoria; si hace falta
+  /// otra vez (atenuada, reenvio) se vuelve a leer del disco.
+  paths: HashMap<String, PathBuf>,
   palettes: HashMap<String, CoverPalette>,
   next_image: u32,
   /// Ultimo uso de cada caratula (para borrar las viejas de la terminal).
@@ -101,11 +102,15 @@ impl CoverCache {
 
   /// Una caratula `Stale` que se dibuja: imagen e id para volver a
   /// prepararla en otro thread, una sola vez.
-  pub fn restage(&mut self, uri: &str) -> Option<(RgbImage, u32)> {
+  pub fn restage(&mut self, uri: &str) -> Option<(PathBuf, u32)> {
     let Some(CoverState::Stale { normal, dimmed }) = self.covers.get(uri).cloned() else { return None };
-    let img = self.images.get(uri)?.clone();
+    let Some(path) = self.paths.get(uri).cloned() else {
+      // Sin archivo no se puede rearmar: se olvida y se pide de nuevo.
+      self.covers.remove(uri);
+      return None;
+    };
     self.covers.insert(uri.to_string(), CoverState::Preparing { normal, dimmed });
-    Some((img, normal))
+    Some((path, normal))
   }
 
   /// Marca caratulas como recien usadas.
@@ -150,11 +155,11 @@ impl CoverCache {
       .filter(|(_, s)| matches!(s, CoverState::Stale { .. }))
       .map(|(u, _)| (self.last_used.get(u).copied().unwrap_or(0), u.clone()))
       .collect();
-    let extra = self.images.len().saturating_sub(keep).min(stale.len());
+    let extra = self.paths.len().saturating_sub(keep).min(stale.len());
     stale.sort();
     for (_, uri) in stale.into_iter().take(extra) {
       self.covers.remove(&uri);
-      self.images.remove(&uri);
+      self.paths.remove(&uri);
       self.palettes.remove(&uri);
       self.last_used.remove(&uri);
     }
@@ -162,7 +167,7 @@ impl CoverCache {
 
   /// Caratulas guardadas en memoria.
   pub fn in_memory(&self) -> usize {
-    self.images.len()
+    self.paths.len()
   }
 
   /// Ids de imagen reservados por este cache (para borrarlos al salir).
@@ -207,6 +212,7 @@ impl CoverCache {
         let (normal, dimmed) = (self.next_image + 1, self.next_image + 2);
         self.next_image += 2;
         self.covers.insert(uri.clone(), CoverState::Preparing { normal, dimmed });
+        self.paths.insert(uri.clone(), path.clone());
         Some(Job { uri, path, id: normal })
       }
       None => {
@@ -227,8 +233,8 @@ impl CoverCache {
       self.covers.insert(uri.to_string(), CoverState::Missing);
       return String::new();
     };
+    // La imagen solo hacia falta para la paleta y la transmision: se suelta.
     self.palettes.insert(uri.to_string(), p.palette);
-    self.images.insert(uri.to_string(), p.image);
     self.covers.insert(uri.to_string(), CoverState::Ready { normal, dimmed, dim: DimState::NotSent });
     p.transmit
   }
@@ -250,13 +256,15 @@ impl CoverCache {
 
   /// Hace falta la version atenuada (hay un popup encima). Devuelve la
   /// imagen y el id para prepararla en otro thread, una sola vez.
-  pub fn want_dimmed(&mut self, uri: &str) -> Option<(RgbImage, u32)> {
+  pub fn want_dimmed(&mut self, uri: &str) -> Option<(PathBuf, u32)> {
     let Some(CoverState::Ready { dimmed, dim, .. }) = self.covers.get_mut(uri) else { return None };
     if *dim != DimState::NotSent {
       return None;
     }
+    let id = *dimmed;
+    let path = self.paths.get(uri)?.clone();
     *dim = DimState::Preparing;
-    Some((self.images.get(uri)?.clone(), *dimmed))
+    Some((path, id))
   }
 
   /// La version atenuada ya se transmitio.

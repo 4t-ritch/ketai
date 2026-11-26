@@ -231,6 +231,17 @@ size = 4
   lo informa, o no se encuentra ninguna fuente, la vista queda en modo
   clasico.
 
+## `[terminal]`
+
+| Clave | Valores | Por defecto |
+|---|---|---|
+| `redraw_on_focus` | `true` o `false` | `false` |
+
+Con `true`, cada vez que la terminal recupera el foco ketai redibuja toda la
+pantalla y vuelve a mandar las caratulas. Activalo solo si tu multiplexor
+(herdr, tmux) borra el panel al cambiar de pestana. Cambiar el tamano de la
+terminal siempre redibuja, diga lo que diga esta opcion.
+
 ## `[playlists]`
 
 | Clave | Valores | Por defecto |

@@ -85,9 +85,30 @@ La TUI necesita una terminal con el **protocolo de graficos de kitty** para most
 
 ## Instalacion
 
-Por ahora se instala desde el codigo fuente. Instalarlo con un gestor de paquetes esta planificado (ver [docs/es/roadmap.md](docs/es/roadmap.md)).
+Requisitos para compilar (las dos formas compilan en tu maquina): Rust
+(edicion 2024), `cmake` y un compilador de C (para `libopus` y `fdk-aac`), y
+las bibliotecas de desarrollo de PulseAudio y D-Bus.
 
-Requisitos para compilar: Rust (edicion 2024), `cmake` y un compilador de C (para `libopus` y `fdk-aac`), y las bibliotecas de desarrollo de PulseAudio y D-Bus.
+### Con cargo
+
+```sh
+cargo install ketai
+```
+
+Instala los dos binarios, `ketai` (la TUI) y `ketaid` (el daemon), en
+`~/.cargo/bin`. La primera vez que abris `ketai`, ofrece instalar el daemon
+como servicio de usuario: presiona Enter y desde ahi el daemon arranca solo
+cada vez que un cliente lo necesita.
+
+Opcional: para binarios mas chicos (las mismas optimizaciones que al
+compilar desde el codigo fuente), instalalo con:
+
+```sh
+CARGO_PROFILE_RELEASE_LTO=true CARGO_PROFILE_RELEASE_STRIP=true \
+CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 cargo install ketai
+```
+
+### Desde el codigo fuente
 
 ```sh
 git clone https://github.com/4t-ritch/ketai.git
@@ -102,6 +123,11 @@ install -Dm644 crates/ketai-tui/systemd/ketaid.{socket,service} -t ~/.config/sys
 systemctl --user daemon-reload
 systemctl --user enable --now ketaid.socket
 ```
+
+Para instalar desde un clon con cargo: `cargo install --path crates/ketai`.
+
+Instalarlo con los gestores de paquetes del sistema esta planificado (ver
+[docs/es/roadmap.md](docs/es/roadmap.md)).
 
 Mas detalles del servicio en [docs/es/service.md](docs/es/service.md).
 

@@ -90,9 +90,30 @@ The TUI needs a terminal with the **kitty graphics protocol** to show covers: ki
 
 ## Installation
 
-For now it is installed from source. Installing it with a package manager is planned (see [docs/roadmap.md](docs/roadmap.md), [Spanish](docs/es/roadmap.md)).
+Build requirements (both ways compile on your machine): Rust (2024 edition),
+`cmake` and a C compiler (for `libopus` and `fdk-aac`), and the PulseAudio
+and D-Bus development libraries.
 
-Build requirements: Rust (2024 edition), `cmake` and a C compiler (for `libopus` and `fdk-aac`), and the PulseAudio and D-Bus development libraries.
+### With cargo
+
+```sh
+cargo install ketai
+```
+
+It installs both binaries, `ketai` (the TUI) and `ketaid` (the daemon), in
+`~/.cargo/bin`. The first time you open `ketai`, it offers to install the
+daemon as a user service: press Enter and from then on the daemon starts by
+itself whenever a client needs it.
+
+Optional: for smaller binaries (the same optimizations as a build from
+source), install it with:
+
+```sh
+CARGO_PROFILE_RELEASE_LTO=true CARGO_PROFILE_RELEASE_STRIP=true \
+CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 cargo install ketai
+```
+
+### From source
 
 ```sh
 git clone https://github.com/4t-ritch/ketai.git
@@ -107,6 +128,11 @@ install -Dm644 crates/ketai-tui/systemd/ketaid.{socket,service} -t ~/.config/sys
 systemctl --user daemon-reload
 systemctl --user enable --now ketaid.socket
 ```
+
+To install from a clone with cargo instead: `cargo install --path crates/ketai`.
+
+Installing with system package managers is planned (see
+[docs/roadmap.md](docs/roadmap.md), [Spanish](docs/es/roadmap.md)).
 
 More about the service in [docs/service.md](docs/service.md) ([Spanish](docs/es/service.md)).
 

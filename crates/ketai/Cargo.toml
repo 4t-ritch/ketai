@@ -6,6 +6,9 @@ license.workspace = true
 repository.workspace = true
 default-run = "ketai"
 description = "Music player for the terminal: the ketaid daemon and the ketai TUI"
+readme = "../../README.md"
+keywords = ["music", "player", "tui", "daemon", "mpris"]
+categories = ["multimedia::audio", "command-line-utilities"]
 
 [[bin]]
 name = "ketaid"

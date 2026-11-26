@@ -11,7 +11,7 @@ use std::{
   time::{Duration, Instant},
 };
 
-use ketai_tui::{
+use crate::{
   app::{App, Screen},
   client::{self, Client, DaemonMsg},
   config::{self, Config},
@@ -96,7 +96,7 @@ fn cell_size() -> Option<(u16, u16)> {
   // SAFETY: TIOCGWINSZ solo escribe la estructura que se le pasa.
   let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
   let ok = unsafe { libc::ioctl(1, libc::TIOCGWINSZ, &mut ws) } == 0;
-  ketai_tui::app::cell_px(ok.then_some((ws.ws_col, ws.ws_row, ws.ws_xpixel, ws.ws_ypixel)))
+  crate::app::cell_px(ok.then_some((ws.ws_col, ws.ws_row, ws.ws_xpixel, ws.ws_ypixel)))
 }
 
 fn emit(seq: &str) {
@@ -167,7 +167,8 @@ const NEEDS_KITTY: &str = "ketai necesita una terminal con el protocolo de gráf
 (kitty, Ghostty, WezTerm, Konsole o herdr dentro de una de ellas).\n\
 Para usarlo igual sin carátulas: KETAI_NO_IMAGES=1 ketai";
 
-fn main() -> io::Result<()> {
+/// Loop principal de la TUI (el binario `ketai`).
+pub fn run() -> io::Result<()> {
   let (tx, rx) = mpsc::channel::<Input>();
   let mut app = App::default();
   if let Some(path) = config::path() {
@@ -178,7 +179,7 @@ fn main() -> io::Result<()> {
     }
     app.apply_lyrics_config();
     // Al guardar el archivo, la UI cambia sin reiniciar.
-    ketai_tui::watch::spawn(path, tx.clone(), Input::Config);
+    crate::watch::spawn(path, tx.clone(), Input::Config);
   }
   app.refresh_theme();
   let mut terminal = ratatui::init();
@@ -192,7 +193,7 @@ fn main() -> io::Result<()> {
   let no_images = std::env::var_os("KETAI_NO_IMAGES").is_some_and(|v| v == "1");
   app.images = !no_images && kitty_supported();
   app.covers = covers::CoverCache::with_base(covers::CoverCache::process_base());
-  app.karaoke = ketai_tui::karaoke::Karaoke::new(ketai_tui::app::karaoke_ids(covers::CoverCache::process_base()), app.config.lyrics.font.clone());
+  app.karaoke = crate::karaoke::Karaoke::new(crate::app::karaoke_ids(covers::CoverCache::process_base()), app.config.lyrics.font.clone());
   app.cell_px = cell_size();
   if !no_images && !app.images {
     ratatui::restore();
@@ -212,22 +213,22 @@ fn main() -> io::Result<()> {
       let input = match event::read() {
         Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => Input::Key(k),
         Ok(Event::Resize(w, h)) => {
-          ketai_tui::log::log(format_args!("resize {w}x{h}"));
+          crate::log::log(format_args!("resize {w}x{h}"));
           Input::Resize
         }
         // Al volver al panel o a la pestana (herdr, tmux) algunas terminales
         // perdieron las imagenes y lo dibujado.
         Ok(Event::FocusGained) => {
-          ketai_tui::log::log("focus gained");
+          crate::log::log("focus gained");
           Input::Focus
         }
         Ok(Event::FocusLost) => {
-          ketai_tui::log::log("focus lost");
+          crate::log::log("focus lost");
           continue;
         }
         Ok(Event::Mouse(m)) => {
           if !matches!(m.kind, event::MouseEventKind::Moved) {
-            ketai_tui::log::log(format_args!("mouse {:?} at {},{}", m.kind, m.column, m.row));
+            crate::log::log(format_args!("mouse {:?} at {},{}", m.kind, m.column, m.row));
           }
           Input::Mouse(m)
         }
@@ -277,7 +278,7 @@ fn main() -> io::Result<()> {
         // la linea salia chica y corrida del centro.
         let cell = cell_size();
         if cell != app.cell_px {
-          ketai_tui::log::log(format_args!("cell size {:?} -> {:?}", app.cell_px, cell));
+          crate::log::log(format_args!("cell size {:?} -> {:?}", app.cell_px, cell));
           app.cell_px = cell;
         }
       }
@@ -300,7 +301,7 @@ fn main() -> io::Result<()> {
         // Las que la terminal pudo haber perdido se mandan al dibujarse.
         for uri in frame.resend {
           if let Some((path, id)) = app.covers.restage(&uri) {
-            ketai_tui::log::log(format_args!("resend {uri}"));
+            crate::log::log(format_args!("resend {uri}"));
             let _ = prep.send(Prep::File(uri, path, id));
           }
         }
@@ -313,7 +314,7 @@ fn main() -> io::Result<()> {
         }
         let update = kitty::update(&placed, &frame.placements);
         if !update.is_empty() {
-          ketai_tui::log::log(format_args!("place {} images", frame.placements.len()));
+          crate::log::log(format_args!("place {} images", frame.placements.len()));
         }
         emit(&update);
         placed = frame.placements;
@@ -333,7 +334,7 @@ fn main() -> io::Result<()> {
         let evicted = app.covers.evict(KEEP_COVERS);
         app.covers.forget(KEEP_IN_MEMORY);
         if !evicted.is_empty() {
-          ketai_tui::log::log("evicted old covers");
+          crate::log::log("evicted old covers");
           emit(&evicted);
         }
       }
@@ -377,13 +378,13 @@ fn main() -> io::Result<()> {
           // Solo se marcan: cada una se manda cuando se vuelve a dibujar.
           if app.images {
             app.covers.invalidate_all();
-            ketai_tui::log::log("covers marked stale");
+            crate::log::log("covers marked stale");
           }
         }
         Some(Input::Mouse(m)) if matches!(app.screen, Screen::Main) => {
-          if ketai_tui::log::enabled() && !matches!(m.kind, event::MouseEventKind::Moved) {
+          if crate::log::enabled() && !matches!(m.kind, event::MouseEventKind::Moved) {
             let found = app.hits.iter().rev().find(|(r, _)| m.column >= r.x && m.column < r.x + r.width && m.row >= r.y && m.row < r.y + r.height);
-            ketai_tui::log::log(format_args!("  hit {:?}", found.map(|(_, h)| h)));
+            crate::log::log(format_args!("  hit {:?}", found.map(|(_, h)| h)));
           }
           for (method, params) in app.on_mouse(m, Instant::now()) {
             send(&mut client, &mut app, &method, params);
@@ -443,7 +444,7 @@ fn main() -> io::Result<()> {
         }
         Some(Input::Cover(uri, prepared)) => {
           let seq = app.covers.ready(&uri, prepared);
-          ketai_tui::log::log(format_args!("cover sent {} bytes {uri}", seq.len()));
+          crate::log::log(format_args!("cover sent {} bytes {uri}", seq.len()));
           emit(&seq);
           // Si es la caratula que suena, el tema toma sus colores.
           app.refresh_theme();

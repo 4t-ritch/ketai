@@ -1,10 +1,22 @@
 [package]
-name = "ketaid"
+name = "ketai"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+default-run = "ketai"
+description = "Music player for the terminal: the ketaid daemon and the ketai TUI"
+
+[[bin]]
+name = "ketaid"
+path = "src/main.rs"
+
+[[bin]]
+name = "ketai"
+path = "src/bin/ketai.rs"
 
 [dependencies]
+ketai-tui.workspace = true
 ketai-core.workspace = true
 ketai-protocol.workspace = true
 dbus = "0.9"

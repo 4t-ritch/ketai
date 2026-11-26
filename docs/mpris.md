@@ -69,7 +69,7 @@ queue is managed with ketai's protocol.
 
 ## Tests
 
-The conformance tests (`crates/ketaid/tests/mpris.rs`) start their own
+The conformance tests (`crates/ketai/tests/mpris.rs`) start their own
 `dbus-daemon` per test. The rest of the suite points
 `DBUS_SESSION_BUS_ADDRESS` at a path that does not exist: no test daemon
 shows up on the user's bus.

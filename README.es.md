@@ -98,7 +98,7 @@ cargo build --release
 install -Dm755 target/release/ketaid target/release/ketai -t ~/.local/bin/
 
 # El daemon como servicio de usuario (arranca solo cuando un cliente lo necesita)
-install -Dm644 dist/systemd/ketaid.{socket,service} -t ~/.config/systemd/user/
+install -Dm644 crates/ketai-tui/systemd/ketaid.{socket,service} -t ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now ketaid.socket
 ```

@@ -18,8 +18,8 @@ const MANAGER: &str = "org.freedesktop.systemd1.Manager";
 const UNIT: &str = "org.freedesktop.systemd1.Unit";
 const TIMEOUT: Duration = Duration::from_secs(3);
 
-const SOCKET_UNIT: &str = include_str!("../../../dist/systemd/ketaid.socket");
-const SERVICE_UNIT: &str = include_str!("../../../dist/systemd/ketaid.service");
+const SOCKET_UNIT: &str = include_str!("../systemd/ketaid.socket");
+const SERVICE_UNIT: &str = include_str!("../systemd/ketaid.service");
 
 /// Estado de las unidades de ketai en systemd.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,7 +182,7 @@ fn start(enable: bool) -> Result<(), String> {
 }
 
 /// Unidad del servicio que ejecuta `binary` (por ejemplo `~/.cargo/bin/ketaid`
-/// tras un `cargo install`) en lugar de la ruta fija de `dist/`.
+/// tras un `cargo install`) en lugar de la ruta fija de `systemd/`.
 pub fn service_unit(binary: &Path) -> String {
   let path = binary.display().to_string();
   let exec = if path.contains(char::is_whitespace) { format!("\"{path}\"") } else { path };

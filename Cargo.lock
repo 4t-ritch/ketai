@@ -661,6 +661,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ketai"
+version = "0.1.0"
+dependencies = [
+ "dbus",
+ "dbus-crossroads",
+ "ketai-core",
+ "ketai-protocol",
+ "ketai-tui",
+ "libc",
+ "rusqlite",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "ketai-core"
 version = "0.1.0"
 dependencies = [
@@ -695,20 +710,6 @@ dependencies = [
  "serde_json",
  "toml",
  "unicode-width 0.2.0",
-]
-
-[[package]]
-name = "ketaid"
-version = "0.1.0"
-dependencies = [
- "dbus",
- "dbus-crossroads",
- "ketai-core",
- "ketai-protocol",
- "libc",
- "rusqlite",
- "serde_json",
- "toml",
 ]
 
 [[package]]

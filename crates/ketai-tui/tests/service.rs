@@ -102,3 +102,16 @@ fn observe_the_real_system() {
   let o = ketai_tui::service::observe(false);
   println!("{o:?} -> {:?}", diagnose(&o));
 }
+
+#[test]
+fn the_installed_unit_runs_the_binary_that_was_found() {
+  // Con `cargo install` el binario queda en ~/.cargo/bin, no en
+  // ~/.local/bin: la unidad apunta al que se encontro.
+  let unit = ketai_tui::service::service_unit(std::path::Path::new("/home/u/.cargo/bin/ketaid"));
+  assert!(unit.contains("\nExecStart=/home/u/.cargo/bin/ketaid\n"), "{unit}");
+  assert!(!unit.contains(".local/bin"), "{unit}");
+  assert!(unit.contains("Type=notify") && unit.contains("WantedBy=default.target"), "the rest stays: {unit}");
+  // Una ruta con espacios va entre comillas para systemd.
+  let spaced = ketai_tui::service::service_unit(std::path::Path::new("/home/a b/bin/ketaid"));
+  assert!(spaced.contains("\nExecStart=\"/home/a b/bin/ketaid\"\n"), "{spaced}");
+}

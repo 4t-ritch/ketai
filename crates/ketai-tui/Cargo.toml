@@ -3,10 +3,8 @@ name = "ketai-tui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-
-[[bin]]
-name = "ketai"
-path = "src/main.rs"
+repository.workspace = true
+description = "Terminal client library of the ketai music player"
 
 [lib]
 name = "ketai_tui"

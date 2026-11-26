@@ -20,21 +20,6 @@ v1 only plays local files (`file://`). This update adds remote tracks.
   protocol.
 - Lyrics and covers for remote tracks.
 
-### Installation with package managers
-
-Today ketai is built from source. This update makes it installable with one
-command, with the daemon and the TUI together.
-
-- Packages for the most used Linux package managers (for example a PKGBUILD
-  for the AUR, and packages for other distributions to be decided), with the
-  binaries, the systemd user units, the documentation and the configuration
-  examples.
-- After installing, the service is ready to be enabled
-  (`systemctl --user enable --now ketaid.socket`).
-- Prebuilt binaries for every release, for those who do not want to build.
-- Before starting, the FDK AAC license is reviewed for distributing binaries
-  (see [formats.md](formats.md#licenses)).
-
 ### Multiple themes
 
 v1 has a single active theme: the `[theme]` section of `config.toml`. This
@@ -156,3 +141,46 @@ Impact on the protocol:
   `word-estimated`, so the client knows which method was used.
 - Measure the precision against a set of lyrics with real timing before
   turning it on by default.
+
+### Windows support
+
+v1 runs on Linux: it depends on Unix sockets, systemd, MPRIS (D-Bus) and the
+kitty graphics protocol. This update makes ketai run on Windows.
+
+- The daemon listens on a named pipe or a local TCP port instead of a Unix
+  socket, with the same protocol.
+- It starts with the session through a Windows mechanism (for example a
+  scheduled task or a user service) instead of systemd, keeping the idea of
+  starting only when a client needs it, if Windows allows it.
+- Media keys and the system media panel through the Windows API (System
+  Media Transport Controls), in place of MPRIS.
+- The TUI works in Windows Terminal; covers are shown only where the
+  terminal supports images.
+- Before starting, it is decided how audio output is chosen on Windows and
+  which features stay Linux only.
+
+### Pairing mobile clients with a QR code
+
+Today clients connect through a local Unix socket. This update lets a phone
+on the same network connect to the daemon by scanning a QR code.
+
+- The daemon can listen on the local network (off by default), with
+  encryption and authentication: nobody connects without pairing.
+- The TUI shows a QR code with the address and a pairing key; scanning it
+  is enough to connect, without typing anything.
+- Paired devices can be listed and revoked.
+- It requires a network transport that today does not exist: the protocol
+  stays the same, only how it travels changes.
+- Before starting, it is decided which encryption scheme is used and how
+  long a pairing key lasts.
+
+### Mobile client
+
+An app for the phone that controls `ketaid` like the TUI does: play, queue,
+library, lyrics and covers.
+
+- It connects with the QR pairing of the previous update, which is a
+  requirement.
+- Remote control first: the audio keeps playing on the computer.
+- Before starting, it is decided which platforms come first (Android, iOS)
+  and which technology it is built with.

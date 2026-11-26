@@ -20,21 +20,6 @@ pistas remotas.
 - Evento `download.progress` (topico `cache`), ya reservado en el protocolo.
 - Letras y caratulas para pistas remotas.
 
-### Instalacion con gestores de paquetes
-
-Hoy ketai se compila desde el codigo fuente. Esta actualizacion lo deja
-instalable con un comando, con el daemon y la TUI juntos.
-
-- Paquetes para los gestores mas usados en Linux (por ejemplo un PKGBUILD
-  para el AUR, y paquetes para otras distribuciones a definir), con los
-  binarios, las unidades de systemd de usuario, la documentacion y los
-  ejemplos de configuracion.
-- Al instalar, el servicio queda listo para activarse
-  (`systemctl --user enable --now ketaid.socket`).
-- Binarios precompilados en cada release, para quien no quiera compilar.
-- Antes de empezar se revisa la licencia de FDK AAC para distribuir binarios
-  (ver [formats.md](formats.md#licencias)).
-
 ### Varios temas
 
 La v1 tiene un solo tema activo: la seccion `[theme]` de `config.toml`. Esta
@@ -158,3 +143,49 @@ Impacto en el protocolo:
   `word-estimated`, para que el cliente sepa que metodo se uso.
 - Medir la precision contra un conjunto de letras con tiempos reales antes de
   activarla por defecto.
+
+### Compatibilidad con Windows
+
+v1 corre en Linux: depende de sockets Unix, systemd, MPRIS (D-Bus) y del
+protocolo de graficos de kitty. Esta actualizacion hace que ketai funcione
+en Windows.
+
+- El daemon escucha en un named pipe o en un puerto TCP local en lugar de un
+  socket Unix, con el mismo protocolo.
+- Arranca con la sesion mediante un mecanismo de Windows (por ejemplo una
+  tarea programada o un servicio de usuario) en lugar de systemd,
+  manteniendo la idea de arrancar solo cuando un cliente lo necesita, si
+  Windows lo permite.
+- Teclas multimedia y el panel multimedia del sistema mediante la API de
+  Windows (System Media Transport Controls), en lugar de MPRIS.
+- La TUI funciona en Windows Terminal; las caratulas solo se muestran donde
+  la terminal soporta imagenes.
+- Antes de empezar se decide como se elige la salida de audio en Windows y
+  que funciones quedan solo para Linux.
+
+### Conexion de clientes moviles con codigo QR
+
+Hoy los clientes se conectan por un socket Unix local. Esta actualizacion
+permite que un telefono en la misma red se conecte al daemon escaneando un
+codigo QR.
+
+- El daemon puede escuchar en la red local (apagado por defecto), con
+  cifrado y autenticacion: nadie se conecta sin emparejarse.
+- La TUI muestra un codigo QR con la direccion y una clave de
+  emparejamiento; escanearlo alcanza para conectarse, sin escribir nada.
+- Los dispositivos emparejados se pueden listar y revocar.
+- Requiere un transporte de red que hoy no existe: el protocolo sigue igual,
+  solo cambia por donde viaja.
+- Antes de empezar se decide que esquema de cifrado se usa y cuanto dura una
+  clave de emparejamiento.
+
+### Cliente movil
+
+Una app para el telefono que controla `ketaid` como lo hace la TUI:
+reproducir, cola, biblioteca, letras y caratulas.
+
+- Se conecta con el emparejamiento por QR de la actualizacion anterior, que
+  es un requisito.
+- Primero control remoto: el audio sigue sonando en la computadora.
+- Antes de empezar se decide que plataformas van primero (Android, iOS) y
+  con que tecnologia se construye.

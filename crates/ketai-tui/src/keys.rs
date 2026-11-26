@@ -42,6 +42,11 @@ pub enum Action {
   LyricsOffsetUp,
   LyricsMode,
   LyricsEstimate,
+  // Solo en Reproduciendo (cola).
+  QueueMoveUp,
+  QueueMoveDown,
+  QueueRemove,
+  QueueAddToPlaylist,
 }
 
 /// Donde vale una accion.
@@ -49,6 +54,7 @@ pub enum Action {
 pub enum Scope {
   Global,
   Lyrics,
+  NowPlaying,
 }
 
 impl Scope {
@@ -61,7 +67,11 @@ impl Scope {
 
 impl Action {
   pub fn scope(self) -> Scope {
-    if self.is_lyrics() { Scope::Lyrics } else { Scope::Global }
+    match self {
+      Action::QueueMoveUp | Action::QueueMoveDown | Action::QueueRemove | Action::QueueAddToPlaylist => Scope::NowPlaying,
+      a if a.is_lyrics() => Scope::Lyrics,
+      _ => Scope::Global,
+    }
   }
 
   /// Accion de la vista de Letras (no global).
@@ -108,6 +118,10 @@ pub const ACTIONS: &[(&str, Action, &[&str], &str)] = &[
   ("lyrics_offset_up", Action::LyricsOffsetUp, &["]"], "Letras: offset +50 ms"),
   ("lyrics_mode", Action::LyricsMode, &["k"], "Letras: modo clásico o karaoke"),
   ("lyrics_estimate", Action::LyricsEstimate, &["w"], "Letras: estimar tiempos por palabra"),
+  ("queue_move_up", Action::QueueMoveUp, &["K"], "Cola: subir la canción elegida"),
+  ("queue_move_down", Action::QueueMoveDown, &["J"], "Cola: bajar la canción elegida"),
+  ("queue_remove", Action::QueueRemove, &["x"], "Cola: quitar la canción elegida"),
+  ("queue_add_to_playlist", Action::QueueAddToPlaylist, &["a"], "Cola: agregar la canción elegida a una playlist"),
 ];
 
 /// Una tecla con sus modificadores.
@@ -257,7 +271,7 @@ impl Keymap {
     self
       .bindings
       .iter()
-      .filter(|(a, _)| !a.is_lyrics())
+      .filter(|(a, _)| a.scope() == Scope::Global)
       .find(|(_, keys)| keys.iter().any(|k| k.matches(ev) && !(typing && k.is_text())))
       .map(|(a, _)| *a)
   }
@@ -265,7 +279,13 @@ impl Keymap {
   /// Accion de Letras de una tecla (se consulta antes que las globales
   /// cuando esa vista esta abierta).
   pub fn lyrics_action(&self, ev: &KeyEvent) -> Option<Action> {
-    self.bindings.iter().filter(|(a, _)| a.is_lyrics()).find(|(_, keys)| keys.iter().any(|k| k.matches(ev))).map(|(a, _)| *a)
+    self.view_action(ev, Scope::Lyrics)
+  }
+
+  /// Accion de una vista para una tecla (se consulta antes que las
+  /// globales cuando esa vista esta abierta).
+  pub fn view_action(&self, ev: &KeyEvent, view: Scope) -> Option<Action> {
+    self.bindings.iter().filter(|(a, _)| a.scope() == view).find(|(_, keys)| keys.iter().any(|k| k.matches(ev))).map(|(a, _)| *a)
   }
 
   pub fn keys(&self, action: Action) -> &[Key] {

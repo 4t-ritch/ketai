@@ -39,3 +39,11 @@ debug = "line-tables-only"
 # ~200 ms en vez de ~12 ms. El codigo propio sigue en debug.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Binarios mas chicos: sin simbolos de depuracion, con optimizacion entre
+# crates (LTO) y en una sola unidad. Compilar en release tarda mas. No se usa
+# panic = "abort": un panic en un hilo del daemon cerraria todo el proceso.
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

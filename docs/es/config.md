@@ -157,6 +157,10 @@ accion y la tecla, y se mantiene la configuracion anterior):
 | `lyrics_offset_up` | `]` | Letras: offset +50 ms |
 | `lyrics_mode` | `k` | Letras: modo clasico o karaoke |
 | `lyrics_estimate` | `w` | Letras: estimar tiempos por palabra |
+| `queue_move_up` | `K` | Cola (Reproduciendo): subir la cancion elegida |
+| `queue_move_down` | `J` | Cola (Reproduciendo): bajar la cancion elegida |
+| `queue_remove` | `x` | Cola (Reproduciendo): quitar la cancion elegida |
+| `queue_add_to_playlist` | `a` | Cola (Reproduciendo): agregar la cancion elegida a una playlist |
 
 - `Ctrl+C` siempre sale, aunque se configure otra cosa.
 - Mientras se escribe en Buscar, las teclas sin Ctrl ni Alt son texto.
@@ -175,7 +179,8 @@ accion y la tecla, y se mantiene la configuracion anterior):
   las vistas (por ejemplo, `m` silencia en todas, Letras incluida).
 - Las teclas que se ven en pantalla (por ejemplo las de la cabecera de Letras
   y las del volumen en Reproduciendo) son siempre las configuradas: si se
-  cambia una tecla, la pantalla muestra la nueva.
+  cambia una tecla, la pantalla muestra la nueva. `Ctrl+P` > *Ver atajos de
+  teclado* muestra cada accion con sus teclas actuales.
 - Las demas teclas de cada vista (`h` / `l` en Biblioteca, etc.) son fijas
   por ahora.
 

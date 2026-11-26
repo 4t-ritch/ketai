@@ -32,3 +32,8 @@ lyrics_offset_down = "["
 lyrics_offset_up = "]"
 lyrics_mode = "k"
 lyrics_estimate = "w"
+# Now Playing only (queue).
+queue_move_up = "K"
+queue_move_down = "J"
+queue_remove = "x"
+queue_add_to_playlist = "a"

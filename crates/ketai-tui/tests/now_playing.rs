@@ -57,9 +57,12 @@ fn text(app: &App) -> String {
 #[test]
 fn shows_the_track_progress_next_and_audio_details() {
   let t = text(&playing_app());
-  for want in ["LET THE WORLD BURN", "Midnight Blu", "Covers, Vol. 2", "1:24", "3:21", "Siguiente", "My Jealousy", "70%", "vorbis · 44.1 kHz"] {
+  for want in ["LET THE WORLD BURN", "Midnight Blu", "Covers, Vol. 2", "1:24", "3:21", "70%"] {
     assert!(t.contains(want), "missing {want:?}\n{t}");
   }
+  assert!(!t.contains("vorbis") && !t.contains("kHz"), "the audio format is not shown");
+  // Lo que sigue lo muestra la cola, no una linea "Siguiente".
+  assert!(!t.contains("Siguiente"), "{t}");
 }
 
 #[test]

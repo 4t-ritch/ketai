@@ -117,10 +117,11 @@ fn the_cache_asks_once_per_uri_and_tracks_replies() {
   assert_eq!(cache.image_for("file:///a.ogg", true), None);
 
   // La atenuada se pide una sola vez y se usa cuando ya se transmitio.
-  let (small, id) = cache.want_dimmed("file:///a.ogg").expect("first time");
-  assert_eq!(id, dimmed);
+  // La imagen no queda en memoria: la atenuada se arma desde el archivo.
+  let (path, id) = cache.want_dimmed("file:///a.ogg").expect("first time");
+  assert_eq!((path.to_str().unwrap(), id), ("/run/c/u_1.png", dimmed));
   assert!(cache.want_dimmed("file:///a.ogg").is_none(), "only once");
-  let seq = ketai_tui::covers::dimmed_transmit(&small, id);
+  let seq = ketai_tui::covers::dimmed_transmit(&image::RgbImage::new(4, 4), id);
   assert!(seq.contains(&format!("i={dimmed},")));
   cache.dimmed_ready("file:///a.ogg");
   assert_eq!(cache.image_for("file:///a.ogg", true), Some(dimmed));
@@ -160,12 +161,25 @@ fn after_a_resize_only_what_is_drawn_is_sent_again() {
   cache.invalidate_all();
   assert_eq!(cache.image_for("u", false), None, "not placed until it is sent again");
   assert_eq!(cache.state("v"), Some(&CoverState::Stale { normal: cache_ids(&cache, "v").0, dimmed: cache_ids(&cache, "v").1 }));
-  let (img, again) = cache.restage("u").expect("drawn again: prepared once");
-  assert_eq!(again, id);
+  // Se vuelve a leer del archivo: la imagen no se guardo en memoria.
+  let (path, again) = cache.restage("u").expect("drawn again: prepared once");
+  assert_eq!((path.to_str().unwrap(), again), ("/x.png", id));
   assert!(cache.restage("u").is_none(), "only once");
-  let seq = cache.ready("u", Some(ketai_tui::covers::prepare_image(img, again)));
+  let seq = cache.ready("u", Some(ketai_tui::covers::prepare_image(image::RgbImage::new(4, 4), again)));
   assert!(seq.contains(&format!("i={id},")), "{seq:?}");
   assert_eq!(cache.image_for("u", false), Some(id));
+}
+
+#[test]
+fn a_stale_cover_without_a_file_is_asked_for_again() {
+  // Preparada sin pasar por el daemon (sin archivo): al perderla la
+  // terminal no se puede rearmar, asi que se olvida y se vuelve a pedir.
+  let mut cache = CoverCache::default();
+  cache.decoded("u", Some(image::RgbImage::new(4, 4)));
+  cache.invalidate_all();
+  assert!(cache.restage("u").is_none());
+  assert_eq!(cache.state("u"), None);
+  assert!(cache.want("u").is_some());
 }
 
 fn cache_ids(cache: &CoverCache, uri: &str) -> (u32, u32) {

@@ -18,6 +18,7 @@ use crate::{
 };
 
 pub fn draw(f: &mut RFrame, app: &App) {
+  QUEUE_SHOWN.with(|q| q.set(false));
   SLOTS.with(|s| s.borrow_mut().clear());
   WANTED.with(|w| w.borrow_mut().clear());
   RESEND.with(|r| r.borrow_mut().clear());
@@ -66,6 +67,11 @@ pub fn draw(f: &mut RFrame, app: &App) {
     dim(f, t);
     begin_overlay();
     add_popup(f, app);
+  }
+  if app.keys_open {
+    dim(f, t);
+    begin_overlay();
+    keys_list(f, app);
   }
   if app.keys_blocked() {
     dim(f, t);
@@ -125,6 +131,12 @@ fn add_popup(f: &mut RFrame, app: &App) {
     return;
   }
   put(buf, x, pop.y + 1, "Agregar a una playlist", t.title());
+  // Desde la cola: que cancion se agrega (no es la que suena).
+  if let Some(uri) = &app.add_uri {
+    let track = app.queue_tracks().iter().find(|t| t["uri"] == uri.as_str());
+    let name = track.map(track_title).unwrap_or_else(|| uri.rsplit('/').next().unwrap_or(uri).to_string());
+    putn(buf, x, pop.y + 2, name, iw, t.faint());
+  }
   put(buf, pop.x + pop.width.saturating_sub(9), pop.y + 1, "esc ✕", t.faint());
   if app.naming.is_some() {
     name_field(buf, app, x, pop.y + 3, pop.width.saturating_sub(6));
@@ -139,7 +151,7 @@ fn add_popup(f: &mut RFrame, app: &App) {
       break;
     }
     hit(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), 1), Hit::PopupRow(i));
-    let mark = if app.now_playlists.contains(name) { "  ✓" } else { "" };
+    let mark = if app.add_marks().contains(name) { "  ✓" } else { "" };
     if i == app.add_cursor {
       buf.set_style(Rect::new(pop.x + 1, y, pop.width.saturating_sub(2), 1), Style::new().bg(t.row));
       put(buf, pop.x + 1, y, "▌", t.accent());
@@ -169,6 +181,60 @@ fn popup_frame(f: &mut RFrame, t: &Theme, area: Rect) {
   use ratatui::widgets::{Block, BorderType, Clear, Widget};
   Clear.render(area, f.buffer_mut());
   Block::bordered().border_type(BorderType::Rounded).border_style(t.accent()).style(Style::new().bg(t.popup())).render(area, f.buffer_mut());
+}
+
+/// Lista de atajos (desde Ctrl+P): cada accion configurable con sus teclas
+/// actuales (las de config.toml en este momento), agrupadas por donde
+/// valen, con desplazamiento.
+fn keys_list(f: &mut RFrame, app: &App) {
+  use crate::keys::{ACTIONS, Scope};
+  let t = &app.theme;
+  let area = f.area();
+  let mut lines: Vec<Line> = Vec::new();
+  for (scope, title) in [(Scope::Global, "En todas las vistas"), (Scope::Lyrics, "En Letras"), (Scope::NowPlaying, "En Reproduciendo (cola)")] {
+    lines.push(Line::styled(title, t.title()));
+    for (name, action, _, desc) in ACTIONS.iter().filter(|(_, a, _, _)| a.scope() == scope) {
+      let keys = app.config.keys.keys(*action);
+      let mut spans: Vec<Span> = Vec::new();
+      if keys.is_empty() {
+        spans.push(Span::styled("sin tecla", t.faint()));
+      }
+      for (k, key) in keys.iter().enumerate() {
+        if k > 0 {
+          spans.push(Span::raw(" "));
+        }
+        spans.push(keycap(t, &key.label()));
+      }
+      // Tres columnas: teclas, nombre en [keys] y que hace (sin el
+      // "Letras:" o "Cola:", que ya dice el titulo del grupo).
+      let used = spans.iter().map(|s| s.width()).sum::<usize>();
+      spans.push(Span::raw(" ".repeat(18usize.saturating_sub(used).max(2))));
+      spans.push(Span::styled(format!("{name:<24}"), t.faint()));
+      let desc = desc.split_once(": ").filter(|(p, _)| *p == "Letras" || *p == "Cola").map_or(*desc, |(_, d)| d);
+      spans.push(Span::styled(desc.to_string(), t.text()));
+      lines.push(Line::from(spans));
+    }
+    lines.push(Line::raw(""));
+  }
+  lines.push(Line::styled("Ctrl+C siempre sale. Se cambian en [keys] de config.toml.", t.faint()));
+  let w = 92.min(area.width.saturating_sub(2));
+  let h = (lines.len() as u16 + 6).min(area.height.saturating_sub(2)).max(8.min(area.height));
+  let pop = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 2, w, h);
+  popup_frame(f, t, pop);
+  modal(area, pop);
+  let buf = f.buffer_mut();
+  let x = pop.x + 3;
+  let inner = w.saturating_sub(6);
+  put(buf, x, pop.y + 1, "Atajos de teclado", t.title());
+  put(buf, pop.x + pop.width.saturating_sub(9), pop.y + 1, "esc ✕", t.faint());
+  let rows = h.saturating_sub(6) as usize;
+  let max = lines.len().saturating_sub(rows);
+  let from = (app.keys_scroll as usize).min(max);
+  for (k, line) in lines.iter().skip(from).take(rows).enumerate() {
+    put_line(buf, x, pop.y + 3 + k as u16, line, inner);
+  }
+  let more = if max > 0 { format!("{}/{}   ↑ ↓ desplazar   ", from + 1, max + 1) } else { String::new() };
+  putn(buf, x, pop.y + h - 2, format!("{more}esc cerrar"), inner as usize, t.faint());
 }
 
 /// Bloqueo por teclas repetidas en `[keys]`: la lista completa, agrupada
@@ -407,12 +473,6 @@ pub const I_VOLUME: &str = "\u{f028}";
 pub const I_MUTE: &str = "\u{f026}";
 pub const I_MUSIC: &str = "\u{f001}";
 
-/// `44.1 kHz`, `48 kHz`.
-fn fmt_rate(hz: u64) -> String {
-  let k = hz as f64 / 1000.0;
-  if k.fract() == 0.0 { format!("{k:.0} kHz") } else { format!("{k:.1} kHz") }
-}
-
 /// Barra de progreso fina: hecho en blanco, resto en tono de fondo.
 fn progress(buf: &mut Buffer, t: &Theme, x: u16, y: u16, w: u16, pos: u64, dur: Option<u64>) {
   let left = fmt_ms(pos);
@@ -481,7 +541,14 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   draw_cover(f, app, cover, app.player["track"]["uri"].as_str());
   let buf = f.buffer_mut();
   let x = cover.x + cover.width + margin;
-  let w = (area.x + area.width).saturating_sub(x + margin);
+  let full_w = (area.x + area.width).saturating_sub(x + margin);
+  // La cola va en una columna a la derecha, hasta la barra de progreso. La
+  // informacion tiene prioridad: la cola usa lo que sobra despues de su
+  // ancho (el volumen y la salida en una fila); si no alcanza, no se
+  // muestra.
+  let spare = full_w.saturating_sub(INFO_MIN_W + 4);
+  let queue_w = if spare >= QUEUE_MIN_W { (full_w / 3).clamp(QUEUE_MIN_W, 48).min(spare) } else { 0 };
+  let w = if queue_w > 0 { full_w - queue_w - 4 } else { full_w };
   let s = |k: &str| track[k].as_str().unwrap_or("").to_string();
   let title = track_title(track);
   let roomy = top_h >= 24;
@@ -553,13 +620,8 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
     span_hits(x, y, &mine, &[Some(A::Favorite), Some(A::Favorite), None, Some(A::AddToPlaylist), Some(A::AddToPlaylist)]);
   }
   y += 2;
-  // Formato y en cuantas playlists esta.
+  // En cuantas playlists esta.
   let mut info = Vec::new();
-  let codec = s("codec");
-  if !codec.is_empty() {
-    let rate = track["sample_rate"].as_u64().map(|r| format!(" · {}", fmt_rate(r))).unwrap_or_default();
-    info.push(format!("{codec}{rate}"));
-  }
   let n = app.now_playlists.len();
   if n > 0 {
     info.push(format!("En {n} {}", if n == 1 { "playlist" } else { "playlists" }));
@@ -570,18 +632,12 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   if roomy {
     lyrics_preview(buf, app, x, y, w);
     y += 5;
-    if let Some(next) = app.next_track() {
-      let line = Line::from(vec![
-        Span::styled("Siguiente  ", t.faint()),
-        Span::styled(next["title"].as_str().unwrap_or("").to_string(), t.text()),
-        Span::styled(format!(" · {}", next["artist"].as_str().unwrap_or("")), t.faint()),
-      ]);
-      put_line(buf, x, y, &line, w);
-    }
+    // Lo que sigue lo muestra la cola.
     y += 2;
   }
   // Progreso y controles al pie de la columna.
   let py = y.max((area.y + top_h).saturating_sub(3));
+  let w = full_w;
   progress(buf, t, x, py, w, app.position_ms(), track["duration_ms"].as_u64());
   let mut controls = controls(app, false, true);
   if controls.width() as u16 > w {
@@ -594,6 +650,108 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   if app.playing() {
     let viz = Rect::new(area.x + 2, area.y + area.height - viz_h - 1, area.width.saturating_sub(4), viz_h);
     spectrum(buf, t, viz, &app.viz);
+  }
+  QUEUE_SHOWN.with(|q| q.set(queue_w > 0));
+  if queue_w > 0 {
+    let top = area.y + 1;
+    queue_panel(f, app, Rect::new(x + full_w - queue_w, top, queue_w, py.saturating_sub(top + 1)));
+  }
+}
+
+/// Ancho minimo de la columna de la cola.
+const QUEUE_MIN_W: u16 = 28;
+/// Ancho que necesita la informacion de Reproduciendo junto a la cola (la
+/// fila del volumen y la salida sin partirse).
+const INFO_MIN_W: u16 = 62;
+/// Filas por cancion de la cola: caratula de 2 filas y una de aire.
+const QUEUE_ROW_H: u16 = 3;
+
+/// Cuantas canciones de la cola entran en un alto de columna (cabecera
+/// de 2 filas).
+pub fn queue_rows(height: u16) -> usize {
+  (height.saturating_sub(2) / QUEUE_ROW_H) as usize
+}
+
+/// La cola completa en su orden real: caratula, titulo (se desplaza si no
+/// entra) y artista. La que suena marcada; las que ya sonaron, tenues; la
+/// elegida, resaltada.
+fn queue_panel(f: &mut RFrame, app: &App, area: Rect) {
+  let t = &app.theme;
+  let tracks = app.queue_tracks();
+  let current = app.queue_current();
+  {
+    let buf = f.buffer_mut();
+    let count = match tracks.len() {
+      1 => "1 canción".to_string(),
+      n => format!("{n} canciones"),
+    };
+    // Que pasa al terminar: el orden real depende de repetir y aleatorio.
+    let note = if app.player["shuffle"].as_bool().unwrap_or(false) {
+      "orden aleatorio"
+    } else if app.player["repeat"] == "queue" {
+      "se repite al terminar"
+    } else {
+      ""
+    };
+    let head = Line::from(vec![Span::styled("COLA", t.faint()), Span::styled(format!("  ·  {count}"), t.faint())]);
+    put_line(buf, area.x, area.y, &head, area.width);
+    putn(buf, area.x, area.y + 1, note, area.width as usize, t.accent());
+    if tracks.is_empty() {
+      putn(buf, area.x, area.y + 2, "La cola está vacía", area.width as usize, t.faint());
+      return;
+    }
+  }
+  let rows = queue_rows(area.height);
+  // La elegida queda en el primer tercio: se ve algo de lo que ya sono.
+  let first = app.queue_cursor.saturating_sub(rows / 3).min(tracks.len().saturating_sub(rows.max(1)));
+  for (k, (i, track)) in tracks.iter().enumerate().skip(first).take(rows).enumerate() {
+    let y = area.y + 2 + k as u16 * QUEUE_ROW_H;
+    let selected = i == app.queue_cursor;
+    let dragged = app.queue_drag.is_some_and(|d| d.over == i);
+    if selected || dragged {
+      let bg = if dragged { t.raised } else { t.row };
+      f.buffer_mut().set_style(Rect::new(area.x, y, area.width, 2), Style::new().bg(bg));
+    }
+    draw_cover(f, app, Rect::new(area.x, y, 4, 2), track["uri"].as_str());
+    let buf = f.buffer_mut();
+    let playing = Some(i) == current;
+    let played = current.is_some_and(|c| i < c);
+    let tw = area.width.saturating_sub(8) as usize;
+    let style = if playing {
+      t.accent().add_modifier(Modifier::BOLD)
+    } else if played {
+      t.faint()
+    } else if selected {
+      t.title()
+    } else {
+      t.text()
+    };
+    if playing {
+      put(buf, area.x + 5, y, "▶", t.accent());
+    }
+    // La elegida deja lugar a la derecha para sus botones.
+    let tw = if selected { tw.saturating_sub(5) } else { tw };
+    // Solo se anima el titulo de la que suena: con listas enormes, todas
+    // moviendose cansan la vista. Las demas se cortan.
+    if playing {
+      putm(buf, app, area.x + 7, y, track_title(track), tw, style);
+    } else {
+      putn(buf, area.x + 7, y, track_title(track), tw, style);
+    }
+    putn(buf, area.x + 7, y + 1, track["artist"].as_str().unwrap_or(""), tw, t.faint());
+    hit(Rect::new(area.x, y, area.width, 2), Hit::QueueRow(i));
+    // Botones de la elegida, para el mouse (las teclas estan en la lista de
+    // atajos de Ctrl+P): agregar a una playlist y quitar.
+    if selected {
+      use crate::keys::Action as A;
+      let bx = area.x + area.width.saturating_sub(4);
+      put(buf, bx, y + 1, "+", t.text());
+      hit(Rect::new(bx, y + 1, 1, 1), Hit::Act(A::QueueAddToPlaylist));
+      if !playing {
+        put(buf, bx + 2, y + 1, "✕", t.text());
+        hit(Rect::new(bx + 2, y + 1, 1, 1), Hit::Act(A::QueueRemove));
+      }
+    }
   }
 }
 
@@ -1428,6 +1586,9 @@ thread_local! {
   static WANTED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
   /// Caratulas `Stale` dibujadas en este cuadro.
   static RESEND: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+  /// La columna de la cola se vio en el ultimo cuadro (sus teclas solo
+  /// valen si se ve).
+  static QUEUE_SHOWN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
   /// Linea del karaoke del cuadro que se esta dibujando.
   static KARAOKE: RefCell<Option<crate::karaoke::Slot>> = const { RefCell::new(None) };
   /// Lo clickeable del cuadro que se esta dibujando.
@@ -1486,6 +1647,11 @@ pub struct Frame {
   /// Caratulas que no se olvidan aunque no esten en pantalla: la que suena
   /// y la siguiente (sus colores se usan al cambiar de pista).
   pub keep: Vec<String>,
+}
+
+/// La columna de la cola se vio en el ultimo `draw`.
+pub fn queue_visible() -> bool {
+  QUEUE_SHOWN.with(|q| q.get())
 }
 
 /// La linea del karaoke que pidio el ultimo `draw`, si hay.
@@ -1757,11 +1923,12 @@ fn header(f: &mut RFrame, app: &App, area: Rect) {
     ]);
     put_line(buf, fx + 2, area.y + 1, &field, fw.saturating_sub(4));
   }
-  let status = if app.connected {
-    Line::from(vec![Span::styled("● ", Style::new().fg(t.ok)), Span::styled("ketaid", Style::new().fg(t.ok))])
-  } else {
-    Line::from(vec![Span::styled("● ", Style::new().fg(t.error)), Span::styled("ketaid sin conexión", Style::new().fg(t.error))])
-  };
+  // Solo se avisa cuando se pierde la conexion: estando conectado no hace
+  // falta ocupar lugar.
+  if app.connected {
+    return;
+  }
+  let status = Line::from(vec![Span::styled("● ", Style::new().fg(t.error)), Span::styled("ketaid sin conexión", Style::new().fg(t.error))]);
   // La salida activa se ve en el reproductor, no aca.
   let w = status.width() as u16;
   if area.width > w + 2 {

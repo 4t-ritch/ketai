@@ -15,7 +15,16 @@ responde al mouse.
 - Volumen con sus teclas (`-` / `+`) y la salida de audio activa (`d` para
   cambiarla).
 - **Favorito** (`*`) y **Agregar a playlist** (`P`).
-- Formato del archivo y en cuantas playlists esta la cancion.
+- En cuantas playlists esta la cancion.
+- **Cola** a la derecha: la cola completa en su orden real, con la caratula,
+  el titulo y el artista de cada cancion (el titulo de la que suena se
+  desplaza si no entra; los demas se cortan, asi una lista larga no se mueve
+  entera). La que
+  suena va marcada y las que ya sonaron, mas tenues; avisa si la cola se
+  repite al terminar o va en orden aleatorio. Se elige una cancion con las
+  flechas o un clic, se reproduce con `Enter` o doble clic, se mueve con
+  `K` / `J` o arrastrandola, se quita con `x` y se agrega a una playlist con
+  `a` (sin reproducirla). Solo se ve si la pantalla es lo bastante ancha.
 - Barra de progreso (clic o arrastrar para moverse), controles y espectro en
   vivo.
 - Si el titulo no entra, se desplaza para leerlo completo.
@@ -85,7 +94,9 @@ instantaneo. Tambien se pueden usar colores fijos (ver
 
 Desde cualquier pantalla: escribi para buscar canciones y playlists, o
 elegi una accion (salida de audio, escanear la biblioteca, capas de letras,
-carpetas). `Enter` reproduce o ejecuta, `Tab` agrega a la cola.
+carpetas, ver los atajos de teclado). `Enter` reproduce o ejecuta, `Tab`
+agrega a la cola. *Ver atajos de teclado* muestra cada accion con las teclas
+configuradas en este momento.
 
 ## Playlists y favoritos
 

@@ -30,7 +30,7 @@ Pestanas arriba, en todas las pantallas:
 
 | Tecla | Pestana |
 |---|---|
-| `1` | Reproduciendo: caratula, progreso, controles, letra, siguiente y espectro |
+| `1` | Reproduciendo: caratula, progreso, controles, letra, la cola y espectro |
 | `2` | Letras: linea actual con la palabra que suena, traducciones debajo |
 | `3` | Biblioteca: playlists, todas las canciones, o por artista, album, carpeta, ano o genero |
 | `4` | Buscar: busqueda en la biblioteca local |
@@ -40,7 +40,9 @@ Pestanas arriba, en todas las pantallas:
 ## Teclas
 
 Los atajos globales se pueden cambiar en `[keys]` de `config.toml` (ver
-`docs/config.md`); estos son los de por defecto.
+`docs/config.md`); estos son los de por defecto. Para ver las teclas
+configuradas en este momento, abri `Ctrl+P` y elegi *Ver atajos de teclado*:
+muestra cada accion con sus teclas actuales, agrupadas por donde valen.
 
 En cualquier pestana (salvo mientras se escribe en Buscar):
 
@@ -73,6 +75,22 @@ Letras (configurables en `[keys]`, ver [config.md](config.md#keys)):
 Arriba a la derecha de Letras se ve cada opcion con su tecla, como en
 Reproduciendo: la capa (`o`), la traduccion (`t`), el offset (`[` / `]`) y el
 modo (`k`). Un clic en una opcion hace lo mismo que su tecla.
+
+Cola, en Reproduciendo (solo cuando se ve; `K`, `J`, `x` y `a` se
+configuran en `[keys]`, ver [config.md](config.md#keys)):
+
+| Tecla | Accion |
+|---|---|
+| flechas arriba y abajo, o `k` `j` | elegir una cancion |
+| `Enter` | reproducir la elegida |
+| `K` / `J` | subir / bajar la elegida |
+| `x` | quitar la elegida (no la que suena) |
+| `a` | agregar la elegida a una playlist |
+
+La cola se ve completa en su orden real: las que ya sonaron (mas tenues),
+la que suena (marcada) y las que vienen. Con repeticion de la cola vuelve a
+empezar al terminar; con aleatorio la siguiente se elige al azar al pasar,
+y la cabecera lo avisa.
 
 Biblioteca:
 
@@ -154,6 +172,10 @@ Todo lo que se ve se puede usar con el mouse; hace lo mismo que su tecla.
   una playlist o grupo de la izquierda, o en una cancion. Un clic elige; doble
   clic reproduce (como `Enter`).
 - En Buscar: clic en un filtro o en un resultado; doble clic reproduce.
+- En la cola de Reproduciendo: un clic elige una cancion, doble clic la
+  reproduce, y arrastrarla a otra fila la mueve ahi (mientras se arrastra se
+  marca la fila donde caeria). La elegida tiene dos botones a la derecha: `+`
+  la agrega a una playlist y `x` la quita (la que suena solo tiene `+`).
 - La rueda mueve la lista que esta bajo el puntero, en cualquier parte de
   la lista.
 - Con un popup abierto, solo responde el popup: clic en una opcion la elige
@@ -173,8 +195,9 @@ reproduccion siguen funcionando.
 
 En paneles medianos (por ejemplo 4:3, unas 88x40) la vista completa se
 compacta: caratula mas chica, controles mas juntos, en Biblioteca se oculta
-la columna de lo que suena (queda la barra de abajo) y, con poco alto, se
-omiten la letra y lo que sigue.
+la columna de lo que suena (queda la barra de abajo), con poco alto se
+omite la vista previa de la letra, y si no alcanza el ancho se oculta la
+columna de la cola.
 
 ## Caratulas
 

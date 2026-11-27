@@ -42,12 +42,18 @@ cover_color = true
 Con `cover_color = true` (o con `background = "cover"` y `accent = "cover"`)
 los colores cambian con cada cancion:
 
-- el **fondo** es el color promedio de la caratula, oscurecido;
+- todo sale del **tono predominante** de la caratula (el color vivo que mas
+  aparece, no el promedio);
+- el **fondo** es ese tono, oscuro;
 - los **paneles** (`raised`) y la **fila elegida** (`row`) son el mismo color
   un poco mas claro;
 - el **acento** es el mismo tono, claro y saturado, para que se lea sobre el
   fondo;
-- los **textos secundarios** (`dim`, `faint`) tiran al tono de la caratula;
+- los **textos** (`foreground`, `dim`, `faint`) son claros con un toque del
+  tono de la caratula y los **controles** usan el acento; con
+  `ui_text_cover_color = false` quedan blancos y grises;
+- todos los colores mantienen contraste con el fondo: si uno no se leeria,
+  se aclara u oscurece en el mismo tono;
 - el **espectro** va del acento a un tono vecino.
 
 Si la caratula es gris (sin color), todo queda en grises. Mientras no hay

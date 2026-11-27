@@ -185,3 +185,117 @@ fn redraw_on_focus_is_off_unless_asked() {
   let c = Config::parse("[terminal]\nother = 1\n").unwrap();
   assert!(c.warnings.iter().any(|w| w.contains("terminal.other")), "{:?}", c.warnings);
 }
+
+/// App sonando con una caratula de `img`.
+fn with_cover(img: image::RgbImage) -> App {
+  let mut app = App { connected: true, ..App::default() };
+  app.on_daemon(DaemonMsg::Event { name: "player.state".into(), data: json!({"status": "playing", "track": {"id": "t", "uri": "file:///a.ogg"}}) });
+  app.covers.want("file:///a.ogg");
+  app.covers.sent(1, "file:///a.ogg");
+  app.covers.on_reply(1, Ok(json!({"path": "/x.png"})));
+  app.covers.decoded("file:///a.ogg", Some(img));
+  app.refresh_theme();
+  app
+}
+
+fn rgb_of(c: ratatui::style::Color) -> [f32; 3] {
+  let ratatui::style::Color::Rgb(r, g, b) = c else { panic!("{c:?}") };
+  [r as f32, g as f32, b as f32]
+}
+
+/// Contraste WCAG entre dos colores.
+fn contrast(a: ratatui::style::Color, b: ratatui::style::Color) -> f32 {
+  let lum = |c| {
+    let ch = |v: f32| {
+      let v = v / 255.0;
+      if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    };
+    let [r, g, b] = rgb_of(c);
+    0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+  };
+  let (x, y) = (lum(a), lum(b));
+  (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
+#[test]
+fn the_accent_is_the_predominant_color_not_the_average() {
+  // 60% rojo vivo y 40% verde vivo: el promedio seria un oliva.
+  let img = image::RgbImage::from_fn(10, 10, |x, _| if x < 6 { image::Rgb([220, 20, 30]) } else { image::Rgb([20, 200, 40]) });
+  let t = with_cover(img).theme;
+  let [r, g, b] = rgb_of(t.accent);
+  assert!(r > g * 1.6 && r > b * 1.6, "accent is red, the predominant color: {:?}", t.accent);
+}
+
+#[test]
+fn every_text_color_takes_the_cover_tone() {
+  let t = with_cover(image::RgbImage::from_pixel(8, 8, image::Rgb([60, 90, 220]))).theme;
+  for (name, c) in [("fg", t.fg), ("dim", t.dim), ("faint", t.faint), ("accent", t.accent)] {
+    let [r, _, b] = rgb_of(c);
+    assert!(b > r + 4.0, "{name} is tinted blue: {c:?}");
+  }
+  assert_ne!(t.fg, rgb(0xffffff), "the main text is not plain white");
+}
+
+#[test]
+fn dark_covers_never_give_dark_text_on_a_dark_background() {
+  for px in [[4, 4, 20], [0, 0, 0], [30, 5, 5], [250, 250, 250], [255, 240, 0]] {
+    let t = with_cover(image::RgbImage::from_pixel(8, 8, image::Rgb(px))).theme;
+    for (name, c, min) in [("fg", t.fg, 7.0), ("dim", t.dim, 4.5), ("accent", t.accent, 4.5), ("faint", t.faint, 3.0), ("spectrum_top", t.spectrum_top, 3.0)] {
+      let k = contrast(c, t.bg);
+      assert!(k >= min, "cover {px:?}: {name} {c:?} on {:?} has contrast {k:.2} < {min}", t.bg);
+    }
+    assert!(contrast(t.on_accent, t.accent) >= 4.5, "cover {px:?}: text on the accent");
+  }
+  // Mismo tono: una caratula azul casi negra da un acento azul, no gris.
+  let t = with_cover(image::RgbImage::from_pixel(8, 8, image::Rgb([4, 4, 40]))).theme;
+  let [r, g, b] = rgb_of(t.accent);
+  assert!(b > r + 20.0 && b > g + 20.0, "same family, lighter: {:?}", t.accent);
+}
+
+/// Celda de `buf` con el texto `needle` (la primera).
+fn cell_of(app: &App, needle: &str) -> ratatui::buffer::Cell {
+  let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 45)).unwrap();
+  term.draw(|f| ketai_tui::ui::draw(f, app)).unwrap();
+  let buf = term.backend().buffer().clone();
+  for y in 0..buf.area.height {
+    for x in 0..buf.area.width {
+      if buf[(x, y)].symbol() == needle {
+        return buf[(x, y)].clone();
+      }
+    }
+  }
+  panic!("{needle:?} not on screen");
+}
+
+#[test]
+fn ui_text_cover_color_tints_text_and_controls_or_keeps_them_white() {
+  assert!(Config::default().theme.ui_text_cover_color, "on by default");
+  let blue = || image::RgbImage::from_pixel(8, 8, image::Rgb([60, 90, 220]));
+
+  // true: textos del tono de la caratula y controles con el acento.
+  let mut app = with_cover(blue());
+  app.player["track"]["duration_ms"] = json!(200000);
+  app.player["position_ms"] = json!(100000);
+  let t = app.theme;
+  let [r, _, b] = rgb_of(t.fg);
+  assert!(b > r + 12.0, "main text clearly tinted: {:?}", t.fg);
+  assert_eq!(t.control, t.accent, "controls take the accent");
+  assert_eq!(cell_of(&app, "●").fg, t.control, "progress knob");
+  assert_eq!(cell_of(&app, "R").fg, t.control, "active tab");
+
+  // false: blanco y grises, como antes, en textos y controles.
+  let mut app = with_cover(blue());
+  app.config = Config::parse("[theme]\nui_text_cover_color = false\n").unwrap();
+  app.refresh_theme();
+  let t = app.theme;
+  assert_eq!(t.fg, rgb(0xffffff));
+  for c in [t.dim, t.faint] {
+    let [r, g, b] = rgb_of(c);
+    assert!(r == g && g == b, "neutral grey: {c:?}");
+  }
+  assert_eq!(t.control, t.fg, "white controls");
+  assert_ne!(t.accent, t.fg, "the accent still follows the cover");
+
+  let e = Config::parse("[theme]\nui_text_cover_color = \"si\"\n").unwrap_err();
+  assert!(e.contains("theme.ui_text_cover_color"), "{e}");
+}

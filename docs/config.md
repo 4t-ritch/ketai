@@ -31,6 +31,7 @@ the file. If the file is deleted, the defaults come back.
 | Key | Values | Default |
 |---|---|---|
 | `cover_color` | `true` or `false` | unset |
+| `ui_text_cover_color` | `true` or `false` | `true` |
 | `background` | `"cover"` or `"#rrggbb"` | `"cover"` |
 | `accent` | `"cover"` or `"#rrggbb"` | `"cover"` |
 | `foreground` | `"#rrggbb"` | `"#ffffff"` |
@@ -46,22 +47,37 @@ the file. If the file is deleted, the defaults come back.
 `cover_color` decides where the colors come from:
 
 - `true`: the whole interface comes from the playing cover (background,
-  raised background, selected row, accent, text on the accent, secondary
-  text and spectrum, all in the cover's hue). Manual colors are ignored even
+  raised background, selected row, accent, text on the accent, main and
+  secondary text and spectrum, all in the cover's hue). Manual colors are ignored even
   if they are in the file. Without a cover, the defaults.
 - `false`: only manual colors count; `"cover"` means the default color.
 - Without the key: each color decides; `background` and `accent` can be
-  `"cover"`. With `background = "cover"`, `raised`, `row`, `dim` and `faint`
-  also come from the cover; with `accent = "cover"`, `on_accent` and
+  `"cover"`. With `background = "cover"`, `raised`, `row`, `foreground`,
+  `dim` and `faint` also come from the cover; with `accent = "cover"`, `on_accent` and
   `spectrum_top`. A color set by hand always wins.
+
+`ui_text_cover_color` decides, when the colors come from the cover, whether
+texts and controls take its hue too:
+
+- `true`: the main and secondary texts are light with a visible touch of the
+  cover's hue, and the interactive controls (active tab, progress bar,
+  volume and play button) use the accent.
+- `false`: texts in white and neutral greys, and white controls, like a
+  classic interface. The background and the accent still follow the cover.
+
+A color set by hand (`foreground`, `dim`, `faint`) always wins.
 
 Popups, lyric lines not sung yet and the rest of the interface derive from
 these colors: nothing has a fixed color of its own. `ok` and `error` are
 status colors (connected, error) and do not follow the cover.
 
-With `"cover"`, the colors come from the playing cover: the background is the
-darkened average color and the accent is the same hue, light and saturated
-so it reads well. Without a cover the defaults are used.
+With `"cover"`, the colors come from the playing cover's predominant hue
+(the most vivid color it has the most of, not the average, which can mix
+into a color the cover does not have): a dark background, a light and
+saturated accent, and texts that are light with a touch of that hue. Every
+color keeps enough contrast with the background: if it would not read (a
+black cover would give black on black), it gets lighter or darker in the
+same hue, never a different color. Without a cover the defaults are used.
 
 ## `[keys]`
 

@@ -25,6 +25,9 @@ pub struct ThemeConfig {
   /// sin la clave, cada color decide (`background`/`accent` pueden ser
   /// "cover").
   pub cover_color: Option<bool>,
+  /// `ui_text_cover_color`: con colores de la caratula, true tine textos y
+  /// controles con su tono; false los deja blancos y grises.
+  pub ui_text_cover_color: bool,
   pub background: Color,
   pub accent: Color,
   /// Colores fijos opcionales; `None` deja el valor por defecto.
@@ -92,7 +95,7 @@ pub struct Config {
 
 impl Default for Config {
   fn default() -> Self {
-    Self { theme: ThemeConfig { cover_color: None, background: Color::Cover, accent: Color::Cover, fixed: Vec::new() },
+    Self { theme: ThemeConfig { cover_color: None, ui_text_cover_color: true, background: Color::Cover, accent: Color::Cover, fixed: Vec::new() },
       lyrics: LyricsConfig::default(),
       keys: crate::keys::Keymap::default(),
       terminal: TerminalConfig::default(),
@@ -142,6 +145,10 @@ impl Config {
             let name = format!("theme.{k}");
             if k == "cover_color" {
               config.theme.cover_color = Some(v.as_bool().ok_or_else(|| format!("{name}: tiene que ser true o false"))?);
+              continue;
+            }
+            if k == "ui_text_cover_color" {
+              config.theme.ui_text_cover_color = v.as_bool().ok_or_else(|| format!("{name}: tiene que ser true o false"))?;
               continue;
             }
             let text = v.as_str().ok_or_else(|| format!("{name}: tiene que ser un texto como \"#rrggbb\""))?;
@@ -269,11 +276,12 @@ impl Config {
           t.row = p.row;
           t.accent = p.accent;
           t.on_accent = p.on_accent;
+          t.fg = p.fg;
           t.dim = p.dim;
           t.faint = p.faint;
           t.spectrum_top = p.spectrum_top;
         }
-        return t;
+        return self.text_policy(t, cover.is_some());
       }
       // Solo los manuales: "cover" vale el color por defecto.
       Some(false) => return self.manual_theme(None),
@@ -311,6 +319,9 @@ impl Config {
         if !mine("row") {
           t.row = p.row;
         }
+        if !mine("foreground") {
+          t.fg = p.fg;
+        }
         if !mine("dim") {
           t.dim = p.dim;
         }
@@ -334,6 +345,34 @@ impl Config {
       }
       (Color::Cover, None) => {}
     }
+    let from_cover = cover.is_some() && self.theme.background == Color::Cover;
+    self.text_policy(t, from_cover)
+  }
+
+  /// Con colores de la caratula, `ui_text_cover_color` decide textos y
+  /// controles: true, del tono de la caratula (controles con el acento);
+  /// false, blancos y grises. Un color fijado a mano siempre gana.
+  fn text_policy(&self, mut t: Theme, from_cover: bool) -> Theme {
+    let mine = |k: &str| self.theme.cover_color != Some(true) && self.theme.fixed.iter().any(|(f, _)| *f == k);
+    if !from_cover {
+      t.control = t.fg;
+      return t;
+    }
+    if self.theme.ui_text_cover_color {
+      t.control = t.accent;
+    } else {
+      let d = Theme::default();
+      if !mine("foreground") {
+        t.fg = d.fg;
+      }
+      if !mine("dim") {
+        t.dim = crate::theme::rgb(0xc8c8c8);
+      }
+      if !mine("faint") {
+        t.faint = crate::theme::rgb(0x8c8c8c);
+      }
+      t.control = t.fg;
+    }
     t
   }
 }
@@ -348,6 +387,8 @@ pub struct CoverPalette {
   pub row: RColor,
   /// Texto sobre el acento.
   pub on_accent: RColor,
+  /// Texto principal, claro con un toque del tono de la caratula.
+  pub fg: RColor,
   /// Textos secundarios, del tono de la caratula.
   pub dim: RColor,
   pub faint: RColor,

@@ -7,6 +7,8 @@
 # colors below are ignored. false: only the colors below count.
 # Without this line, each color decides ("cover" or "#rrggbb").
 # cover_color = true
+# true: texts and controls take the cover's hue too. false: white and grey.
+# ui_text_cover_color = true
 
 # "cover": the color comes from the playing cover. Or a fixed color "#rrggbb".
 background = "cover"

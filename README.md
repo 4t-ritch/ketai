@@ -6,10 +6,17 @@
 
 **English** | [Espanol](README.es.md)
 
+[![crates.io](https://img.shields.io/crates/v/ketai?style=flat-square&logo=rust&logoColor=white&color=E43716)](https://crates.io/crates/ketai)
+[![Downloads](https://img.shields.io/crates/d/ketai?style=flat-square&color=F5A623)](https://crates.io/crates/ketai)
+[![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](LICENSE)
 ![Linux](https://img.shields.io/badge/platform-Linux-1793D1?style=flat-square&logo=linux&logoColor=white)
-![Rust](https://img.shields.io/badge/made%20with-Rust-B7410E?style=flat-square&logo=rust&logoColor=white)
-![Terminal](https://img.shields.io/badge/terminal-kitty%20graphics%20protocol-6E56CF?style=flat-square)
-![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)
+![Rust 2024](https://img.shields.io/badge/Rust-2024%20edition-B7410E?style=flat-square&logo=rust&logoColor=white)
+<br>
+![kitty graphics](https://img.shields.io/badge/covers-kitty%20graphics%20protocol-6E56CF?style=flat-square)
+![MPRIS](https://img.shields.io/badge/MPRIS-playerctl%20%C2%B7%20waybar-FF6F61?style=flat-square)
+![systemd](https://img.shields.io/badge/systemd-socket%20activation-30D475?style=flat-square&logo=systemd&logoColor=white)
+[![Stars](https://img.shields.io/github/stars/4t-ritch/ketai?style=flat-square&logo=github&color=FFD43B)](https://github.com/4t-ritch/ketai/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/4t-ritch/ketai?style=flat-square&color=8E7CC3)](https://github.com/4t-ritch/ketai/commits/main)
 
 </div>
 
@@ -42,7 +49,7 @@ They talk through a simple protocol (JSON over a local socket), so ketai can als
 <td width="50%"><img src="docs/assets/lyrics.png" alt="Lyrics"></td>
 </tr>
 <tr>
-<td><b>Now Playing</b><br>Large cover, progress, controls, volume, audio output, favorite and live spectrum.</td>
+<td><b>Now Playing</b><br>Large cover, progress, controls, volume, audio output, favorite, live spectrum and the whole queue (reorder, remove, add to a playlist).</td>
 <td><b>Synced lyrics</b><br>Line by line or word by word (karaoke), with a translation below and timing adjustment.</td>
 </tr>
 <tr>
@@ -61,6 +68,14 @@ They talk through a simple protocol (JSON over a local socket), so ketai can als
 <td><b>Quick actions (<code>Ctrl+P</code>)</b><br>Search and play without leaving the screen, or run actions.</td>
 <td><b>Playlists and favorites</b><br>Add, remove and create playlists from anywhere; ketai warns you if the song was already there.</td>
 </tr>
+<tr>
+<td><img src="docs/assets/library-playlist.png" alt="A playlist"></td>
+<td><img src="docs/assets/library-groups.png" alt="Library grouped by artist"></td>
+</tr>
+<tr>
+<td><b>Playlists</b><br>Each playlist with its cover, length and songs; play it, queue it or edit it, with a preview of what is playing.</td>
+<td><b>Browse by group</b><br>Artists, albums, folders, years and genres: choose one on the left and its songs open on the right.</td>
+</tr>
 </table>
 
 <div align="center">
@@ -77,6 +92,8 @@ And also:
 - **Mouse**: click everything, double click to play, drag the progress and volume bars, wheel on lists.
 - **Configurable shortcuts** and **themes** in a configuration file that reloads live when saved.
 - **Mini mode** for small panes (herdr, tmux) and **MPRIS** for media keys, `playerctl` and waybar.
+- **One command to install**: `cargo install ketai` brings the daemon and the TUI; the first time you open it, it sets up the daemon as a service.
+- **Light**: the daemon only starts when a client connects (systemd socket activation), and covers are not kept in memory once shown.
 
 The interface is in Spanish for now; more languages are planned (see the roadmap).
 

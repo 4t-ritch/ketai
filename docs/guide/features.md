@@ -93,8 +93,13 @@ colors can be used too (see [examples/theme/](../../examples/theme/README.md)).
 
 From any screen: type to search songs and playlists, or pick an action
 (audio output, scan the library, lyrics layers, folders, see the keyboard
-shortcuts). `Enter` plays or runs, `Tab` adds to the queue. *Ver atajos de
-teclado* lists every action with the keys configured right now.
+shortcuts, look for lyrics again). `Enter` plays or runs, `Tab` adds to the
+queue. *Ver atajos de teclado* lists every action with the keys configured
+right now.
+
+A lyrics file you drop next to the song that is playing shows up by itself
+within a couple of seconds, no restart needed. *Letras: volver a buscar*
+("look for lyrics again") forces it right away.
 
 ## Playlists and favorites
 

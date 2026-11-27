@@ -504,14 +504,17 @@ fn central_loop(rx: Receiver<Message>, mut services: Services, mut persist: Opti
         services.player.on_engine(event);
         Flow::Continue
       }
-      Message::Tick => Flow::Continue,
+      Message::Tick => {
+        services.lyrics.tick(services.player.current_local());
+        Flow::Continue
+      }
       Message::Lyrics(done) => {
         services.lyrics.note_changed(done.changed);
-        match clients.get_mut(&done.client) {
-          Some(state) => {
+        match done.client.and_then(|c| clients.get_mut(&c).map(|s| (c, s))) {
+          Some((client, state)) => {
             send_reply(&state.out, done.request_id, done.result);
             state.blocked = false;
-            drain(&mut clients, &mut services, done.client)
+            drain(&mut clients, &mut services, client)
           }
           None => Flow::Continue,
         }
@@ -690,6 +693,11 @@ fn drain(clients: &mut HashMap<ClientId, ClientState>, services: &mut Services, 
       services.library.submit(id, &req, track);
       state.blocked = true;
       return Flow::Continue;
+    }
+    if req.method == "lyrics.rescan" {
+      services.lyrics.rescan(services.player.current_local());
+      send_reply(&state.out, req.id, Ok(json!({})));
+      continue;
     }
     if LyricsService::handles(&req.method) {
       let track = LyricsService::track_id(&req).and_then(|tid| {

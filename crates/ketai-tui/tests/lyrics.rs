@@ -153,10 +153,11 @@ fn keys_change_layers_and_offset() {
 }
 
 #[test]
-fn offset_changes_refetch_the_package() {
+fn lyrics_changed_refetches_layers_and_package() {
   let mut app = loaded(0);
+  // Puede ser un offset o un archivo de letra nuevo: capas y paquete.
   let cmds = app.on_daemon(DaemonMsg::Event { name: "lyrics.changed".into(), data: json!({"track_id": "t_1"}) });
-  assert_eq!(methods(&cmds), vec!["lyrics.get"]);
+  assert_eq!(methods(&cmds), vec!["lyrics.layers", "lyrics.get"]);
   assert!(app.on_daemon(DaemonMsg::Event { name: "lyrics.changed".into(), data: json!({"track_id": "t_other"}) }).is_empty());
 }
 
@@ -508,4 +509,19 @@ fn duplicated_keys_block_the_app_with_a_grouped_scrollable_list() {
   app.config = bad;
   app.on_key(key(KeyCode::Char('q')));
   assert!(app.quit);
+}
+
+#[test]
+fn a_chosen_layer_whose_file_was_deleted_falls_back_without_errors() {
+  let mut app = loaded(0);
+  assert_eq!(app.lyrics_secondary, vec!["es".to_string()]);
+  app.lyrics_primary = "en-Latn".into();
+  app.lyrics_chosen = true;
+  let cmds = app.on_daemon(DaemonMsg::Event { name: "lyrics.changed".into(), data: json!({"track_id": "t_1"}) });
+  app.sent(200, &cmds[0].0);
+  // Ya solo queda la original: se vuelve a ella y se pide sin la traduccion.
+  let only = json!({"layers": [{"id": "original", "kind": "original", "language": "en", "timing": "word", "format": "lrc", "origin": "sidecar"}]});
+  let cmds = app.on_daemon(DaemonMsg::Reply { id: 200, result: Ok(only) });
+  assert_eq!(cmds, vec![("lyrics.get".to_string(), json!({"track_id": "t_1", "primary": "original", "secondary": [], "estimate_words": false}))]);
+  assert_eq!((app.lyrics_primary.as_str(), app.lyrics_secondary.len()), ("original", 0));
 }

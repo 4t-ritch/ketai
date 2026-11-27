@@ -6,17 +6,15 @@
 
 [English](README.md) | **Espanol**
 
-[![crates.io](https://img.shields.io/crates/v/ketai?style=flat-square&logo=rust&logoColor=white&color=E43716)](https://crates.io/crates/ketai)
-[![Descargas](https://img.shields.io/crates/d/ketai?style=flat-square&color=F5A623)](https://crates.io/crates/ketai)
-[![Licencia](https://img.shields.io/badge/licencia-MIT-3DA639?style=flat-square)](LICENSE)
-![Linux](https://img.shields.io/badge/plataforma-Linux-1793D1?style=flat-square&logo=linux&logoColor=white)
-![Rust 2024](https://img.shields.io/badge/Rust-edicion%202024-B7410E?style=flat-square&logo=rust&logoColor=white)
+[crates.io](https://crates.io/crates/ketai) · [Estrellas](https://github.com/4t-ritch/ketai/stargazers) · [Ultimo commit](https://github.com/4t-ritch/ketai/commits/main)
+
+[![Licencia](docs/assets/badges/license-es.svg)](LICENSE)
+![Linux](docs/assets/badges/linux-es.svg)
+![Rust 2024](docs/assets/badges/rust-es.svg)
 <br>
-![kitty graphics](https://img.shields.io/badge/caratulas-protocolo%20de%20graficos%20kitty-6E56CF?style=flat-square)
-![MPRIS](https://img.shields.io/badge/MPRIS-playerctl%20%C2%B7%20waybar-FF6F61?style=flat-square)
-![systemd](https://img.shields.io/badge/systemd-activacion%20por%20socket-30D475?style=flat-square&logo=systemd&logoColor=white)
-[![Estrellas](https://img.shields.io/github/stars/4t-ritch/ketai?style=flat-square&logo=github&color=FFD43B)](https://github.com/4t-ritch/ketai/stargazers)
-[![Ultimo commit](https://img.shields.io/github/last-commit/4t-ritch/ketai?style=flat-square&color=8E7CC3)](https://github.com/4t-ritch/ketai/commits/main)
+![kitty graphics](docs/assets/badges/kitty-es.svg)
+![MPRIS](docs/assets/badges/mpris.svg)
+![systemd](docs/assets/badges/systemd-es.svg)
 
 </div>
 

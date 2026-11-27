@@ -662,7 +662,7 @@ dependencies = [
 
 [[package]]
 name = "ketai"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "dbus",
  "dbus-crossroads",
@@ -677,7 +677,7 @@ dependencies = [
 
 [[package]]
 name = "ketai-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libpulse-binding",
  "quick-xml",
@@ -691,7 +691,7 @@ dependencies = [
 
 [[package]]
 name = "ketai-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "ketai-tui"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ab_glyph",
  "dbus",

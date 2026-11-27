@@ -33,6 +33,7 @@ defecto.
 | Clave | Valores | Por defecto |
 |---|---|---|
 | `cover_color` | `true` o `false` | sin definir |
+| `ui_text_cover_color` | `true` o `false` | `true` |
 | `background` | `"cover"` o `"#rrggbb"` | `"cover"` |
 | `accent` | `"cover"` o `"#rrggbb"` | `"cover"` |
 | `foreground` | `"#rrggbb"` | `"#ffffff"` |
@@ -48,24 +49,39 @@ defecto.
 `cover_color` decide de donde salen los colores:
 
 - `true`: toda la interfaz sale de la caratula que suena (fondo, fondo
-  elevado, fila elegida, acento, texto sobre el acento, textos secundarios
-  y espectro, todos del tono de la caratula). Los colores manuales se
+  elevado, fila elegida, acento, texto sobre el acento, texto principal,
+  textos secundarios y espectro, todos del tono de la caratula). Los colores manuales se
   ignoran aunque esten en el archivo. Sin caratula, los colores por
   defecto.
 - `false`: solo valen los colores manuales; `"cover"` vale el color por
   defecto.
 - Sin la clave: cada color decide; `background` y `accent` pueden ser
   `"cover"`. Con `background = "cover"` tambien salen de la caratula
-  `raised`, `row`, `dim` y `faint`; con `accent = "cover"`, `on_accent` y
+  `raised`, `row`, `foreground`, `dim` y `faint`; con `accent = "cover"`, `on_accent` y
   `spectrum_top`. Un color fijado a mano siempre gana.
+
+`ui_text_cover_color` decide, cuando los colores salen de la caratula, si
+los textos y los controles tambien toman su tono:
+
+- `true`: el texto principal y los secundarios son claros con un toque
+  visible del tono de la caratula, y los controles interactivos (pestana
+  activa, barra de progreso, volumen y boton de play) usan el acento.
+- `false`: textos en blanco y grises neutros, y controles blancos, como una
+  interfaz clasica. El fondo y el acento siguen a la caratula.
+
+Un color fijado a mano (`foreground`, `dim`, `faint`) siempre gana.
 
 Los popups, las lineas de letra que todavia no se cantan y el resto de la
 interfaz derivan de estos colores: nada tiene un color propio fijo. `ok` y
 `error` son colores de estado (conectado, error) y no siguen a la caratula.
 
-Con `"cover"`, los colores salen de la caratula que suena: el fondo es el
-color promedio oscurecido y el acento es el mismo tono, claro y saturado
-para que se lea. Sin caratula se usan los colores por defecto.
+Con `"cover"`, los colores salen del tono predominante de la caratula que
+suena (el color vivo que mas aparece, no el promedio, que puede mezclar
+tonos y dar uno que la caratula no tiene): un fondo oscuro, un acento claro
+y saturado, y textos claros con un toque de ese tono. Todos los colores
+mantienen contraste con el fondo: si uno no se leeria (una caratula negra
+daria negro sobre negro), se aclara u oscurece en el mismo tono, nunca
+cambia de color. Sin caratula se usan los colores por defecto.
 
 ## `[keys]`
 

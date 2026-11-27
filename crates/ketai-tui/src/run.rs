@@ -341,7 +341,8 @@ pub fn run() -> io::Result<()> {
       // Con una busqueda esperando, se despierta seguido para mandarla a
       // tiempo.
       // Mientras se pinta una linea del karaoke, unos 30 cuadros por segundo.
-      let wait = if app.search_pending() || karaoke_live { 30 } else { 250 };
+      // Mientras caen las barras del visualizador, tambien.
+      let wait = if app.search_pending() || karaoke_live || app.viz_animating() { 30 } else { 250 };
       let input = rx.recv_timeout(Duration::from_millis(wait)).ok();
       for (method, params) in app.tick(Instant::now()) {
         send(&mut client, &mut app, &method, params);

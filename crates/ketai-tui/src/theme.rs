@@ -18,6 +18,8 @@ pub struct Theme {
   pub error: Color,
   /// Color de la parte alta del espectro.
   pub spectrum_top: Color,
+  /// Controles interactivos: pestana activa, progreso, volumen, play.
+  pub control: Color,
 }
 
 pub const fn rgb(hex: u32) -> Color {
@@ -50,6 +52,7 @@ impl Default for Theme {
       ok: rgb(0x7ee787),
       error: rgb(0xff7b8a),
       spectrum_top: rgb(0xff7ab6),
+      control: rgb(0xffffff),
     }
   }
 }
@@ -83,6 +86,17 @@ impl Theme {
 
   pub fn upcoming_secondary(&self) -> Color {
     lerp(self.faint, self.bg, 0.4)
+  }
+
+  /// Linea del karaoke que se canta: lo ya cantado es el acento aclarado
+  /// (mas claro que la UI, mismo tono) y lo que falta queda tenue debajo,
+  /// asi lo que se pinta encima resalta.
+  pub fn karaoke_sung(&self) -> Color {
+    lerp(self.accent, rgb(0xffffff), 0.35)
+  }
+
+  pub fn karaoke_unsung(&self) -> Color {
+    lerp(self.faint, self.bg, 0.3)
   }
 
   pub fn accent(&self) -> Style {

@@ -329,37 +329,116 @@ pub fn decode(path: &std::path::Path) -> Option<RgbImage> {
   Some(image::imageops::resize(&square, target, target, FilterType::Triangle))
 }
 
-/// Colores de una caratula: el promedio oscurecido para el fondo y el mismo
-/// tono, claro y saturado, para el acento (asi se lee sobre el fondo).
+/// Colores de una caratula, todos del tono predominante (no del promedio,
+/// que mezcla tonos y puede dar uno que no esta en la imagen). Fondo oscuro
+/// del mismo tono y textos claros con un toque de el. Ningun color queda sin
+/// contraste: si no se lee sobre el fondo se aclara (u oscurece) sin cambiar
+/// de tono, asi una caratula negra no da texto negro sobre fondo negro.
 fn palette(img: &RgbImage) -> CoverPalette {
-  let (mut r, mut g, mut b) = (0u64, 0u64, 0u64);
-  for p in img.pixels() {
-    r += p[0] as u64;
-    g += p[1] as u64;
-    b += p[2] as u64;
-  }
-  let n = (img.width() as u64 * img.height() as u64).max(1);
-  let avg = [(r / n) as f32 / 255.0, (g / n) as f32 / 255.0, (b / n) as f32 / 255.0];
-  let scale = |k: f32| rgb(((avg[0] * k * 255.0) as u32) << 16 | ((avg[1] * k * 255.0) as u32) << 8 | (avg[2] * k * 255.0) as u32);
-  let (h, s, _) = to_hsl(avg);
-  // Una caratula gris no tiene tono: el acento queda casi blanco.
+  let (h, s, l) = predominant(img);
   // Una caratula gris no tiene tono: todo queda en grises.
-  let sat = s.max(0.55).min(if s < 0.05 { 0.0 } else { 1.0 });
-  let soft = (s * 0.35).min(if s < 0.05 { 0.0 } else { 1.0 });
+  let grey = s < 0.08;
+  let sat = if grey { 0.0 } else { s.max(0.55) };
+  let soft = if grey { 0.0 } else { (s * 0.35).max(0.18) };
+  let tint = if grey { 0.0 } else { (s * 0.5).min(0.45) };
   let hsl = |h: f32, s: f32, l: f32| {
-    let [r, g, b] = from_hsl(h.rem_euclid(1.0), s, l);
+    let [r, g, b] = from_hsl(h.rem_euclid(1.0), s, l.clamp(0.0, 1.0));
     rgb(((r * 255.0) as u32) << 16 | ((g * 255.0) as u32) << 8 | (b * 255.0) as u32)
   };
+  // Fondo: oscuro, mas o menos segun lo clara que es la caratula.
+  let bg_l = (l * 0.35).clamp(0.07, 0.2);
+  let background = hsl(h, tint, bg_l);
+  let accent = readable(h, sat, 0.72, background, 4.5);
+  let on_accent = readable(h, sat, 0.12, accent, 4.5);
   CoverPalette {
-    accent: hsl(h, sat, 0.72),
-    background: scale(0.35),
-    raised: scale(0.6),
-    row: scale(0.5),
-    on_accent: hsl(h, sat, 0.12),
-    dim: hsl(h, soft, 0.82),
-    faint: hsl(h, soft, 0.60),
-    spectrum_top: hsl(h + 0.06, sat, 0.70),
+    accent,
+    background,
+    raised: hsl(h, tint, bg_l + 0.1),
+    row: hsl(h, tint, bg_l + 0.06),
+    on_accent,
+    fg: readable(h, soft.max(0.45).min(sat), 0.9, background, 7.0),
+    dim: readable(h, soft.max(0.35).min(sat), 0.8, background, 4.5),
+    faint: readable(h, soft.max(0.3).min(sat), 0.62, background, 3.0),
+    spectrum_top: readable(h + 0.06, sat, 0.7, background, 3.0),
   }
+}
+
+/// Tono, saturacion y luminosidad predominantes: histograma de tonos
+/// pesado por lo vivo de cada pixel (los grises casi no cuentan). Si casi
+/// todo es gris, saturacion 0.
+fn predominant(img: &RgbImage) -> (f32, f32, f32) {
+  const BINS: usize = 36;
+  let mut weight = [0f32; BINS];
+  let mut sat = [0f32; BINS];
+  let mut hue = [(0f32, 0f32); BINS];
+  let (mut light, mut n) = (0f32, 0f32);
+  for p in img.pixels() {
+    let (h, s, l) = to_hsl([p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]);
+    light += l;
+    n += 1.0;
+    let w = s * (1.0 - (2.0 * l - 1.0).abs());
+    let bin = ((h * BINS as f32) as usize).min(BINS - 1);
+    weight[bin] += w;
+    sat[bin] += s * w;
+    let a = h * std::f32::consts::TAU;
+    hue[bin].0 += a.cos() * w;
+    hue[bin].1 += a.sin() * w;
+  }
+  let n = n.max(1.0);
+  let l = light / n;
+  // Gana el tono con mas peso junto a sus vecinos.
+  let around = |i: usize| (0..3).map(|d| weight[(i + BINS + d - 1) % BINS]).sum::<f32>();
+  let best = (0..BINS).max_by(|a, b| around(*a).total_cmp(&around(*b))).unwrap_or(0);
+  let total: f32 = weight.iter().sum();
+  if total / n < 0.02 {
+    return (0.0, 0.0, l);
+  }
+  let (mut x, mut y, mut w, mut s) = (0f32, 0f32, 0f32, 0f32);
+  for d in 0..3 {
+    let i = (best + BINS + d - 1) % BINS;
+    x += hue[i].0;
+    y += hue[i].1;
+    w += weight[i];
+    s += sat[i];
+  }
+  let h = (y.atan2(x) / std::f32::consts::TAU).rem_euclid(1.0);
+  (h, s / w.max(f32::EPSILON), l)
+}
+
+/// Color de tono `h` y saturacion `s`, partiendo de la luminosidad `l`, con
+/// al menos `min` de contraste sobre `against`: se aleja de el en
+/// luminosidad (mismo tono) hasta que se lea.
+fn readable(h: f32, s: f32, l: f32, against: ratatui::style::Color, min: f32) -> ratatui::style::Color {
+  let make = |l: f32| {
+    let [r, g, b] = from_hsl(h.rem_euclid(1.0), s, l.clamp(0.0, 1.0));
+    rgb(((r * 255.0) as u32) << 16 | ((g * 255.0) as u32) << 8 | (b * 255.0) as u32)
+  };
+  let up = luminance(against) < 0.18;
+  let mut l = l;
+  let mut c = make(l);
+  for _ in 0..40 {
+    if contrast(c, against) >= min {
+      break;
+    }
+    l += if up { 0.025 } else { -0.025 };
+    c = make(l);
+  }
+  c
+}
+
+fn luminance(c: ratatui::style::Color) -> f32 {
+  let ratatui::style::Color::Rgb(r, g, b) = c else { return 0.0 };
+  let ch = |v: u8| {
+    let v = v as f32 / 255.0;
+    if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+  };
+  0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+}
+
+/// Contraste WCAG entre dos colores (1 a 21).
+fn contrast(a: ratatui::style::Color, b: ratatui::style::Color) -> f32 {
+  let (x, y) = (luminance(a), luminance(b));
+  (x.max(y) + 0.05) / (x.min(y) + 0.05)
 }
 
 fn to_hsl([r, g, b]: [f32; 3]) -> (f32, f32, f32) {

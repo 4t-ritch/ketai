@@ -19,6 +19,8 @@
 # false: only the colors below count.
 # Without this line: each color decides ("cover" or a fixed color).
 cover_color = true
+# true: texts and controls take the cover's hue too. false: white and grey.
+ui_text_cover_color = true
 
 # These are used with cover_color = false (or without cover_color). "cover"
 # takes the color from the cover; otherwise, a fixed color "#rrggbb".

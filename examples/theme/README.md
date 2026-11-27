@@ -41,12 +41,18 @@ cover_color = true
 With `cover_color = true` (or with `background = "cover"` and
 `accent = "cover"`) the colors change with every song:
 
-- the **background** is the cover's average color, darkened;
+- everything comes from the cover's **predominant hue** (the vivid color it
+  has the most of, not the average);
+- the **background** is that hue, dark;
 - the **panels** (`raised`) and the **selected row** (`row`) are the same
   color a bit lighter;
 - the **accent** is the same hue, light and saturated, so it reads well on
   the background;
-- the **secondary text** (`dim`, `faint`) leans to the cover's hue;
+- the **text** (`foreground`, `dim`, `faint`) is light with a touch of the
+  cover's hue and the **controls** use the accent; with
+  `ui_text_cover_color = false` they stay white and grey;
+- every color keeps its contrast with the background: if it would not read,
+  it gets lighter or darker in the same hue;
 - the **spectrum** goes from the accent to a neighboring hue.
 
 If the cover is gray (no color), everything stays gray. While there is no

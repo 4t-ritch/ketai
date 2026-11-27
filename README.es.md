@@ -15,7 +15,6 @@
 ![kitty graphics](https://img.shields.io/badge/caratulas-protocolo%20de%20graficos%20kitty-6E56CF?style=flat-square)
 ![MPRIS](https://img.shields.io/badge/MPRIS-playerctl%20%C2%B7%20waybar-FF6F61?style=flat-square)
 ![systemd](https://img.shields.io/badge/systemd-activacion%20por%20socket-30D475?style=flat-square&logo=systemd&logoColor=white)
-[![Estrellas](https://img.shields.io/github/stars/4t-ritch/ketai?style=flat-square&logo=github&color=FFD43B)](https://github.com/4t-ritch/ketai/stargazers)
 [![Ultimo commit](docs/assets/badges/commits-es.svg)](https://github.com/4t-ritch/ketai/commits/main)
 
 </div>

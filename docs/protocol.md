@@ -434,6 +434,7 @@ Player rules:
 | `lyrics.layers`     | `{"track_id": "t_9f2c"}`                 | `{"layers": [LyricsLayer]}` (empty if there are no lyrics) |
 | `lyrics.get`        | `{"track_id": "t_9f2c", "primary": "ja-Latn-hepburn", "secondary": ["es"], "estimate_words": false}` | `LyricsPackage` or `null` |
 | `lyrics.set_offset` | `{"track_id": "t_9f2c", "offset_ms": -250}` | `{}` |
+| `lyrics.rescan`     | `{}`                                     | `{}` |
 
 - In `lyrics.get`, `primary` is optional (default `"original"`),
   `secondary` is optional (default `[]`) and `estimate_words` is optional
@@ -450,6 +451,18 @@ Player rules:
   `track_id`: it is remembered in future sessions even if the id changes. It
   is stored in `$XDG_STATE_HOME/ketai/lyrics-offsets.json`. `offset_ms: 0`
   deletes it. It emits `lyrics.changed`.
+- Lyrics are never cached: every `lyrics.layers` and `lyrics.get` reads the
+  track's folder again, so a lyrics file added while ketai runs is found
+  without restarting.
+- The daemon watches the current track's lyrics files every 2 seconds
+  (`KETAI_LYRICS_WATCH_MS` changes the interval). If a lyrics file for it
+  appears or changes, it emits `lyrics.changed`. If its lyrics files are
+  deleted, it does not: the client keeps the lyrics it already loaded until
+  the next track.
+- `lyrics.rescan` looks for the current track's lyrics again and always
+  emits `lyrics.changed` for it (nothing if there is no local current
+  track). Other queued tracks need nothing: their lyrics are read when they
+  start playing.
 
 See section 4 for the types and section 11 for the rules.
 
@@ -584,7 +597,7 @@ Rules:
 | `output`   | `output.changed`    | `{"devices": [Device], "active": "id or null"}` |
 | `library`  | `library.progress`  | `{"job": "j_1", "done": 120, "total": 400}` |
 | `library`  | `library.changed`   | `{}` (the folders changed; the client asks `library.folders` again) |
-| `lyrics`   | `lyrics.changed`    | `{"track_id": "t_9f2c"}` (offset changed; the client asks `lyrics.get` again) |
+| `lyrics`   | `lyrics.changed`    | `{"track_id": "t_9f2c"}` (offset changed, or a lyrics file appeared or changed; the client asks `lyrics.layers` and `lyrics.get` again) |
 | `cache`    | `download.progress` | `{"track_id": "t_1", "bytes": 1000, "total": 5000}` |
 
 On `events.subscribe`, if `player` is among the topics, the daemon sends the

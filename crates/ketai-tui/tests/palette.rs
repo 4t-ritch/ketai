@@ -90,6 +90,13 @@ fn actions_run_from_the_palette() {
   app.on_key(key(KeyCode::Enter));
   assert_eq!(app.tab, Tab::Lyrics);
 
+  // La ultima vuelve a buscar las letras de la pista actual.
+  let mut app = open_with("");
+  for _ in 0..5 {
+    app.on_key(key(KeyCode::Down));
+  }
+  assert_eq!(app.on_key(key(KeyCode::Enter)), vec![("lyrics.rescan".to_string(), json!({}))]);
+
   let mut app = open_with("");
   app.on_key(key(KeyCode::Enter));
   assert!(app.devices_open, "first action opens the output picker");

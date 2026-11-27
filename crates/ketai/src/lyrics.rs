@@ -4,13 +4,22 @@
 //! en que llegan las peticiones. Los offsets del usuario se guardan por
 //! archivo (URI) en `$XDG_STATE_HOME/ketai/lyrics-offsets.json`, porque el
 //! `track_id` cambia en cada sesion.
+//!
+//! Vigilancia: cada `KETAI_LYRICS_WATCH_MS` (2 s por defecto) el mismo thread
+//! toma una huella de los archivos de la pista actual (nombre, tamano y fecha
+//! de los que empiezan por su nombre). Si aparece o cambia una letra se emite
+//! `lyrics.changed` y el cliente la vuelve a pedir. Si la letra desaparece no
+//! se avisa: el cliente sigue con la que tiene cargada hasta el proximo cambio
+//! de pista. No se guarda nada en disco ni se cachean letras: la carpeta es la
+//! unica fuente de verdad.
 
 use std::{
   collections::BTreeMap,
   fs,
-  path::PathBuf,
+  path::{Path, PathBuf},
   sync::mpsc::{self, Sender},
   thread,
+  time::{Duration, Instant, SystemTime},
 };
 
 use ketai_core::lyrics::{
@@ -31,6 +40,12 @@ pub struct TrackRef {
   pub path: Option<PathBuf>,
 }
 
+enum Work {
+  Request(Job),
+  /// Revisar la pista actual; `force` avisa aunque no haya cambios.
+  Watch { track_id: String, path: PathBuf, force: bool },
+}
+
 struct Job {
   client: ClientId,
   request_id: u64,
@@ -40,7 +55,8 @@ struct Job {
 }
 
 pub struct Done {
-  pub client: ClientId,
+  /// None si no responde a ninguna peticion (vigilancia).
+  pub client: Option<ClientId>,
   pub request_id: u64,
   pub result: Result<Value, ErrorReply>,
   /// `track_id` para `lyrics.changed` si cambio un offset.
@@ -48,31 +64,66 @@ pub struct Done {
 }
 
 pub struct LyricsService {
-  jobs: Sender<Job>,
+  jobs: Sender<Work>,
   changed: Vec<String>,
+  watch_every: Duration,
+  next_watch: Instant,
 }
 
 impl LyricsService {
   pub fn new(tx: Sender<Message>) -> Self {
-    let (jobs, rx) = mpsc::channel::<Job>();
+    let (jobs, rx) = mpsc::channel::<Work>();
     thread::Builder::new()
       .name("ketai-lyrics".into())
       .spawn(move || {
         let mut worker = Worker::load();
-        for job in rx {
-          let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.run(&job))).unwrap_or_else(|_| Done {
-            client: job.client,
-            request_id: job.request_id,
-            result: Err(ErrorReply::new(Some(job.request_id), INVALID_LYRICS, "lyrics could not be read")),
-            changed: None,
-          });
+        for work in rx {
+          let done = match work {
+            Work::Request(job) => {
+              std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.run(&job))).unwrap_or_else(|_| Done {
+                client: Some(job.client),
+                request_id: job.request_id,
+                result: Err(ErrorReply::new(Some(job.request_id), INVALID_LYRICS, "lyrics could not be read")),
+                changed: None,
+              })
+            }
+            Work::Watch { track_id, path, force } => match worker.watch(&track_id, &path, force) {
+              true => Done { client: None, request_id: 0, result: Ok(Value::Null), changed: Some(track_id) },
+              false => continue,
+            },
+          };
           if tx.send(Message::Lyrics(done)).is_err() {
             return;
           }
         }
       })
       .expect("spawn lyrics thread");
-    Self { jobs, changed: Vec::new() }
+    let watch_every = std::env::var("KETAI_LYRICS_WATCH_MS")
+      .ok()
+      .and_then(|v| v.parse().ok())
+      .map(Duration::from_millis)
+      .unwrap_or(Duration::from_secs(2));
+    Self { jobs, changed: Vec::new(), watch_every, next_watch: Instant::now() }
+  }
+
+  /// Pulso del loop central: revisa la pista actual si ya toca.
+  pub fn tick(&mut self, current: Option<(String, PathBuf)>) {
+    let now = Instant::now();
+    if now < self.next_watch {
+      return;
+    }
+    self.next_watch = now + self.watch_every;
+    if let Some((track_id, path)) = current {
+      let _ = self.jobs.send(Work::Watch { track_id, path, force: false });
+    }
+  }
+
+  /// `lyrics.rescan`: vuelve a buscar la letra de la pista actual y avisa
+  /// siempre, para que el cliente la recargue.
+  pub fn rescan(&mut self, current: Option<(String, PathBuf)>) {
+    if let Some((track_id, path)) = current {
+      let _ = self.jobs.send(Work::Watch { track_id, path, force: true });
+    }
   }
 
   pub fn handles(method: &str) -> bool {
@@ -90,13 +141,13 @@ impl LyricsService {
   }
 
   pub fn submit(&self, client: ClientId, req: &Request, track: TrackRef) {
-    let _ = self.jobs.send(Job {
+    let _ = self.jobs.send(Work::Request(Job {
       client,
       request_id: req.id,
       method: req.method.clone(),
       params: req.params.clone(),
       track,
-    });
+    }));
   }
 
   pub fn note_changed(&mut self, track_id: Option<String>) {
@@ -111,6 +162,37 @@ impl LyricsService {
 struct Worker {
   path: Option<PathBuf>,
   offsets: BTreeMap<String, i64>,
+  /// Ultima huella vista: (track_id, huella).
+  seen: Option<(String, Fingerprint)>,
+}
+
+/// Archivos de letra junto al audio y el propio audio (letra embebida).
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Fingerprint {
+  audio: Option<(u64, Option<SystemTime>)>,
+  lyrics: Vec<(String, u64, Option<SystemTime>)>,
+}
+
+const LYRICS_EXT: [&str; 3] = ["ttml", "lrc", "txt"];
+
+/// Una sola lectura de la carpeta de la pista.
+fn fingerprint(audio: &Path) -> Fingerprint {
+  let stamp = |m: &fs::Metadata| (m.len(), m.modified().ok());
+  let mut fp = Fingerprint { audio: fs::metadata(audio).ok().as_ref().map(stamp), lyrics: Vec::new() };
+  let (Some(dir), Some(stem)) = (audio.parent(), audio.file_stem().and_then(|s| s.to_str())) else { return fp };
+  let Ok(entries) = fs::read_dir(dir) else { return fp };
+  for entry in entries.flatten() {
+    let name = entry.file_name();
+    let Some(name) = name.to_str() else { continue };
+    let is_lyrics = name.strip_prefix(stem).is_some_and(|r| r.starts_with('.'))
+      && name.rsplit_once('.').is_some_and(|(_, ext)| LYRICS_EXT.iter().any(|e| e.eq_ignore_ascii_case(ext)));
+    if is_lyrics && let Ok(m) = entry.metadata() {
+      let (len, modified) = stamp(&m);
+      fp.lyrics.push((name.to_string(), len, modified));
+    }
+  }
+  fp.lyrics.sort();
+  fp
 }
 
 impl Worker {
@@ -121,7 +203,25 @@ impl Worker {
       .and_then(|p| fs::read_to_string(p).ok())
       .and_then(|t| serde_json::from_str::<BTreeMap<String, i64>>(&t).ok())
       .unwrap_or_default();
-    Self { path, offsets }
+    Self { path, offsets, seen: None }
+  }
+
+  /// Toma la huella de la pista; true si hay que emitir `lyrics.changed`.
+  /// La primera vez que se ve una pista solo se guarda la foto: el cliente ya
+  /// pidio la letra al cambiar de pista.
+  fn watch(&mut self, track_id: &str, path: &Path, force: bool) -> bool {
+    let now = fingerprint(path);
+    let changed = match &self.seen {
+      Some((id, before)) if id == track_id => {
+        // Que desaparezca una letra o el audio no se avisa: el cliente sigue
+        // con la letra que ya tiene en memoria.
+        let vanished = now.audio.is_none() || (now.lyrics.is_empty() && !before.lyrics.is_empty());
+        *before != now && !vanished
+      }
+      _ => false,
+    };
+    self.seen = Some((track_id.to_string(), now));
+    force || changed
   }
 
   fn run(&mut self, job: &Job) -> Done {
@@ -152,7 +252,7 @@ impl Worker {
       },
       _ => Err(ErrorReply::new(Some(id), codes::METHOD_NOT_FOUND, "method not found")),
     };
-    Done { client: job.client, request_id: id, result, changed }
+    Done { client: Some(job.client), request_id: id, result, changed }
   }
 
   /// Capas de la pista. None si no tiene letra; error si solo hay origenes

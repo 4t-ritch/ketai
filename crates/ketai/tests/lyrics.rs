@@ -1,5 +1,5 @@
 //! Conformidad de letras: `lyrics.layers`, `lyrics.get`, `lyrics.set_offset`
-//! y el evento `lyrics.changed`.
+//! `lyrics.rescan` y el evento `lyrics.changed`.
 
 mod common;
 
@@ -22,9 +22,13 @@ struct S {
 impl S {
   /// Daemon con una carpeta de musica propia dentro del directorio del test.
   fn new() -> Self {
+    Self::with_env(&[])
+  }
+
+  fn with_env(envs: &[(&str, &str)]) -> Self {
     let dir = temp_runtime_dir();
     fs::create_dir_all(dir.join("music")).unwrap();
-    let daemon = Daemon::start_in(dir.clone(), &[]);
+    let daemon = Daemon::start_in(dir.clone(), envs);
     let c = daemon.connect();
     Self { dir, daemon: Some(daemon), c, id: 1 }
   }
@@ -238,4 +242,88 @@ fn ttml_agents_and_background_lines() {
   assert_eq!(p["lines"][1]["text"], "(oh)");
   let layers = s.ok("lyrics.layers", json!({"track_id": id}));
   assert_eq!(layers["layers"][0]["language"], "ko");
+}
+
+/// Espera `lyrics.changed` para `id` hasta `timeout`. true si llego.
+fn wait_changed(w: &mut common::Client, id: &str, timeout: Duration) -> bool {
+  let deadline = Instant::now() + timeout;
+  while Instant::now() < deadline {
+    let Some(m) = w.read_message() else { continue };
+    if m["event"] == "lyrics.changed" && m["data"] == json!({"track_id": id}) {
+      return true;
+    }
+  }
+  false
+}
+
+/// Daemon que revisa las letras de la pista actual cada 100 ms, reproduciendo
+/// `o.ogg`, con un cliente suscrito a `lyrics`.
+fn playing_with_watch() -> (S, String, common::Client) {
+  let mut s = S::with_env(&[("KETAI_LYRICS_WATCH_MS", "100")]);
+  let audio = s.track("vorbis.ogg", "o.ogg");
+  let id = s.add(&audio);
+  s.ok("player.play", json!({}));
+  s.ok("player.pause", json!({}));
+  let mut w = s.daemon.as_ref().unwrap().connect();
+  w.writer.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+  w.request(1, "events.subscribe", json!({"topics": ["lyrics"]}));
+  // Primer pulso: toma la foto inicial de los archivos de letra.
+  std::thread::sleep(Duration::from_millis(300));
+  (s, id, w)
+}
+
+#[test]
+fn lyrics_added_or_edited_while_playing_emit_lyrics_changed() {
+  let (mut s, id, mut w) = playing_with_watch();
+  assert_eq!(s.ok("lyrics.get", json!({"track_id": id})), Value::Null);
+
+  s.write("o.lrc", ORIGINAL_LRC);
+  assert!(wait_changed(&mut w, &id, Duration::from_secs(3)), "new sidecar is detected without restarting");
+  assert_eq!(s.ok("lyrics.get", json!({"track_id": id}))["lines"][1]["text"], "koe ga");
+
+  // Mismo nombre, contenido distinto (cambia el tamano).
+  s.write("o.lrc", "[00:01.00]otra linea mas larga\n");
+  assert!(wait_changed(&mut w, &id, Duration::from_secs(3)), "edited sidecar is detected");
+
+  // Una capa nueva junto a la original tambien cuenta.
+  s.write("o.es.lrc", "[00:01.00]hola\n");
+  assert!(wait_changed(&mut w, &id, Duration::from_secs(3)), "new layer is detected");
+  let layers = s.ok("lyrics.layers", json!({"track_id": id}));
+  assert!(layers["layers"].as_array().unwrap().iter().any(|l| l["id"] == "es"), "{layers}");
+}
+
+#[test]
+fn deleted_lyrics_while_playing_do_not_emit_and_files_of_other_tracks_are_ignored() {
+  let (mut s, id, mut w) = playing_with_watch();
+  s.write("o.lrc", ORIGINAL_LRC);
+  assert!(wait_changed(&mut w, &id, Duration::from_secs(3)));
+
+  // Archivo de otra cancion de la misma carpeta: no es de la pista actual.
+  s.write("otra.lrc", ORIGINAL_LRC);
+  assert!(!wait_changed(&mut w, &id, Duration::from_millis(600)), "other tracks' files are ignored");
+
+  // Si se borra la letra mientras suena, el cliente se queda con la que tiene.
+  fs::remove_file(s.music().join("o.lrc")).unwrap();
+  assert!(!wait_changed(&mut w, &id, Duration::from_millis(600)), "deletion keeps the loaded lyrics");
+  // Al pedirla de nuevo ya no existe.
+  assert_eq!(s.ok("lyrics.get", json!({"track_id": id})), Value::Null);
+}
+
+#[test]
+fn lyrics_rescan_emits_lyrics_changed_for_the_current_track() {
+  let mut s = S::new();
+  let audio = s.track("vorbis.ogg", "o.ogg");
+  let id = s.add(&audio);
+  let mut w = s.daemon.as_ref().unwrap().connect();
+  w.writer.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+  w.request(1, "events.subscribe", json!({"topics": ["lyrics"]}));
+
+  // Sin pista actual no hay nada que avisar, pero responde bien.
+  assert_eq!(s.ok("lyrics.rescan", json!({})), json!({}));
+  assert!(!wait_changed(&mut w, &id, Duration::from_millis(400)));
+
+  s.ok("player.play", json!({}));
+  s.ok("player.pause", json!({}));
+  assert_eq!(s.ok("lyrics.rescan", json!({})), json!({}));
+  assert!(wait_changed(&mut w, &id, Duration::from_secs(2)), "rescan always notifies the current track");
 }

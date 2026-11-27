@@ -262,6 +262,12 @@ impl PlayerService {
     self.queue.tracks().iter().find(|t| t.id == id).map(|t| (t.uri.clone(), t.path.clone()))
   }
 
+  /// `track_id` y ruta local de la pista actual (None si no hay o es remota).
+  pub fn current_local(&self) -> Option<(String, std::path::PathBuf)> {
+    let t = self.queue.tracks().get(self.queue.current()?)?;
+    Some((t.id.clone(), t.path.clone()?))
+  }
+
   pub fn track_ids(&self) -> TrackIds {
     self.track_ids.clone()
   }

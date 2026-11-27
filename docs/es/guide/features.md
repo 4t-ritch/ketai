@@ -94,9 +94,13 @@ instantaneo. Tambien se pueden usar colores fijos (ver
 
 Desde cualquier pantalla: escribi para buscar canciones y playlists, o
 elegi una accion (salida de audio, escanear la biblioteca, capas de letras,
-carpetas, ver los atajos de teclado). `Enter` reproduce o ejecuta, `Tab`
-agrega a la cola. *Ver atajos de teclado* muestra cada accion con las teclas
-configuradas en este momento.
+carpetas, ver los atajos de teclado, volver a buscar letras). `Enter`
+reproduce o ejecuta, `Tab` agrega a la cola. *Ver atajos de teclado* muestra
+cada accion con las teclas configuradas en este momento.
+
+Un archivo de letra que pongas junto a la cancion que esta sonando aparece
+solo en un par de segundos, sin reiniciar. *Letras: volver a buscar* lo
+fuerza al momento.
 
 ## Playlists y favoritos
 

@@ -178,6 +178,8 @@ pub struct App {
   pub queue: Value,
   /// Ultimo frame de `viz.sock`.
   pub viz: Vec<f32>,
+  /// Ultimo paso de la caida del visualizador.
+  pub viz_at: Option<Instant>,
   /// Momento en que se supo `player.position_ms`, para interpolar.
   pub pos_at: Instant,
   /// Peticiones enviadas sin respuesta: id -> metodo.
@@ -376,6 +378,10 @@ pub enum PaletteItem {
 pub const SEARCH_FILTERS: [&str; 4] = ["Todo", "Canciones", "Playlists", "Archivos locales"];
 const SEARCH_LIMIT: u64 = 50;
 const PALETTE_LIMIT: u64 = 5;
+/// Fraccion de la distancia al cuadro que sube cada barra por cuadro.
+const VIZ_ATTACK: f32 = 0.5;
+/// Altura (0..1) que baja por segundo al pausar: de arriba al suelo en ~0.4 s.
+const VIZ_FALL_PER_SEC: f32 = 2.5;
 
 /// `m:ss` o `h:mm:ss`.
 pub fn fmt_ms(ms: u64) -> String {
@@ -423,6 +429,7 @@ impl Default for App {
       quit: false,
       queue: Value::Null,
       viz: Vec::new(),
+      viz_at: None,
       pos_at: Instant::now(),
       pending: HashMap::new(),
       lyrics_track: None,
@@ -965,6 +972,7 @@ impl App {
 
   /// Busquedas cuya espera ya paso. El loop principal lo llama seguido.
   pub fn tick(&mut self, now: Instant) -> Vec<Command> {
+    self.viz_fall(now);
     let mut cmds = Vec::new();
     if self.search_due.is_some_and(|d| now >= d) {
       self.search_due = None;
@@ -1984,9 +1992,39 @@ impl App {
     Vec::new()
   }
 
-  /// Frame del visualizador.
+  /// Frame del visualizador. `viz` es lo que se dibuja: sube hacia el
+  /// cuadro desde la altura actual (asi se recupera desde la caida) y baja
+  /// con el audio. Sin reproducir se ignoran los cuadros y `tick` lo deja
+  /// caer.
   pub fn on_viz(&mut self, frame: Vec<f32>) {
-    self.viz = frame;
+    if !self.playing() {
+      return;
+    }
+    if self.viz.len() != frame.len() {
+      self.viz = vec![0.0; frame.len()];
+    }
+    for (shown, target) in self.viz.iter_mut().zip(frame) {
+      *shown = if target > *shown { *shown + (target - *shown) * VIZ_ATTACK } else { target };
+    }
+    self.viz_at = None;
+  }
+
+  /// Hay barras cayendo: el loop despierta seguido para animarlas.
+  pub fn viz_animating(&self) -> bool {
+    !self.playing() && self.viz.iter().any(|v| *v > 0.0)
+  }
+
+  /// Caida de las barras cuando no se reproduce.
+  fn viz_fall(&mut self, now: Instant) {
+    if !self.viz_animating() {
+      self.viz_at = None;
+      return;
+    }
+    let dt = self.viz_at.map_or(0.0, |at| now.saturating_duration_since(at).as_secs_f32());
+    self.viz_at = Some(now);
+    for v in &mut self.viz {
+      *v = (*v - VIZ_FALL_PER_SEC * dt).max(0.0);
+    }
   }
 
   pub fn playing(&self) -> bool {

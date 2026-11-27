@@ -235,6 +235,21 @@ fn karaoke_leaves_the_current_line_to_the_image_and_keeps_the_rest_as_text() {
     assert!(t.contains(want), "missing {want:?}\n{t}");
   }
   assert!(find(&buf, "solo para sentir algo").1 >= slot.area.y + slot.area.height);
+  // La linea que se canta va mas clara que los colores de la UI, del mismo
+  // tono: se lee mejor.
+  let rgb = |c: ratatui::style::Color| match c {
+    ratatui::style::Color::Rgb(r, g, b) => [r, g, b],
+    _ => panic!(),
+  };
+  let light = |c: [u8; 3]| c.iter().map(|v| *v as u32).sum::<u32>();
+  let (accent, upcoming) = (rgb(app.theme.accent), rgb(app.theme.upcoming()));
+  assert!(light(slot.colors.sung) > light(accent), "sung {:?} lighter than accent {accent:?}", slot.colors.sung);
+  // Lo que falta cantar queda tenue debajo: contrasta con lo pintado.
+  assert!(light(slot.colors.unsung) <= light(upcoming), "unsung {:?} stays dim like {upcoming:?}", slot.colors.unsung);
+  assert!(light(slot.colors.sung) as f32 > light(slot.colors.unsung) as f32 * 1.5, "sung clearly lighter than unsung");
+  let order = |c: [u8; 3]| { let mut i = [0, 1, 2]; i.sort_by_key(|k| std::cmp::Reverse(c[*k])); i[0] };
+  assert_eq!(order(slot.colors.sung), order(accent), "same hue family");
+  assert_ne!(slot.colors.sung, slot.colors.unsung);
   // Modo clasico: no hay linea de karaoke.
   app.lyrics_mode = ketai_tui::config::LyricsMode::Classic;
   render(&app);

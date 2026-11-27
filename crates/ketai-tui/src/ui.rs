@@ -484,41 +484,61 @@ fn progress(buf: &mut Buffer, t: &Theme, x: u16, y: u16, w: u16, pos: u64, dur: 
   };
   put(buf, x, y, &left, t.dim());
   let bx = x + left.len() as u16 + 2;
-  put(buf, bx, y, "━".repeat(done as usize), t.text());
-  put(buf, bx + done, y, "●", t.text());
+  put(buf, bx, y, "━".repeat(done as usize), Style::new().fg(t.control));
+  put(buf, bx + done, y, "●", Style::new().fg(t.control));
   put(buf, bx + done + 1, y, "━".repeat(bar_w.saturating_sub(done + 1) as usize), Style::new().fg(t.raised));
   put(buf, bx + bar_w + 2, y, &right, t.dim());
   hit(Rect::new(bx, y, bar_w, 1), Hit::Seek { x: bx, w: bar_w });
 }
 
 /// Espectro de `viz.sock` con bloques de octavos; degradado del acento al
-/// rosa hacia arriba.
+/// rosa hacia arriba. Siempre una barra cada 2 columnas, haya sonido o no:
+/// las bandas se reparten entre las barras (se interpolan si son menos y se
+/// agrupan si son mas). Una barra en cero muestra solo su suelo tenue.
 fn spectrum(buf: &mut Buffer, t: &Theme, area: Rect, values: &[f32]) {
   const EIGHTHS: [&str; 9] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
-  if values.is_empty() || area.width == 0 || area.height == 0 {
+  if area.width < 2 || area.height == 0 {
     return;
   }
-  // Una banda por cada 2 columnas (barra + hueco); si no entran, se
-  // agrupan.
-  let bars = (area.width as usize / 2).min(values.len()).max(1);
-  let per = values.len() as f32 / bars as f32;
+  let bars = area.width as usize / 2;
   let x0 = area.x + (area.width - bars as u16 * 2) / 2;
   let top = t.spectrum_top;
   for b in 0..bars {
-    let from = (b as f32 * per) as usize;
-    let to = (((b + 1) as f32 * per) as usize).max(from + 1).min(values.len());
-    let v = values[from..to].iter().copied().fold(0.0f32, f32::max).clamp(0.0, 1.0);
+    let v = band(values, b, bars).clamp(0.0, 1.0);
     let units = (v * area.height as f32 * 8.0) as u16;
     for row in 0..area.height {
       let from_bottom = area.height - 1 - row;
       let n = units.saturating_sub(from_bottom * 8).min(8);
       if n == 0 {
+        if from_bottom == 0 {
+          put(buf, x0 + b as u16 * 2, area.y + row, EIGHTHS[1], t.faint());
+        }
         continue;
       }
       let color = crate::theme::lerp(t.accent, top, from_bottom as f32 / area.height as f32);
       put(buf, x0 + b as u16 * 2, area.y + row, EIGHTHS[n as usize], Style::new().fg(color));
     }
   }
+}
+
+/// Valor de la barra `b` de `bars` a partir de las bandas.
+fn band(values: &[f32], b: usize, bars: usize) -> f32 {
+  let len = values.len();
+  if len == 0 {
+    return 0.0;
+  }
+  if bars <= len {
+    // Mas bandas que barras: el maximo del grupo.
+    let from = b * len / bars;
+    let to = ((b + 1) * len / bars).max(from + 1).min(len);
+    return values[from..to].iter().copied().fold(0.0, f32::max);
+  }
+  // Menos bandas que barras: interpolacion lineal entre vecinas.
+  let pos = (b as f32 + 0.5) * len as f32 / bars as f32 - 0.5;
+  let i = pos.floor().clamp(0.0, (len - 1) as f32) as usize;
+  let j = (i + 1).min(len - 1);
+  let f = (pos - i as f32).clamp(0.0, 1.0);
+  values[i] * (1.0 - f) + values[j] * f
 }
 
 /// Reproduciendo (maqueta 1-inicio-reproduciendo).
@@ -569,8 +589,8 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   let filled = (vol * 14.0).round() as usize;
   let volume = Line::from(vec![
     Span::styled(format!("{}  ", if muted { I_MUTE } else { I_VOLUME }), t.dim()),
-    Span::styled("━".repeat(filled), t.dim()),
-    Span::styled("●", t.text()),
+    Span::styled("━".repeat(filled), Style::new().fg(t.control)),
+    Span::styled("●", Style::new().fg(t.control)),
     Span::styled("━".repeat(14 - filled.min(14)), Style::new().fg(t.raised)),
     // Ancho fijo ("100%", " 40%", "  5%"): lo de la derecha no se corre.
     Span::styled(format!("  {:>4}  ", format!("{}%", (vol * 100.0).round())), t.text()),
@@ -647,10 +667,8 @@ fn now_playing(f: &mut RFrame, app: &App, area: Rect) {
   put_line(buf, x + w.saturating_sub(cw) / 2, py + 2, &controls, w);
   span_hits(x + w.saturating_sub(cw) / 2, py + 2, &controls, &CONTROL_ACTIONS);
 
-  if app.playing() {
-    let viz = Rect::new(area.x + 2, area.y + area.height - viz_h - 1, area.width.saturating_sub(4), viz_h);
-    spectrum(buf, t, viz, &app.viz);
-  }
+  let viz = Rect::new(area.x + 2, area.y + area.height - viz_h - 1, area.width.saturating_sub(4), viz_h);
+  spectrum(buf, t, viz, &app.viz);
   QUEUE_SHOWN.with(|q| q.set(queue_w > 0));
   if queue_w > 0 {
     let top = area.y + 1;
@@ -767,7 +785,7 @@ fn controls(app: &App, compact: bool, repeat_count: bool) -> Line<'static> {
   Line::from(vec![
     Span::styled(format!("{I_SHUFFLE}{gap}"), on(shuffle)),
     Span::styled(format!("{I_PREV}{gap}"), t.text()),
-    Span::styled(format!("  {play}  "), Style::new().fg(t.on_accent).bg(t.fg)),
+    Span::styled(format!("  {play}  "), Style::new().fg(t.on_accent).bg(t.control)),
     Span::styled(format!("{gap}{I_NEXT}{gap}"), t.text()),
     Span::styled(format!("{I_REPEAT}{one}"), on(repeat != "off")),
   ])
@@ -807,16 +825,23 @@ fn percent_decode(s: &str) -> String {
 }
 
 
-/// Tres lineas alrededor de la actual (en Reproduciendo).
+/// Tres lineas alrededor de la actual (en Reproduciendo). Antes de la
+/// primera linea se anticipan las que vienen, sin marcar ninguna.
 fn lyrics_preview(buf: &mut Buffer, app: &App, x: u16, y: u16, w: u16) {
   let t = &app.theme;
-  let (Some(lines), Some(cur)) = (app.lyrics["lines"].as_array(), app.lyrics_line()) else { return };
+  let Some(lines) = app.lyrics["lines"].as_array() else { return };
   let text = |i: usize| lines.get(i).and_then(|l| l["text"].as_str()).unwrap_or("").to_string();
+  let Some(cur) = app.lyrics_line() else {
+    putn(buf, x + 2, y + 1, text(0), w as usize, t.faint());
+    putn(buf, x + 2, y + 2, text(1), w as usize, t.faint());
+    return;
+  };
   if cur > 0 {
     putn(buf, x + 2, y, text(cur - 1), w as usize, t.faint());
   }
   putn(buf, x, y + 1, format!("▶ {}", text(cur)), w as usize, t.title());
-  putn(buf, x + 2, y + 2, text(cur + 1), w as usize, t.dim());
+  // Anterior y siguiente del mismo tono tenue: la que se canta pesa mas.
+  putn(buf, x + 2, y + 2, text(cur + 1), w as usize, t.faint());
 }
 
 /// Linea actual con la palabra que suena resaltada.
@@ -989,7 +1014,7 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
           // si por un instante falta (al cambiar de linea o de tamano) no se
           // ve el fondo de la terminal.
           if let Some((words, times)) = crate::karaoke::line_words(line, next) {
-            let colors = crate::karaoke::Colors { background: rgb(t.bg), unsung: rgb(t.upcoming()), sung: rgb(t.accent) };
+            let colors = crate::karaoke::Colors { background: rgb(t.bg), unsung: rgb(t.karaoke_unsung()), sung: rgb(t.karaoke_sung()) };
             KARAOKE.with(|k| *k.borrow_mut() = Some(crate::karaoke::Slot { area, words, times, colors }));
           }
           below = y + area.height;
@@ -1032,15 +1057,13 @@ fn lyrics(f: &mut RFrame, app: &App, area: Rect) {
 
   // Espectro, progreso y controles abajo.
   let buf = f.buffer_mut();
-  if app.playing() {
-    spectrum(buf, t, Rect::new(area.x + 2, area.y + area.height - bottom, area.width.saturating_sub(4), 3), &app.viz);
-  }
+  spectrum(buf, t, Rect::new(area.x + 2, area.y + area.height - bottom, area.width.saturating_sub(4), 3), &app.viz);
   let pw = area.width.saturating_sub(60).max(40).min(area.width);
   progress(buf, t, area.x + (area.width - pw) / 2, area.y + area.height - 4, pw, app.position_ms(), track["duration_ms"].as_u64());
   let play = if app.playing() { I_PAUSE } else { I_PLAY };
   let controls = Line::from(vec![
     Span::styled(format!("{I_PREV}      "), t.text()),
-    Span::styled(format!("  {play}  "), Style::new().fg(t.on_accent).bg(t.fg)),
+    Span::styled(format!("  {play}  "), Style::new().fg(t.on_accent).bg(t.control)),
     Span::styled(format!("      {I_NEXT}"), t.text()),
   ]);
   let cw = controls.width() as u16;
@@ -1834,7 +1857,7 @@ fn mini(f: &mut RFrame, app: &App, area: Rect) {
     let controls = format!("{I_SHUFFLE}  {I_PREV}  {play}  {I_NEXT}  {I_REPEAT}    {I_VOLUME} {:>4}  {heart}", format!("{vol}%"));
     putn(buf, x, y, controls, text_w as usize, t.text());
   }
-  if viz_w > 0 && app.playing() && area.height >= 6 {
+  if viz_w > 0 && area.height >= 6 {
     let h = 3.min(area.height.saturating_sub(4));
     spectrum(buf, t, Rect::new(x + text_w + 1, area.y + prog_row as u16 - h + 1, viz_w - 1, h), &app.viz);
   }
@@ -1901,7 +1924,7 @@ fn header(f: &mut RFrame, app: &App, area: Rect) {
   let buf = f.buffer_mut();
   let mut x = area.x + 2;
   for tab in Tab::ALL {
-    let style = if tab == app.tab { t.title().add_modifier(Modifier::UNDERLINED) } else { t.faint() };
+    let style = if tab == app.tab { Style::new().fg(t.control).add_modifier(Modifier::BOLD | Modifier::UNDERLINED) } else { t.faint() };
     put(buf, x, area.y + 1, tab.label(), style);
     hit(Rect::new(x, area.y, tab.label().chars().count() as u16, 3), Hit::Tab(tab));
     x += tab.label().chars().count() as u16 + 4;

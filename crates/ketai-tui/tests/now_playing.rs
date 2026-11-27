@@ -5,7 +5,7 @@ use std::{
   io::Write,
   os::unix::net::UnixListener,
   sync::mpsc,
-  time::Duration,
+  time::{Duration, Instant},
 };
 
 use ketai_tui::{
@@ -98,18 +98,82 @@ fn queue_changes_ask_for_the_queue_again() {
   assert_eq!(cmds, vec![("queue.list".to_string(), Value::Object(Default::default()))]);
 }
 
+/// Simbolos de barra (llenos o parciales, sin contar el suelo).
+fn bar_cells(t: &str) -> usize {
+  t.chars().filter(|c| "▂▃▄▅▆▇█".contains(*c)).count()
+}
+
+fn floor_cells(t: &str) -> usize {
+  t.matches('▁').count()
+}
+
 #[test]
-fn spectrum_frames_draw_bars_and_stop_when_paused() {
+fn spectrum_frames_draw_bars_and_fall_to_the_floor_when_paused() {
   let mut app = playing_app();
   app.player["status"] = json!("playing");
-  app.on_viz(vec![1.0; 64]);
-  let full = text(&app);
+  for _ in 0..20 {
+    app.on_viz(vec![1.0; 64]);
+  }
+  let full = bar_cells(&text(&app));
+  assert!(full > 64 * 4, "playing spectrum should be visible");
+
+  // Al pausar no se corta: las barras caen animadas hasta el suelo.
   app.player["status"] = json!("paused");
   app.on_viz(vec![1.0; 64]);
-  let paused = text(&app);
-  let bars = |t: &str| t.matches('█').count();
-  assert!(bars(&full) > 64 * 4, "playing spectrum should be visible");
-  assert_eq!(bars(&paused), 0, "no spectrum while paused");
+  let t0 = Instant::now();
+  app.tick(t0);
+  assert!(app.viz_animating(), "the fall keeps the loop awake");
+  app.tick(t0 + Duration::from_millis(150));
+  let falling = bar_cells(&text(&app));
+  assert!(falling > 0 && falling < full, "half way down: {falling} of {full}");
+  app.tick(t0 + Duration::from_secs(2));
+  let t = text(&app);
+  assert_eq!(bar_cells(&t), 0, "no spectrum once it fell");
+  assert!(floor_cells(&t) >= 32, "a faint floor stays while paused: {}", floor_cells(&t));
+  assert!(!app.viz_animating(), "nothing left to animate");
+
+  // Sin haber recibido nunca un cuadro tambien se ve el suelo.
+  let mut app = playing_app();
+  app.player["status"] = json!("paused");
+  assert!(floor_cells(&text(&app)) >= 32, "floor without any frame");
+}
+
+#[test]
+fn the_spectrum_has_as_many_bars_playing_as_resting() {
+  let mut app = playing_app();
+  app.player["status"] = json!("paused");
+  let resting = floor_cells(&text(&app));
+  // Sonando en silencio con menos bandas que columnas: mismas barras.
+  app.player["status"] = json!("playing");
+  app.on_viz(vec![0.0; 64]);
+  assert_eq!(floor_cells(&text(&app)), resting);
+  for _ in 0..20 {
+    app.on_viz(vec![1.0; 64]);
+  }
+  let t = text(&app);
+  let bottom = t.lines().rfind(|l| l.contains('█')).unwrap();
+  assert_eq!(bottom.matches('█').count(), resting, "loud bars cover every slot");
+}
+
+#[test]
+fn bars_rise_again_from_where_they_were_falling() {
+  let mut app = playing_app();
+  app.player["status"] = json!("playing");
+  for _ in 0..20 {
+    app.on_viz(vec![1.0; 64]);
+  }
+  app.player["status"] = json!("paused");
+  let t0 = Instant::now();
+  app.tick(t0);
+  app.tick(t0 + Duration::from_millis(250));
+  let fallen = app.viz[0];
+  assert!(fallen > 0.0 && fallen < 1.0, "{fallen}");
+
+  // Vuelve a sonar: parte de la altura de la caida, no de cero ni de golpe.
+  app.player["status"] = json!("playing");
+  app.on_viz(vec![1.0; 64]);
+  let risen = app.viz[0];
+  assert!(risen > fallen && risen < 1.0, "rises from {fallen}, got {risen}");
 }
 
 #[test]
@@ -168,4 +232,48 @@ fn the_play_button_has_the_same_padding_on_both_sides() {
     let right = (x + 1..w).take_while(|&i| buf[(i, y)].bg == bg).count();
     assert_eq!(left, right, "{w}x{h}");
   }
+}
+
+#[test]
+fn the_lyrics_preview_shows_what_comes_before_the_first_line() {
+  let mut app = playing_app();
+  // A los 84 s todavia no empezo la primera linea.
+  app.lyrics = json!({"user_offset_ms": 0, "lines": [
+    {"start_ms": 90000, "text": "first words", "words": null, "secondary": {}},
+    {"start_ms": 95000, "text": "second words", "words": null, "secondary": {}},
+    {"start_ms": 99000, "text": "third words", "words": null, "secondary": {}}
+  ]});
+  let t = text(&app);
+  assert!(t.contains("first words") && t.contains("second words"), "upcoming lines are previewed\n{t}");
+  assert!(!t.contains("▶ first words"), "nothing is marked as sung yet");
+
+  app.player["position_ms"] = json!(91000);
+  assert!(text(&app).contains("▶ first words"));
+}
+
+#[test]
+fn the_lines_around_the_sung_one_share_the_same_dim_tone() {
+  let mut app = playing_app();
+  app.lyrics = json!({"user_offset_ms": 0, "lines": [
+    {"start_ms": 80000, "text": "before line", "words": null, "secondary": {}},
+    {"start_ms": 83000, "text": "sung line", "words": null, "secondary": {}},
+    {"start_ms": 90000, "text": "after line", "words": null, "secondary": {}}
+  ]});
+  let mut term = Terminal::new(TestBackend::new(140, 40)).unwrap();
+  term.draw(|f| ui::draw(f, &app)).unwrap();
+  let buf = term.backend().buffer().clone();
+  let fg_of = |needle: &str| {
+    let first = needle.chars().next().unwrap().to_string();
+    (0..buf.area.height)
+      .find_map(|y| {
+        let row: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect();
+        let x = row.find(needle)?;
+        let col = row[..x].chars().count() as u16;
+        (buf[(col, y)].symbol() == first).then(|| buf[(col, y)].fg)
+      })
+      .unwrap_or_else(|| panic!("{needle:?} not found"))
+  };
+  assert_eq!(fg_of("before line"), fg_of("after line"), "same tone above and below");
+  assert_eq!(fg_of("before line"), app.theme.faint, "the dim tone");
+  assert_ne!(fg_of("sung line"), app.theme.faint, "the sung one stands out");
 }

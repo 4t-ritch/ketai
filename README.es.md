@@ -6,10 +6,17 @@
 
 [English](README.md) | **Espanol**
 
+[![crates.io](https://img.shields.io/crates/v/ketai?style=flat-square&logo=rust&logoColor=white&color=E43716)](https://crates.io/crates/ketai)
+[![Descargas](https://img.shields.io/crates/d/ketai?style=flat-square&color=F5A623)](https://crates.io/crates/ketai)
+[![Licencia](https://img.shields.io/badge/licencia-MIT-3DA639?style=flat-square)](LICENSE)
 ![Linux](https://img.shields.io/badge/plataforma-Linux-1793D1?style=flat-square&logo=linux&logoColor=white)
-![Rust](https://img.shields.io/badge/hecho%20con-Rust-B7410E?style=flat-square&logo=rust&logoColor=white)
-![Terminal](https://img.shields.io/badge/terminal-protocolo%20de%20graficos%20kitty-6E56CF?style=flat-square)
-![Licencia](https://img.shields.io/badge/licencia-MIT-3DA639?style=flat-square)
+![Rust 2024](https://img.shields.io/badge/Rust-edicion%202024-B7410E?style=flat-square&logo=rust&logoColor=white)
+<br>
+![kitty graphics](https://img.shields.io/badge/caratulas-protocolo%20de%20graficos%20kitty-6E56CF?style=flat-square)
+![MPRIS](https://img.shields.io/badge/MPRIS-playerctl%20%C2%B7%20waybar-FF6F61?style=flat-square)
+![systemd](https://img.shields.io/badge/systemd-activacion%20por%20socket-30D475?style=flat-square&logo=systemd&logoColor=white)
+[![Estrellas](https://img.shields.io/github/stars/4t-ritch/ketai?style=flat-square&logo=github&color=FFD43B)](https://github.com/4t-ritch/ketai/stargazers)
+[![Ultimo commit](https://img.shields.io/github/last-commit/4t-ritch/ketai?style=flat-square&color=8E7CC3)](https://github.com/4t-ritch/ketai/commits/main)
 
 </div>
 
@@ -39,7 +46,7 @@ Hablan por un protocolo simple (JSON por un socket local), asi que tambien se pu
 <td width="50%"><img src="docs/assets/lyrics.png" alt="Letras"></td>
 </tr>
 <tr>
-<td><b>Reproduciendo</b><br>Caratula grande, progreso, controles, volumen, salida de audio, favorito y espectro en vivo.</td>
+<td><b>Reproduciendo</b><br>Caratula grande, progreso, controles, volumen, salida de audio, favorito, espectro en vivo y la cola completa (reordenar, quitar, agregar a una playlist).</td>
 <td><b>Letras sincronizadas</b><br>Linea por linea o palabra por palabra (karaoke), con traduccion debajo y ajuste de tiempo.</td>
 </tr>
 <tr>
@@ -58,6 +65,14 @@ Hablan por un protocolo simple (JSON por un socket local), asi que tambien se pu
 <td><b>Acciones rapidas (<code>Ctrl+P</code>)</b><br>Buscar y reproducir sin cambiar de pantalla, o ejecutar acciones.</td>
 <td><b>Playlists y favoritos</b><br>Agregar, quitar y crear playlists desde donde estes; ketai avisa si la cancion ya estaba.</td>
 </tr>
+<tr>
+<td><img src="docs/assets/library-playlist.png" alt="Una playlist"></td>
+<td><img src="docs/assets/library-groups.png" alt="Biblioteca agrupada por artista"></td>
+</tr>
+<tr>
+<td><b>Playlists</b><br>Cada playlist con su caratula, duracion y canciones; reproducirla, mandarla a la cola o editarla, con una vista previa de lo que suena.</td>
+<td><b>Explorar por grupos</b><br>Artistas, albumes, carpetas, anos y generos: elegis uno a la izquierda y sus canciones se abren a la derecha.</td>
+</tr>
 </table>
 
 <div align="center">
@@ -74,6 +89,8 @@ Y ademas:
 - **Mouse**: clic en todo, doble clic para reproducir, arrastrar las barras de progreso y volumen, rueda en las listas.
 - **Atajos configurables** y **temas** en un archivo de configuracion que se recarga en vivo al guardar.
 - **Modo mini** para paneles chicos (herdr, tmux) y **MPRIS** para teclas multimedia, `playerctl` y waybar.
+- **Se instala con un comando**: `cargo install ketai` trae el daemon y la TUI; la primera vez que lo abris, deja el daemon como servicio.
+- **Liviano**: el daemon solo arranca cuando un cliente se conecta (activacion por socket de systemd), y las caratulas no quedan en memoria despues de mostrarse.
 
 Todas las funciones, con su explicacion, estan en [docs/es/guide/features.md](docs/es/guide/features.md).
 

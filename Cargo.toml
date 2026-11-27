@@ -3,15 +3,15 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/4t-ritch/ketai"
 
 [workspace.dependencies]
-ketai-core = { path = "crates/ketai-core", version = "0.1.0" }
-ketai-protocol = { path = "crates/ketai-protocol", version = "0.1.0" }
-ketai-tui = { path = "crates/ketai-tui", version = "0.1.0" }
+ketai-core = { path = "crates/ketai-core", version = "0.2.0" }
+ketai-protocol = { path = "crates/ketai-protocol", version = "0.2.0" }
+ketai-tui = { path = "crates/ketai-tui", version = "0.2.0" }
 rodio = { version = "0.22", default-features = false, features = [
   "playback",
   "flac",

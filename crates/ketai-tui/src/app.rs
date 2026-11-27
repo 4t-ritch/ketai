@@ -339,11 +339,18 @@ pub enum PaletteAction {
   Lyrics,
   Folders,
   Keys,
+  RescanLyrics,
 }
 
 impl PaletteAction {
-  pub const ALL: [PaletteAction; 5] =
-    [PaletteAction::Devices, PaletteAction::ScanAll, PaletteAction::Lyrics, PaletteAction::Folders, PaletteAction::Keys];
+  pub const ALL: [PaletteAction; 6] = [
+    PaletteAction::Devices,
+    PaletteAction::ScanAll,
+    PaletteAction::Lyrics,
+    PaletteAction::Folders,
+    PaletteAction::Keys,
+    PaletteAction::RescanLyrics,
+  ];
 
   pub fn label(self) -> &'static str {
     match self {
@@ -352,6 +359,7 @@ impl PaletteAction {
       PaletteAction::Lyrics => "Letras: elegir capas…",
       PaletteAction::Folders => "Carpetas de la biblioteca…",
       PaletteAction::Keys => "Ver atajos de teclado…",
+      PaletteAction::RescanLyrics => "Letras: volver a buscar",
     }
   }
 }
@@ -1379,6 +1387,10 @@ impl App {
           Some(PaletteItem::Action(PaletteAction::Devices)) => return self.open_devices(),
           Some(PaletteItem::Action(PaletteAction::Lyrics)) => self.tab = Tab::Lyrics,
           Some(PaletteItem::Action(PaletteAction::ScanAll)) => return vec![("library.scan".into(), json!({}))],
+          Some(PaletteItem::Action(PaletteAction::RescanLyrics)) => {
+            self.palette_open = false;
+            return vec![("lyrics.rescan".into(), json!({}))];
+          }
           Some(PaletteItem::Action(PaletteAction::Folders)) => return self.open_folders(),
           Some(PaletteItem::Action(PaletteAction::Keys)) => {
             self.palette_open = false;
@@ -1799,7 +1811,8 @@ impl App {
           if let Some(track) = self.lyrics_track.clone()
             && data["track_id"] == track.as_str()
           {
-            return vec![self.lyrics_get(&track)];
+            // Puede ser un offset o un archivo de letra nuevo o editado.
+            return vec![("lyrics.layers".into(), json!({"track_id": track})), self.lyrics_get(&track)];
           }
         }
         _ => {}
@@ -1874,6 +1887,19 @@ impl App {
             }
             "lyrics.layers" => {
               self.lyrics_layers = v["layers"].as_array().cloned().unwrap_or_default();
+              // Si una capa elegida ya no existe (se borro su archivo), se
+              // vuelve a la original sin pedir capas que darian error.
+              let offered = |id: &str| self.lyrics_layers.iter().any(|l| l["id"] == id);
+              let stale = !self.lyrics_layers.is_empty()
+                && (!offered(&self.lyrics_primary) || self.lyrics_secondary.iter().any(|s| !offered(s)));
+              if stale && let Some(track) = self.lyrics_track.clone() {
+                if !offered(&self.lyrics_primary) {
+                  self.lyrics_primary = "original".into();
+                }
+                let keep: Vec<String> = self.lyrics_secondary.iter().filter(|s| offered(s)).cloned().collect();
+                self.lyrics_secondary = keep;
+                return vec![self.lyrics_get(&track)];
+              }
               // Por defecto se muestra la primera traduccion debajo.
               if !self.lyrics_chosen
                 && self.lyrics_secondary.is_empty()

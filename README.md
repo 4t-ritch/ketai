@@ -6,15 +6,17 @@
 
 **English** | [Espanol](README.es.md)
 
-[crates.io](https://crates.io/crates/ketai) · [Stars](https://github.com/4t-ritch/ketai/stargazers) · [Last commit](https://github.com/4t-ritch/ketai/commits/main)
-
-[![License](docs/assets/badges/license.svg)](LICENSE)
-![Linux](docs/assets/badges/linux.svg)
-![Rust 2024](docs/assets/badges/rust.svg)
+[![crates.io](https://img.shields.io/crates/v/ketai?style=flat-square&logo=rust&logoColor=white&color=E43716)](https://crates.io/crates/ketai)
+[![Downloads](https://img.shields.io/crates/d/ketai?style=flat-square&color=F5A623)](https://crates.io/crates/ketai)
+[![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](LICENSE)
+![Linux](https://img.shields.io/badge/platform-Linux-1793D1?style=flat-square&logo=linux&logoColor=white)
+![Rust 2024](https://img.shields.io/badge/Rust-2024%20edition-B7410E?style=flat-square&logo=rust&logoColor=white)
 <br>
-![kitty graphics](docs/assets/badges/kitty.svg)
-![MPRIS](docs/assets/badges/mpris.svg)
-![systemd](docs/assets/badges/systemd.svg)
+![kitty graphics](https://img.shields.io/badge/covers-kitty%20graphics%20protocol-6E56CF?style=flat-square)
+![MPRIS](https://img.shields.io/badge/MPRIS-playerctl%20%C2%B7%20waybar-FF6F61?style=flat-square)
+![systemd](https://img.shields.io/badge/systemd-socket%20activation-30D475?style=flat-square&logo=systemd&logoColor=white)
+[![Stars](https://img.shields.io/github/stars/4t-ritch/ketai?style=flat-square&logo=github&color=FFD43B)](https://github.com/4t-ritch/ketai/stargazers)
+[![Last commit](docs/assets/badges/commits.svg)](https://github.com/4t-ritch/ketai/commits/main)
 
 </div>
 
